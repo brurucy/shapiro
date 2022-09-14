@@ -1,13 +1,15 @@
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use super::datalog;
 use ordered_float::OrderedFloat;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
 
-#[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
+#[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Display)]
 pub enum Type {
     Str(String),
     Bool(bool),
     UInt(u32),
-    Float(OrderedFloat<f64>)
+    Float(OrderedFloat<f64>),
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -21,14 +23,14 @@ pub type Substitutions = HashMap<String, Type>;
 #[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash)]
 pub enum Sign {
     Positive,
-    Negative
+    Negative,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Atom {
     pub terms: Vec<Term>,
     pub symbol: String,
-    pub sign: Sign
+    pub sign: Sign,
 }
 
 impl Hash for Atom {
@@ -50,11 +52,15 @@ pub struct Rule {
 }
 
 pub trait BottomUpEvaluator<I>
-    where I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom> {
+where
+    I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom>,
+{
     fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> I;
 }
 
 pub trait TopDownEvaluator<I>
-    where I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom> {
+where
+    I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom>,
+{
     fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> I;
 }

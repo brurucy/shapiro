@@ -41,7 +41,8 @@ mod test {
     fn test_lex_rule() {
         // [X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, 4, 5)
         // Z(?a, 4, 5) <- [X(?a, 5, true), !Y(?a, yeah, false)]
-        let mut lex = DatalogToken::lexer("[X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, -4.1, 5)");
+        let mut lex =
+            DatalogToken::lexer("[X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, -4.1, 5)");
 
         assert_eq!(lex.next(), Some(DatalogToken::LBracket));
 
@@ -102,7 +103,10 @@ mod test {
 
         assert_eq!(lex.next(), Some(DatalogToken::Comma));
 
-        assert_eq!(lex.next(), Some(DatalogToken::FloatConst(OrderedFloat(-4.1))));
+        assert_eq!(
+            lex.next(),
+            Some(DatalogToken::FloatConst(OrderedFloat(-4.1)))
+        );
         assert_eq!(lex.slice(), "-4.1");
 
         assert_eq!(lex.next(), Some(DatalogToken::Comma));

@@ -1,19 +1,23 @@
 extern crate core;
 
-pub mod models;
 pub mod implementations;
 pub mod lexers;
+pub mod models;
 pub mod parsers;
 
 pub use implementations::simple::ChibiDatalog;
 
 mod test {
-    use std::collections::HashSet;
     use crate::models::datalog::BottomUpEvaluator;
+    use std::collections::HashSet;
 
     #[test]
     fn test_chibi_datalog() {
-        use crate::{ChibiDatalog, parsers::datalog::{parse_rule, parse_atom}, models::datalog::Atom};
+        use crate::{
+            models::datalog::Atom,
+            parsers::datalog::{parse_atom, parse_rule},
+            ChibiDatalog,
+        };
 
         let mut reasoner: ChibiDatalog<HashSet<Atom>> = Default::default();
 
@@ -21,11 +25,10 @@ mod test {
         reasoner.fact_store.insert(parse_atom("edge(b, c)"));
         reasoner.fact_store.insert(parse_atom("edge(b, d)"));
 
-        let mut new_tuples = reasoner.evaluate_program_bottom_up(
-            vec![
-                parse_rule("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-                parse_rule("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]")]
-        );
+        let mut new_tuples = reasoner.evaluate_program_bottom_up(vec![
+            parse_rule("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            parse_rule("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+        ]);
 
         let expected_new_tuples: HashSet<Atom> = vec![
             // Rule 1 output
@@ -35,7 +38,9 @@ mod test {
             // Rule 2 output
             parse_atom("reachable(a, c)"),
             parse_atom("reachable(a, d)"),
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
 
         assert_eq!(new_tuples, expected_new_tuples)
     }
