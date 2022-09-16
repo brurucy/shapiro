@@ -75,6 +75,10 @@ where
     fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> I;
 }
 
+pub fn remove_redundant_atoms(rule: &Rule) -> Rule {
+    todo!()
+}
+
 pub fn constant_to_eq(rule: &Rule) -> Rule {
     let mut new_rule = rule.clone();
 
