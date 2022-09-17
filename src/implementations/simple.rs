@@ -162,7 +162,6 @@ where
         current_delta = program
             .clone()
             .into_iter()
-            // This is so ugly
             .flat_map(|rule| {
                 evaluate_rule(
                     edb.clone()

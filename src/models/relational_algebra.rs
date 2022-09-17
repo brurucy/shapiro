@@ -1,10 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::fmt::{Display, format, Formatter};
 
 use ordered_float::OrderedFloat;
 
 use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule};
 
-type Relation = Atom;
+#[derive(Copy, Clone)]
+pub enum ColumnType {
+    Str,
+    Bool,
+    UInt,
+    Float(OrderedFloat<f64>)
+}
+
+pub struct Column {
+    pub ty: ColumnType,
+    pub contents: Vec<datalog::TypedValue>
+}
+
+pub struct Relation {
+    columns: Vec<Column>
+}
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum SelectionTypedValue {
@@ -15,13 +31,47 @@ pub enum SelectionTypedValue {
     Float(OrderedFloat<f64>),
 }
 
+impl Display for SelectionTypedValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectionTypedValue::Str(inner) => write!(f, "{}", inner),
+            SelectionTypedValue::Bool(inner) => write!(f, "{}", inner),
+            SelectionTypedValue::UInt(inner) => write!(f, "{}u32", inner),
+            SelectionTypedValue::Column(inner) => write!(f, "{}usize", inner),
+            SelectionTypedValue::Float(inner) => {
+                write!(f, "{}f64", inner)
+            }
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Term {
     Selection(usize, SelectionTypedValue),
     Projection(Vec<usize>),
-    Relation(Relation),
+    Relation(Atom),
     Product,
-    Join,
+}
+
+impl Display for Term {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Term::Selection(column_index, typed_val) => {
+                write!(f, "σ_{}={}", column_index, typed_val)
+            }
+            Term::Projection(column_indexes) => write!(
+                f,
+                "π_[{}]",
+                column_indexes
+                    .into_iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ),
+            Term::Relation(atom) => write!(f, "{}", atom),
+            Term::Product => write!(f, "{}", "×"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +95,7 @@ impl ExpressionNode {
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub struct ExpressionArena {
     arena: Vec<ExpressionNode>,
     root: Option<usize>,
@@ -58,71 +109,75 @@ impl ExpressionArena {
         }
     }
 
-    fn set_root(&mut self, idx: usize) -> usize {
+    fn set_root(&mut self, idx: usize) {
         self.root = Some(idx);
-        idx
     }
 
-    fn push(&mut self, value: Term) -> usize {
-        for node in &self.arena {
-            if node.value == value {
-                return node.idx;
-            }
-        }
-        let idx = self.arena.len();
-        self.arena.push(ExpressionNode::new(idx, value));
+    fn allocate(&mut self, value: Term) -> usize {
+        let addr = self.arena.len();
+        self.arena.push(ExpressionNode::new(addr, value));
         if let None = self.root {
-            self.root = Some(idx)
+            self.root = Some(addr)
         }
-        idx
+        addr
     }
 
-    fn get_node(&mut self, idx: usize) -> Option<Term> {
-        if self.arena.len() > idx {
-            return Some(self.arena[idx].value.clone());
+    fn set_parent(&mut self, addr: usize, parent_addr: usize) {
+        if self.arena.len() > addr && self.arena.len() > parent_addr {
+            self.arena[addr].parent = Some(parent_addr);
         }
-        None
     }
 
-    fn set_parent(&mut self, idx: usize, parent: usize) -> usize {
-        if self.arena.len() > idx && self.arena.len() > parent {
-            self.arena[idx].parent = Some(parent);
+    fn set_value(&mut self, addr: usize, value: &Term) {
+        if self.arena.len() > addr {
+            self.arena[addr].value = value.clone();
         }
-        return idx;
     }
 
-    fn set_value(&mut self, idx: usize, value: &Term) -> usize {
-        if self.arena.len() > idx {
-            self.arena[idx].value = value.clone();
+    fn set_left_child(&mut self, addr: usize, left_child_addr: usize) {
+        if self.arena.len() > addr {
+            self.arena[addr].left_child = Some(left_child_addr);
         }
-        return idx;
     }
 
-    fn set_left_child(&mut self, idx: usize, left_idx: usize) -> usize {
-        if self.arena.len() > idx {
-            self.arena[idx].left_child = Some(left_idx);
+    fn set_right_child(&mut self, addr: usize, right_child_addr: usize) {
+        if self.arena.len() > addr {
+            self.arena[addr].right_child = Some(right_child_addr);
         }
-        left_idx
     }
 
-    fn set_right_child(&mut self, idx: usize, right_idx: usize) -> usize {
-        if self.arena.len() > idx {
-            self.arena[idx].right_child = Some(right_idx);
-        }
-        right_idx
-    }
+    fn to_string(&self) -> String {
+        return if let Some(root_addr) = self.root {
+            let root_node = self.arena[root_addr].clone();
 
-    fn get_children_idx(&mut self, idx: usize) -> (Option<usize>, Option<usize>) {
-        if self.arena.len() > idx {
-            let node = self.arena[idx].clone();
-            return (node.left_child, node.right_child);
+            match root_node.value {
+                Term::Relation(atom) => {
+                    atom.to_string()
+                }
+                Term::Product => {
+                    let mut left_subtree= self.clone();
+                    left_subtree.set_root(root_node.left_child.unwrap());
+                    let mut right_subtree = self.clone();
+                    right_subtree.set_root(root_node.right_child.unwrap());
+
+                    format!("{}({}, {})", Term::Product.to_string(), left_subtree.to_string(), right_subtree.to_string())
+                }
+                unary_operators => {
+                    let mut left_subtree = self.clone();
+                    left_subtree.set_root(root_node.left_child.unwrap());
+
+                    format!("{}({})", unary_operators.to_string(), left_subtree.to_string())
+                }
+            }
+        } else {
+            "".to_string()
         }
-        return (None, None);
     }
 }
 
 impl From<&Rule> for ExpressionArena {
     fn from(rule: &Rule) -> Self {
+        // Shifting complexity from the head to the body
         let constant_pushing_application = constant_to_eq(rule);
         let duplicate_to_eq_application = duplicate_to_eq(&constant_pushing_application);
 
@@ -153,61 +208,60 @@ impl From<&Rule> for ExpressionArena {
 
         let mut unsafe_arena = ExpressionArena::new();
 
-        // Adding the products
         let mut body_iter = rule_body.into_iter().peekable();
-        // Lots of edge cases to think about.
-        // Requires undumb-ing a datalog rule
+        // Adding all products
+        let mut previous_product_idx = 0usize;
         while let Some(atom) = body_iter.next() {
             if let Some(_) = body_iter.peek() {
-                let product_idx = unsafe_arena.push(Term::Product);
-                let current_relation_idx = unsafe_arena.push(Term::Relation(atom.clone()));
+                let product_idx = unsafe_arena.allocate(Term::Product);
+                let current_relation_idx = unsafe_arena.allocate(Term::Relation(atom.clone()));
 
                 unsafe_arena.set_left_child(product_idx, current_relation_idx);
                 unsafe_arena.set_parent(current_relation_idx, product_idx);
 
-                let previous_product_idx = product_idx - 2;
-                if previous_product_idx > 0 {
+                if product_idx != previous_product_idx {
                     unsafe_arena.set_right_child(previous_product_idx, product_idx);
                     unsafe_arena.set_parent(product_idx, previous_product_idx);
                 }
+                previous_product_idx = product_idx;
             } else {
-                let current_relation_idx = unsafe_arena.push(Term::Relation(atom.clone()));
+                let current_relation_idx = unsafe_arena.allocate(Term::Relation(atom.clone()));
 
-                let previous_product_idx = current_relation_idx - 2;
-                if previous_product_idx > 0 {
+                if current_relation_idx != previous_product_idx {
                     unsafe_arena.set_right_child(previous_product_idx, current_relation_idx);
                     unsafe_arena.set_parent(current_relation_idx, previous_product_idx);
                 }
             }
         }
+        println!("{}", unsafe_arena.to_string());
         // Constant to selection
         let mut product_idx = 0;
         unsafe_arena.arena.clone().into_iter().for_each(|node| {
             if let Term::Relation(atom) = node.value {
                 let mut new_atom = atom.clone();
                 atom.terms.into_iter().enumerate().for_each(|(idx, term)| {
-                    if let super::datalog::Term::Constant(typed_value) = term.clone() {
+                    if let datalog::Term::Constant(typed_value) = term.clone() {
                         let selection: Term;
                         match typed_value.clone() {
-                            super::datalog::TypedValue::Str(str_value) => {
+                            datalog::TypedValue::Str(str_value) => {
                                 selection = Term::Selection(
                                     product_idx,
                                     SelectionTypedValue::Str(str_value),
                                 )
                             }
-                            super::datalog::TypedValue::Bool(bool_value) => {
+                            datalog::TypedValue::Bool(bool_value) => {
                                 selection = Term::Selection(
                                     product_idx,
                                     SelectionTypedValue::Bool(bool_value),
                                 )
                             }
-                            super::datalog::TypedValue::UInt(uint_value) => {
+                            datalog::TypedValue::UInt(uint_value) => {
                                 selection = Term::Selection(
                                     product_idx,
                                     SelectionTypedValue::UInt(uint_value),
                                 )
                             }
-                            super::datalog::TypedValue::Float(float_value) => {
+                            datalog::TypedValue::Float(float_value) => {
                                 selection = Term::Selection(
                                     product_idx,
                                     SelectionTypedValue::Float(float_value),
@@ -216,11 +270,11 @@ impl From<&Rule> for ExpressionArena {
                         }
 
                         let newvarsymbol = format!("?{}", typed_value);
-                        let newvar = super::datalog::Term::Variable(newvarsymbol);
+                        let newvar = datalog::Term::Variable(newvarsymbol);
 
                         new_atom.terms[idx] = newvar;
 
-                        let selection_node_id = unsafe_arena.push(selection);
+                        let selection_node_id = unsafe_arena.allocate(selection);
                         unsafe_arena.set_left_child(selection_node_id, unsafe_arena.root.unwrap());
                         unsafe_arena.set_root(selection_node_id);
                     }
@@ -245,18 +299,17 @@ impl From<&Rule> for ExpressionArena {
                 acc
             },
         );
-
         relations.clone().into_iter().enumerate().for_each(
             |(idx_outer, (term_outer, _term_outer_inner_idx, _outer_node_idx))| {
                 relations.clone().into_iter().enumerate().for_each(
                     |(idx_inner, (term_inner, term_inner_inner_idx, inner_node_idx))| {
                         if idx_inner > idx_outer {
-                            if let super::datalog::Term::Variable(symbol) = term_outer.clone() {
+                            if let datalog::Term::Variable(symbol) = term_outer.clone() {
                                 if term_outer == term_inner {
                                     let newvarsymbol = format!("{}{}", symbol.clone(), idx_inner);
 
                                     let newvar =
-                                        super::datalog::Term::Variable(newvarsymbol.to_string());
+                                        datalog::Term::Variable(newvarsymbol.to_string());
 
                                     if let Term::Relation(ref mut atom) =
                                         unsafe_arena.arena[inner_node_idx].value
@@ -264,10 +317,11 @@ impl From<&Rule> for ExpressionArena {
                                         atom.terms[term_inner_inner_idx] = newvar
                                     }
 
-                                    let selection_node_idx = unsafe_arena.push(Term::Selection(
-                                        idx_outer,
-                                        SelectionTypedValue::Column(idx_inner),
-                                    ));
+                                    let selection_node_idx =
+                                        unsafe_arena.allocate(Term::Selection(
+                                            idx_outer,
+                                            SelectionTypedValue::Column(idx_inner),
+                                        ));
                                     unsafe_arena.set_left_child(
                                         selection_node_idx,
                                         unsafe_arena.root.unwrap(),
@@ -281,9 +335,26 @@ impl From<&Rule> for ExpressionArena {
             },
         );
 
-        let projection_idx = unsafe_arena.push(head_projection);
+        let projection_idx = unsafe_arena.allocate(head_projection);
         unsafe_arena.set_left_child(projection_idx, unsafe_arena.root.unwrap());
         unsafe_arena.set_root(projection_idx);
         unsafe_arena
+    }
+}
+
+mod test {
+    use crate::models::relational_algebra::{ExpressionArena, ExpressionNode, Term};
+    use crate::parsers::datalog::{parse_atom, parse_rule};
+
+    #[test]
+    fn test_rule_to_expression() {
+        let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
+        // x(T(?x, ?y), x(T(?y, ?z), T(?y, hardcore)))
+        // [T(?x, ?y), T(?y1, ?z), U(?y2, ?Strhardcore), EQ(?y1, ?y), EQ(?y2, ?y))]
+        let parsed_rule = parse_rule(rule);
+
+        let expected_expression_arena = "π_[0, 3](σ_2=4usize(σ_1=4usize(σ_1=2usize(σ_5=hardcore(×(T(?x, ?y), ×(T(?y2, ?z), U(?y4, ?Strhardcore))))))))";
+        let actual_expression_arena = ExpressionArena::from(&parsed_rule).to_string();
+        assert_eq!(expected_expression_arena, actual_expression_arena)
     }
 }

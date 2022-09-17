@@ -1,6 +1,6 @@
 use ordered_float::{Float, OrderedFloat};
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -12,12 +12,12 @@ pub enum TypedValue {
 }
 
 impl Display for TypedValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            self::TypedValue::Str(inner) => write!(f, "Str{}", inner),
-            self::TypedValue::Bool(inner) => write!(f, "Bool{}", inner),
-            self::TypedValue::UInt(inner) => write!(f, "UInt{}", inner),
-            self::TypedValue::Float(inner) => write!(f, "Float{}", inner),
+            TypedValue::Str(inner) => write!(f, "Str{}", inner),
+            TypedValue::Bool(inner) => write!(f, "Bool{}", inner),
+            TypedValue::UInt(inner) => write!(f, "UInt{}", inner),
+            TypedValue::Float(inner) => write!(f, "Float{}", inner),
         }
     }
 }
@@ -26,6 +26,15 @@ impl Display for TypedValue {
 pub enum Term {
     Constant(TypedValue),
     Variable(String),
+}
+
+impl Display for Term {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Term::Constant(value) => write!(f, "{}", value),
+            Term::Variable(value) => write!(f, "{}", value)
+        }
+    }
 }
 
 pub type Substitutions = HashMap<String, TypedValue>;
@@ -41,6 +50,21 @@ pub struct Atom {
     pub terms: Vec<Term>,
     pub symbol: String,
     pub sign: Sign,
+}
+
+impl Display for Atom {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let terms: String = self
+            .terms
+            .clone()
+            .into_iter()
+            .map(|term| term.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+        let mut atom_representation = format!("({})", terms);
+
+        write!(f, "{}{}", self.symbol, atom_representation)
+    }
 }
 
 impl Hash for Atom {
