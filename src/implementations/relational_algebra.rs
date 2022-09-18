@@ -1,7 +1,13 @@
 use crate::models::datalog::TypedValue;
-use crate::models::relational_algebra::{Column, Database, ExpressionArena, Relation, SelectionTypedValue, Term};
+use crate::models::relational_algebra::{
+    Column, Database, ExpressionArena, Relation, SelectionTypedValue, Term,
+};
 
-pub fn select_value(relation: &Relation, column_idx: usize, value: SelectionTypedValue) -> Relation {
+pub fn select_value(
+    relation: &Relation,
+    column_idx: usize,
+    value: SelectionTypedValue,
+) -> Relation {
     let symbol = relation.symbol.clone();
     let mut columns: Vec<Column> = relation
         .columns
@@ -32,14 +38,12 @@ pub fn select_value(relation: &Relation, column_idx: usize, value: SelectionType
             TypedValue::Float(outer) => match value {
                 SelectionTypedValue::Float(inner) => outer == inner,
                 _ => false,
-            }
+            },
         })
         .for_each(|row| {
             row.into_iter()
                 .enumerate()
-                .for_each(|(idx, column_value)| {
-                    columns[idx].contents.push(column_value)
-                })
+                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
         });
 
     return Relation {
@@ -48,7 +52,11 @@ pub fn select_value(relation: &Relation, column_idx: usize, value: SelectionType
     };
 }
 
-pub fn select_equality(relation: &Relation, left_column_idx: usize, right_column_idx: usize) -> Relation {
+pub fn select_equality(
+    relation: &Relation,
+    left_column_idx: usize,
+    right_column_idx: usize,
+) -> Relation {
     let symbol = relation.symbol.clone();
     let mut columns: Vec<Column> = relation
         .columns
@@ -67,9 +75,7 @@ pub fn select_equality(relation: &Relation, left_column_idx: usize, right_column
         .for_each(|row| {
             row.into_iter()
                 .enumerate()
-                .for_each(|(idx, column_value)| {
-                    columns[idx].contents.push(column_value)
-                })
+                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
         });
 
     return Relation {
@@ -120,7 +126,7 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
     };
 }
 
-pub fn project(relation: &Relation, indexes: &Vec<usize>) -> Relation {
+pub fn project(relation: &Relation, indexes: &Vec<usize>, new_symbol: &str) -> Relation {
     let columns: Vec<Column> = indexes
         .clone()
         .into_iter()
@@ -128,13 +134,16 @@ pub fn project(relation: &Relation, indexes: &Vec<usize>) -> Relation {
         .collect();
 
     return Relation {
-        symbol: "proj".to_string(),
+        symbol: new_symbol.to_string(),
         columns,
     };
 }
 
-pub fn evaluate(expr: &ExpressionArena, database: Database) -> Relation {
-    let mut output: Relation = Relation { columns: vec![], symbol: "".to_string() };
+pub fn evaluate(expr: &ExpressionArena, database: Database, new_symbol: &str) -> Relation {
+    let output: Relation = Relation {
+        columns: vec![],
+        symbol: new_symbol.to_string(),
+    };
 
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
@@ -147,25 +156,38 @@ pub fn evaluate(expr: &ExpressionArena, database: Database) -> Relation {
                 let mut right_subtree = expr.clone();
                 right_subtree.set_root(root_node.right_child.unwrap());
 
-                return product(&evaluate(&left_subtree, database.clone()), &evaluate(&right_subtree, database));
+                return product(
+                    &evaluate(&left_subtree, database.clone(), new_symbol),
+                    &evaluate(&right_subtree, database, new_symbol),
+                );
             }
             unary_operators => {
                 let mut left_subtree = expr.clone();
                 left_subtree.set_root(root_node.left_child.unwrap());
 
                 match unary_operators {
-                    Term::Selection(column_index, selection_target) => {
-                        match selection_target {
-                            SelectionTypedValue::Column(idx) => {
-                                return select_equality(&evaluate(&left_subtree, database), column_index, idx)
-                            }
-                            _ => {
-                                return select_value(&evaluate(&left_subtree, database),column_index,  selection_target)
-                            }
+                    Term::Selection(column_index, selection_target) => match selection_target {
+                        SelectionTypedValue::Column(idx) => {
+                            return select_equality(
+                                &evaluate(&left_subtree, database, new_symbol),
+                                column_index,
+                                idx,
+                            )
                         }
-                    }
+                        _ => {
+                            return select_value(
+                                &evaluate(&left_subtree, database, new_symbol),
+                                column_index,
+                                selection_target,
+                            )
+                        }
+                    },
                     Term::Projection(column_idxs) => {
-                        return project(&evaluate(&left_subtree, database), &column_idxs);
+                        return project(
+                            &evaluate(&left_subtree, database, new_symbol),
+                            &column_idxs,
+                            new_symbol,
+                        );
                     }
                     _ => {}
                 }
@@ -173,13 +195,20 @@ pub fn evaluate(expr: &ExpressionArena, database: Database) -> Relation {
         }
     }
 
-    return output
+    return output;
 }
 
 mod test {
-    use crate::implementations::relational_algebra::{product, select_equality, select_value};
+    use std::collections::HashMap;
+
+    use crate::implementations::relational_algebra::{
+        evaluate, product, select_equality, select_value,
+    };
     use crate::models::datalog::TypedValue;
-    use crate::models::relational_algebra::{Column, ColumnType, Relation, SelectionTypedValue};
+    use crate::models::relational_algebra::{
+        Column, ColumnType, ExpressionArena, Relation, SelectionTypedValue,
+    };
+    use crate::parsers::datalog::parse_rule;
 
     #[test]
     fn select_value_test() {
@@ -199,8 +228,9 @@ mod test {
                         TypedValue::UInt(1),
                         TypedValue::UInt(4),
                         TypedValue::UInt(4),
-                    ]
-                }],
+                    ],
+                },
+            ],
             symbol: "four".to_string(),
         };
 
@@ -208,18 +238,13 @@ mod test {
             columns: vec![
                 Column {
                     ty: ColumnType::Bool,
-                    contents: vec![
-                        TypedValue::Bool(true),
-                        TypedValue::Bool(false),
-                    ],
+                    contents: vec![TypedValue::Bool(true), TypedValue::Bool(false)],
                 },
                 Column {
                     ty: ColumnType::UInt,
-                    contents: vec![
-                        TypedValue::UInt(4),
-                        TypedValue::UInt(4),
-                    ]
-                }],
+                    contents: vec![TypedValue::UInt(4), TypedValue::UInt(4)],
+                },
+            ],
             symbol: "four".to_string(),
         };
 
@@ -245,7 +270,7 @@ mod test {
                         TypedValue::UInt(1),
                         TypedValue::UInt(4),
                         TypedValue::UInt(4),
-                    ]
+                    ],
                 },
                 Column {
                     ty: ColumnType::UInt,
@@ -253,8 +278,9 @@ mod test {
                         TypedValue::UInt(3),
                         TypedValue::UInt(4),
                         TypedValue::UInt(4),
-                    ]
-                }],
+                    ],
+                },
+            ],
             symbol: "four".to_string(),
         };
 
@@ -262,25 +288,17 @@ mod test {
             columns: vec![
                 Column {
                     ty: ColumnType::Bool,
-                    contents: vec![
-                        TypedValue::Bool(true),
-                        TypedValue::Bool(false),
-                    ],
+                    contents: vec![TypedValue::Bool(true), TypedValue::Bool(false)],
                 },
                 Column {
                     ty: ColumnType::UInt,
-                    contents: vec![
-                        TypedValue::UInt(4),
-                        TypedValue::UInt(4),
-                    ]
+                    contents: vec![TypedValue::UInt(4), TypedValue::UInt(4)],
                 },
                 Column {
                     ty: ColumnType::UInt,
-                    contents: vec![
-                        TypedValue::UInt(4),
-                        TypedValue::UInt(4),
-                    ]
-                }],
+                    contents: vec![TypedValue::UInt(4), TypedValue::UInt(4)],
+                },
+            ],
             symbol: "four".to_string(),
         };
 
@@ -425,5 +443,92 @@ mod test {
         };
         let actual_product = product(&left_relation, &right_relation);
         assert_eq!(expected_product, actual_product);
+    }
+
+    #[test]
+    fn evaluate_test() {
+        let rule =
+            "mysticalAncestor(?x, ?z) <- [child(?x, ?y), child(?y, ?z), subClassOf(?y, demiGod)]";
+
+        let expression = ExpressionArena::from(&parse_rule(rule));
+
+        let mut database = HashMap::new();
+        database.insert(
+            "child".to_string(),
+            Relation {
+                columns: vec![
+                    Column {
+                        ty: ColumnType::Str,
+                        contents: vec![
+                            TypedValue::Str("adam".to_string()),
+                            TypedValue::Str("vanasarvik".to_string()),
+                            TypedValue::Str("eve".to_string()),
+                            TypedValue::Str("jumala".to_string()),
+                        ],
+                    },
+                    Column {
+                        ty: ColumnType::Str,
+                        contents: vec![
+                            TypedValue::Str("jumala".to_string()),
+                            TypedValue::Str("jumala".to_string()),
+                            TypedValue::Str("adam".to_string()),
+                            TypedValue::Str("cthulu".to_string()),
+                        ],
+                    },
+                ],
+                symbol: "child".to_string(),
+            },
+        );
+        database.insert(
+            "subClassOf".to_string(),
+            Relation {
+                columns: vec![
+                    Column {
+                        ty: ColumnType::Str,
+                        contents: vec![
+                            TypedValue::Str("adam".to_string()),
+                            TypedValue::Str("vanasarvik".to_string()),
+                            TypedValue::Str("eve".to_string()),
+                            TypedValue::Str("jumala".to_string()),
+                            TypedValue::Str("cthulu".to_string()),
+                        ],
+                    },
+                    Column {
+                        ty: ColumnType::Str,
+                        contents: vec![
+                            TypedValue::Str("human".to_string()),
+                            TypedValue::Str("demiGod".to_string()),
+                            TypedValue::Str("human".to_string()),
+                            TypedValue::Str("demiGod".to_string()),
+                            TypedValue::Str("demiGod".to_string()),
+                        ],
+                    },
+                ],
+                symbol: "subClassOf".to_string(),
+            },
+        );
+
+        let expected_relation = Relation {
+            symbol: "ancestor".to_string(),
+            columns: vec![
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("adam".to_string()),
+                        TypedValue::Str("vanasarvik".to_string()),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("cthulu".to_string()),
+                        TypedValue::Str("cthulu".to_string()),
+                    ],
+                },
+            ],
+        };
+        let actual_relation = evaluate(&expression, database, "ancestor");
+
+        assert_eq!(expected_relation, actual_relation);
     }
 }
