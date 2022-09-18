@@ -16,7 +16,7 @@ pub enum ColumnType {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Column {
     pub ty: ColumnType,
-    pub contents: Vec<datalog::TypedValue>,
+    pub contents: Vec<TypedValue>,
 }
 
 impl Column {
@@ -40,7 +40,7 @@ impl Iterator for RowIterator {
             return None;
         }
 
-        if self.relation.columns.len() >= self.row {
+        if self.relation.columns[0].contents.len() <= self.row {
             return None;
         }
 
@@ -58,7 +58,7 @@ impl Iterator for RowIterator {
     }
 }
 
-type Database<'a> = HashMap<String, &'a Relation>;
+pub type Database = HashMap<String, Relation>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
@@ -136,12 +136,12 @@ impl Display for Term {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ExpressionNode {
+pub struct ExpressionNode {
     idx: usize,
-    value: Term,
+    pub(crate) value: Term,
     parent: Option<usize>,
-    left_child: Option<usize>,
-    right_child: Option<usize>,
+    pub(crate) left_child: Option<usize>,
+    pub right_child: Option<usize>,
 }
 
 impl ExpressionNode {
@@ -158,8 +158,8 @@ impl ExpressionNode {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct ExpressionArena {
-    arena: Vec<ExpressionNode>,
-    root: Option<usize>,
+    pub(crate) arena: Vec<ExpressionNode>,
+    pub(crate) root: Option<usize>,
 }
 
 impl ExpressionArena {
@@ -170,7 +170,7 @@ impl ExpressionArena {
         }
     }
 
-    fn set_root(&mut self, idx: usize) {
+    pub(crate) fn set_root(&mut self, idx: usize) {
         self.root = Some(idx);
     }
 

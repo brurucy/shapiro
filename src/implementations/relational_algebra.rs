@@ -1,46 +1,80 @@
 use crate::models::datalog::TypedValue;
-use crate::models::relational_algebra::{Column, Relation, SelectionTypedValue};
+use crate::models::relational_algebra::{Column, Database, ExpressionArena, Relation, SelectionTypedValue, Term};
 
-pub fn select_value(column: &Column, value: SelectionTypedValue) -> Column {
-    return Column {
-        ty: column.ty,
-        contents: column
-            .contents
-            .clone()
-            .into_iter()
-            .filter(|item| match item {
-                TypedValue::Str(outer) => match &value {
-                    SelectionTypedValue::Str(inner) => outer == inner,
-                    _ => false,
-                },
-                TypedValue::Bool(outer) => match &value {
-                    SelectionTypedValue::Bool(inner) => outer == inner,
-                    _ => false,
-                },
-                TypedValue::UInt(outer) => match &value {
-                    SelectionTypedValue::UInt(inner) => outer == inner,
-                    _ => false,
-                },
-                TypedValue::Float(outer) => match &value {
-                    SelectionTypedValue::Float(inner) => outer == inner,
-                    _ => false,
-                },
-            })
-            .collect(),
+pub fn select_value(relation: &Relation, column_idx: usize, value: SelectionTypedValue) -> Relation {
+    let symbol = relation.symbol.clone();
+    let mut columns: Vec<Column> = relation
+        .columns
+        .clone()
+        .into_iter()
+        .map(|column| Column {
+            ty: column.ty,
+            contents: vec![],
+        })
+        .collect();
+
+    relation
+        .clone()
+        .into_iter()
+        .filter(|row| match row[column_idx].clone() {
+            TypedValue::Str(outer) => match value.clone() {
+                SelectionTypedValue::Str(inner) => outer == inner,
+                _ => false,
+            },
+            TypedValue::Bool(outer) => match value {
+                SelectionTypedValue::Bool(inner) => outer == inner,
+                _ => false,
+            },
+            TypedValue::UInt(outer) => match value {
+                SelectionTypedValue::UInt(inner) => outer == inner,
+                _ => false,
+            },
+            TypedValue::Float(outer) => match value {
+                SelectionTypedValue::Float(inner) => outer == inner,
+                _ => false,
+            }
+        })
+        .for_each(|row| {
+            row.into_iter()
+                .enumerate()
+                .for_each(|(idx, column_value)| {
+                    columns[idx].contents.push(column_value)
+                })
+        });
+
+    return Relation {
+        symbol: symbol,
+        columns: columns,
     };
 }
 
-pub fn select_equality(left_column: &Column, right_column: &Column) -> Column {
-    return Column {
-        ty: left_column.ty,
-        contents: left_column
-            .contents
-            .clone()
-            .into_iter()
-            .zip(right_column.contents.clone().into_iter())
-            .filter(|(left_item, right_item)| left_item == right_item)
-            .map(|(left_item, right_item)| left_item)
-            .collect(),
+pub fn select_equality(relation: &Relation, left_column_idx: usize, right_column_idx: usize) -> Relation {
+    let symbol = relation.symbol.clone();
+    let mut columns: Vec<Column> = relation
+        .columns
+        .clone()
+        .into_iter()
+        .map(|column| Column {
+            ty: column.ty,
+            contents: vec![],
+        })
+        .collect();
+
+    relation
+        .clone()
+        .into_iter()
+        .filter(|row| row[left_column_idx] == row[right_column_idx])
+        .for_each(|row| {
+            row.into_iter()
+                .enumerate()
+                .for_each(|(idx, column_value)| {
+                    columns[idx].contents.push(column_value)
+                })
+        });
+
+    return Relation {
+        symbol: symbol,
+        columns: columns,
     };
 }
 
@@ -87,11 +121,59 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
 }
 
 pub fn project(relation: &Relation, indexes: &Vec<usize>) -> Relation {
-    todo!()
+    let columns: Vec<Column> = indexes
+        .clone()
+        .into_iter()
+        .map(|column_idx| relation.columns[column_idx].clone())
+        .collect();
+
+    return Relation {
+        symbol: "proj".to_string(),
+        columns,
+    };
 }
 
-pub fn evaluate() -> Relation {
-    todo!()
+pub fn evaluate(expr: &ExpressionArena, database: Database) -> Relation {
+    let mut output: Relation = Relation { columns: vec![], symbol: "".to_string() };
+
+    if let Some(root_addr) = expr.root {
+        let root_node = expr.arena[root_addr].clone();
+
+        match root_node.value {
+            Term::Relation(atom) => return database.get(&atom.symbol).unwrap().clone(),
+            Term::Product => {
+                let mut left_subtree = expr.clone();
+                left_subtree.set_root(root_node.left_child.unwrap());
+                let mut right_subtree = expr.clone();
+                right_subtree.set_root(root_node.right_child.unwrap());
+
+                return product(&evaluate(&left_subtree, database.clone()), &evaluate(&right_subtree, database));
+            }
+            unary_operators => {
+                let mut left_subtree = expr.clone();
+                left_subtree.set_root(root_node.left_child.unwrap());
+
+                match unary_operators {
+                    Term::Selection(column_index, selection_target) => {
+                        match selection_target {
+                            SelectionTypedValue::Column(idx) => {
+                                return select_equality(&evaluate(&left_subtree, database), column_index, idx)
+                            }
+                            _ => {
+                                return select_value(&evaluate(&left_subtree, database),column_index,  selection_target)
+                            }
+                        }
+                    }
+                    Term::Projection(column_idxs) => {
+                        return project(&evaluate(&left_subtree, database), &column_idxs);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    return output
 }
 
 mod test {
@@ -101,47 +183,108 @@ mod test {
 
     #[test]
     fn select_value_test() {
-        let col = Column {
-            ty: ColumnType::Bool,
-            contents: vec![
-                TypedValue::Bool(true),
-                TypedValue::Bool(true),
-                TypedValue::Bool(false),
-            ],
+        let rel = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::Bool,
+                    contents: vec![
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(false),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1),
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                }],
+            symbol: "four".to_string(),
         };
 
-        let expected_select_application = Column {
-            ty: ColumnType::Bool,
-            contents: vec![TypedValue::Bool(false)],
+        let expected_select_application = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::Bool,
+                    contents: vec![
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(false),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                }],
+            symbol: "four".to_string(),
         };
-        let actual_select_application = select_value(&col, SelectionTypedValue::Bool(false));
+
+        let actual_select_application = select_value(&rel, 1, SelectionTypedValue::UInt(4));
         assert_eq!(expected_select_application, actual_select_application);
     }
 
     #[test]
     fn select_equality_test() {
-        let left_column = Column {
-            ty: ColumnType::Bool,
-            contents: vec![
-                TypedValue::Bool(true),
-                TypedValue::Bool(true),
-                TypedValue::Bool(false),
-            ],
-        };
-        let right_column = Column {
-            ty: ColumnType::Bool,
-            contents: vec![
-                TypedValue::Bool(false),
-                TypedValue::Bool(true),
-                TypedValue::Bool(false),
-            ],
+        let rel = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::Bool,
+                    contents: vec![
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(false),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1),
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(3),
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                }],
+            symbol: "four".to_string(),
         };
 
-        let expected_select_application = Column {
-            ty: ColumnType::Bool,
-            contents: vec![TypedValue::Bool(true), TypedValue::Bool(false)],
+        let expected_select_application = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::Bool,
+                    contents: vec![
+                        TypedValue::Bool(true),
+                        TypedValue::Bool(false),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(4),
+                        TypedValue::UInt(4),
+                    ]
+                }],
+            symbol: "four".to_string(),
         };
-        let actual_select_application = select_equality(&left_column, &right_column);
+
+        let actual_select_application = select_equality(&rel, 1, 2);
         assert_eq!(expected_select_application, actual_select_application);
     }
 
@@ -201,9 +344,19 @@ mod test {
                     ty: ColumnType::UInt,
                     contents: vec![
                         TypedValue::UInt(1001),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1002),
                         TypedValue::UInt(1002),
                         TypedValue::UInt(1003),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1003),
                         TypedValue::UInt(1004),
+                        TypedValue::UInt(1004),
+                        TypedValue::UInt(1004),
+                        TypedValue::UInt(1005),
+                        TypedValue::UInt(1005),
                         TypedValue::UInt(1005),
                     ],
                 },
@@ -211,14 +364,64 @@ mod test {
                     ty: ColumnType::Str,
                     contents: vec![
                         TypedValue::Str("Arlis".to_string()),
+                        TypedValue::Str("Arlis".to_string()),
+                        TypedValue::Str("Arlis".to_string()),
+                        TypedValue::Str("Robert".to_string()),
+                        TypedValue::Str("Robert".to_string()),
                         TypedValue::Str("Robert".to_string()),
                         TypedValue::Str("Rego".to_string()),
+                        TypedValue::Str("Rego".to_string()),
+                        TypedValue::Str("Rego".to_string()),
                         TypedValue::Str("Mihkel".to_string()),
+                        TypedValue::Str("Mihkel".to_string()),
+                        TypedValue::Str("Mihkel".to_string()),
+                        TypedValue::Str("Glenn".to_string()),
+                        TypedValue::Str("Glenn".to_string()),
                         TypedValue::Str("Glenn".to_string()),
                     ],
                 },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                    ],
+                },
             ],
-            symbol: "".to_string(),
+            symbol: "XY".to_string(),
         };
         let actual_product = product(&left_relation, &right_relation);
         assert_eq!(expected_product, actual_product);
