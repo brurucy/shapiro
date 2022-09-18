@@ -1,25 +1,86 @@
 use std::collections::{HashMap, VecDeque};
-use std::fmt::{Display, format, Formatter};
+use std::fmt::{format, Display, Formatter};
 
 use ordered_float::OrderedFloat;
 
-use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule};
+use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule, TypedValue};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ColumnType {
     Str,
     Bool,
     UInt,
-    Float(OrderedFloat<f64>)
+    Float(OrderedFloat<f64>),
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Column {
     pub ty: ColumnType,
-    pub contents: Vec<datalog::TypedValue>
+    pub contents: Vec<datalog::TypedValue>,
 }
 
+impl Column {
+    pub fn is_empty(&self) -> bool {
+        return self.contents.is_empty();
+    }
+}
+
+type Row = Vec<TypedValue>;
+
+pub struct RowIterator {
+    relation: Relation,
+    row: usize,
+}
+
+impl Iterator for RowIterator {
+    type Item = Row;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.relation.columns.len() == 0 {
+            return None;
+        }
+
+        if self.relation.columns.len() >= self.row {
+            return None;
+        }
+
+        let row: Vec<TypedValue> = self
+            .relation
+            .columns
+            .clone()
+            .into_iter()
+            .map(|column| column.contents[self.row].clone())
+            .collect();
+
+        self.row += 1;
+
+        return Some(row.clone());
+    }
+}
+
+type Database<'a> = HashMap<String, &'a Relation>;
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
-    columns: Vec<Column>
+    pub columns: Vec<Column>,
+    pub symbol: String,
+}
+
+impl Relation {
+    fn iter(&self) -> RowIterator {
+        return RowIterator {
+            relation: self.clone(),
+            row: 0,
+        };
+    }
+}
+
+impl IntoIterator for Relation {
+    type Item = Row;
+    type IntoIter = RowIterator;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -151,27 +212,34 @@ impl ExpressionArena {
             let root_node = self.arena[root_addr].clone();
 
             match root_node.value {
-                Term::Relation(atom) => {
-                    atom.to_string()
-                }
+                Term::Relation(atom) => atom.to_string(),
                 Term::Product => {
-                    let mut left_subtree= self.clone();
+                    let mut left_subtree = self.clone();
                     left_subtree.set_root(root_node.left_child.unwrap());
                     let mut right_subtree = self.clone();
                     right_subtree.set_root(root_node.right_child.unwrap());
 
-                    format!("{}({}, {})", Term::Product.to_string(), left_subtree.to_string(), right_subtree.to_string())
+                    format!(
+                        "{}({}, {})",
+                        Term::Product.to_string(),
+                        left_subtree.to_string(),
+                        right_subtree.to_string()
+                    )
                 }
                 unary_operators => {
                     let mut left_subtree = self.clone();
                     left_subtree.set_root(root_node.left_child.unwrap());
 
-                    format!("{}({})", unary_operators.to_string(), left_subtree.to_string())
+                    format!(
+                        "{}({})",
+                        unary_operators.to_string(),
+                        left_subtree.to_string()
+                    )
                 }
             }
         } else {
             "".to_string()
-        }
+        };
     }
 }
 
@@ -308,8 +376,7 @@ impl From<&Rule> for ExpressionArena {
                                 if term_outer == term_inner {
                                     let newvarsymbol = format!("{}{}", symbol.clone(), idx_inner);
 
-                                    let newvar =
-                                        datalog::Term::Variable(newvarsymbol.to_string());
+                                    let newvar = datalog::Term::Variable(newvarsymbol.to_string());
 
                                     if let Term::Relation(ref mut atom) =
                                         unsafe_arena.arena[inner_node_idx].value
