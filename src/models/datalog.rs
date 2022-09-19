@@ -32,7 +32,7 @@ impl Display for Term {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Term::Constant(value) => write!(f, "{}", value),
-            Term::Variable(value) => write!(f, "{}", value)
+            Term::Variable(value) => write!(f, "{}", value),
         }
     }
 }
@@ -61,7 +61,7 @@ impl Display for Atom {
             .map(|term| term.to_string())
             .collect::<Vec<String>>()
             .join(", ");
-        let mut atom_representation = format!("({})", terms);
+        let atom_representation: String = format!("({})", terms);
 
         write!(f, "{}{}", self.symbol, atom_representation)
     }
