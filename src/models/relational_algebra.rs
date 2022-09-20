@@ -1,9 +1,26 @@
-use std::collections::{HashMap, VecDeque};
-use std::fmt::{format, Display, Formatter};
+use std::collections::{HashMap};
+use std::fmt::{Display, Formatter};
 
 use ordered_float::OrderedFloat;
 
 use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule, TypedValue};
+
+// Assumes the data structure will be ordered
+pub struct Index<I> where
+I: IntoIterator<Item = TypedValue> + Clone + Default + Eq + FromIterator<TypedValue> + Extend<TypedValue> {
+    proxy: I,
+    row_id: Vec<usize>
+}
+
+impl<I> Index<I> where
+    I: IntoIterator<Item = TypedValue> + Clone + Default + Eq + FromIterator<TypedValue> + Extend<TypedValue>
+{
+    pub fn join(&self, other: &Index<I>) -> Index<I> {
+        
+
+        todo!()
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ColumnType {
@@ -60,10 +77,64 @@ impl Iterator for RowIterator {
 
 pub type Database = HashMap<String, Relation>;
 
+pub struct Instance {
+    database: Database,
+}
+
+impl Default for Instance {
+    fn default() -> Self {
+        return Self {
+            database: HashMap::new()
+        };
+    }
+}
+
+impl Instance {
+    pub fn evaluate(expr: &str, new_symbol: &str) -> Relation {
+        todo!()
+    }
+    // Get a relation schema instead
+    pub fn add_relation(&mut self, relation: &Relation) {
+        self.database.insert(relation.symbol.clone(), relation.clone());
+    }
+    pub fn add_to_relation(&mut self, symbol: &str, row: Vec<TypedValue>) {
+        if let Some(relation) = self.database.get_mut(symbol) {
+            row
+                .into_iter()
+                .enumerate()
+                .for_each(|(column_idx, value)| {
+                    relation.columns[column_idx].contents.push(value);
+                })
+        };
+    }
+    pub fn contains(&self, atom: Atom) -> bool {
+        if let Some(relation) = self.database.get(&atom.symbol) {
+            let rel_iter = relation
+                .columns
+                .clone()
+                .into_iter()
+                .zip(atom.terms.into_iter());
+
+            for (column, term) in rel_iter {
+                if let datalog::Term::Constant(typed_value) = term {
+                    if !(column.contents.contains(&typed_value)) {
+                        return false;
+                    }
+                } else {
+                    continue
+                }
+            };
+            return true;
+        }
+        return false;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
     pub columns: Vec<Column>,
     pub symbol: String,
+    //pub indexes: Vec<Index<I>>,
 }
 
 impl Relation {
@@ -379,7 +450,7 @@ impl From<&Rule> for ExpressionArena {
                                     let newvar = datalog::Term::Variable(newvarsymbol.to_string());
 
                                     if let Term::Relation(ref mut atom) =
-                                        unsafe_arena.arena[inner_node_idx].value
+                                    unsafe_arena.arena[inner_node_idx].value
                                     {
                                         atom.terms[term_inner_inner_idx] = newvar
                                     }
