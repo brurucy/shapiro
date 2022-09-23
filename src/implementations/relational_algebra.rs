@@ -1,6 +1,6 @@
 use crate::models::datalog::TypedValue;
 use crate::models::relational_algebra::{
-    Column, Database, ExpressionArena, Relation, SelectionTypedValue, Term,
+    Column, Database, Expression, Relation, SelectionTypedValue, Term,
 };
 
 pub fn select_value(
@@ -139,7 +139,7 @@ pub fn project(relation: &Relation, indexes: &Vec<usize>, new_symbol: &str) -> R
     };
 }
 
-pub fn evaluate(expr: &ExpressionArena, database: Database, new_symbol: &str) -> Relation {
+pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Relation {
     let output: Relation = Relation {
         columns: vec![],
         symbol: new_symbol.to_string(),
@@ -206,7 +206,7 @@ mod test {
     };
     use crate::models::datalog::TypedValue;
     use crate::models::relational_algebra::{
-        Column, ColumnType, ExpressionArena, Relation, SelectionTypedValue,
+        Column, ColumnType, Expression, Relation, SelectionTypedValue,
     };
     use crate::parsers::datalog::parse_rule;
 
@@ -450,7 +450,7 @@ mod test {
         let rule =
             "mysticalAncestor(?x, ?z) <- [child(?x, ?y), child(?y, ?z), subClassOf(?y, demiGod)]";
 
-        let expression = ExpressionArena::from(&parse_rule(rule));
+        let expression = Expression::from(&parse_rule(rule));
 
         let mut database = HashMap::new();
         database.insert(
