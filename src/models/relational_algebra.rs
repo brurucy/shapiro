@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 
 use ordered_float::OrderedFloat;
@@ -161,7 +160,7 @@ impl Display for SelectionTypedValue {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, Hash)]
+#[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum Term {
     Selection(usize, SelectionTypedValue),
     Projection(Vec<usize>),
@@ -206,7 +205,6 @@ pub fn select_product_to_join(expr: &Expression) -> Expression {
     let pre_order = expr.pre_order();
 
     let mut term_idx = 0;
-    let mut select_queue = VecDeque::new();
     let terms = pre_order
         .clone()
         .into_iter()
@@ -220,19 +218,27 @@ pub fn select_product_to_join(expr: &Expression) -> Expression {
             acc
         });
 
+    let mut selection_set = BTreeSet::new();
     pre_order
         .into_iter()
-        .for_each(|node| match node.clone().value {
+        .for_each(|node| match node.value {
             Term::Selection(_left_column_idx, SelectionTypedValue::Column(_right_column_idx)) => {
-                select_queue.push_back(node.clone())
+                selection_set.insert(node);
             }
             Term::Product => {
-                if let Some(selection) = select_queue.pop_front() {
+                let mut selection_nodes = selection_set
+                    .clone()
+                    .into_iter();
+
+                for selection_node in selection_nodes {
                     if let Term::Selection(
                         left_column_idx,
                         SelectionTypedValue::Column(right_column_idx),
-                    ) = selection.value
+                    ) = selection_node.value
                     {
+                        let left_column_idx = left_column_idx;
+                        let right_column_idx = right_column_idx;
+
                         let left_child_address = node.left_child.unwrap();
                         let mut left_subtree = expr.clone();
                         left_subtree.set_root(left_child_address);
@@ -290,23 +296,24 @@ pub fn select_product_to_join(expr: &Expression) -> Expression {
 
                             expr_local.set_value(node.idx, &join);
 
-                            let selection_parent_idx = selection.parent;
-                            if let Some(parent_addr) = selection_parent_idx {
-                                let parent = expr_local.arena[parent_addr].clone();
-                                if let Some(left_child_addr) = parent.left_child {
-                                    if left_child_addr == selection.idx {
-                                        expr_local.arena[parent_addr].left_child = Some(node.idx);
-                                    } else {
-                                        expr_local.arena[parent_addr].right_child = Some(node.idx);
-                                    }
-                                    expr_local.arena[node.idx].parent = Some(parent_addr);
+                            let selection_node = expr_local.arena[selection_node.idx].clone();
+                            let selection_parent_idx = expr_local.arena[selection_node.idx].parent;
+                            // a selection will **never** be the root node, (that's always delegated to the projection)
+                            let parent_addr = selection_parent_idx.unwrap();
+                            let parent = expr_local.arena[parent_addr].clone();
+                            if let Some(left_child_addr) = parent.left_child {
+                                if left_child_addr == selection_node.idx {
+                                    expr_local.arena[parent_addr].left_child = Some(selection_node.left_child.unwrap());
+                                } else {
+                                    expr_local.arena[parent_addr].right_child = Some(selection_node.left_child.unwrap());
                                 }
-                            } else {
-                                expr_local.set_root(node.idx);
                             }
+                            expr_local.delete(selection_node.idx);
+                            selection_set.remove(&selection_node);
+                            break;
                         }
                     }
-                }
+                };
             }
             _ => {}
         });
@@ -320,7 +327,7 @@ impl From<&Rule> for Expression {
         let constant_pushing_application = constant_to_eq(rule);
         let duplicate_to_eq_application = duplicate_to_eq(&constant_pushing_application);
 
-        let rule_body_terms: Vec<super::datalog::Term> = duplicate_to_eq_application
+        let rule_body_terms: Vec<datalog::Term> = duplicate_to_eq_application
             .body
             .clone()
             .into_iter()
@@ -382,19 +389,19 @@ impl From<&Rule> for Expression {
                     if let datalog::Term::Constant(typed_value) = term.clone() {
                         let selection: Term;
                         match typed_value.clone() {
-                            datalog::TypedValue::Str(str_value) => {
+                            TypedValue::Str(str_value) => {
                                 selection =
                                     Term::Selection(idx, SelectionTypedValue::Str(str_value))
                             }
-                            datalog::TypedValue::Bool(bool_value) => {
+                            TypedValue::Bool(bool_value) => {
                                 selection =
                                     Term::Selection(idx, SelectionTypedValue::Bool(bool_value))
                             }
-                            datalog::TypedValue::UInt(uint_value) => {
+                            TypedValue::UInt(uint_value) => {
                                 selection =
                                     Term::Selection(idx, SelectionTypedValue::UInt(uint_value))
                             }
-                            datalog::TypedValue::Float(float_value) => {
+                            TypedValue::Float(float_value) => {
                                 selection =
                                     Term::Selection(idx, SelectionTypedValue::Float(float_value))
                             }
@@ -434,7 +441,6 @@ impl From<&Rule> for Expression {
             }
         });
         // Equality to selection
-
         let relations = unsafe_arena.arena.clone().into_iter().enumerate().fold(
             vec![],
             |mut acc, (node_idx, node)| {
@@ -457,12 +463,9 @@ impl From<&Rule> for Expression {
                             if let datalog::Term::Variable(symbol) = term_outer.clone() {
                                 if term_outer == term_inner {
                                     let newvarsymbol = format!("{}{}", symbol.clone(), idx_inner);
-
                                     let newvar = datalog::Term::Variable(newvarsymbol.to_string());
 
-                                    if let Term::Relation(ref mut atom) =
-                                        unsafe_arena.arena[inner_node_idx].value
-                                    {
+                                    if let Term::Relation(ref mut atom) = unsafe_arena.arena[inner_node_idx].value {
                                         atom.terms[term_inner_inner_idx] = newvar
                                     }
 
@@ -475,6 +478,10 @@ impl From<&Rule> for Expression {
                                         selection_node_idx,
                                         unsafe_arena.root.unwrap(),
                                     );
+                                    unsafe_arena.set_parent(
+                                        unsafe_arena.root.unwrap(),
+                                        selection_node_idx,
+                                    );
                                     unsafe_arena.set_root(selection_node_idx);
                                 }
                             }
@@ -484,11 +491,9 @@ impl From<&Rule> for Expression {
             },
         );
 
-        // Select + Product to Join
-        // Joins are associative and commutative
-
         let projection_idx = unsafe_arena.allocate(&head_projection);
         unsafe_arena.set_left_child(projection_idx, unsafe_arena.root.unwrap());
+        unsafe_arena.set_parent(unsafe_arena.root.unwrap(), projection_idx);
         unsafe_arena.set_root(projection_idx);
         unsafe_arena
     }
@@ -503,8 +508,6 @@ mod test {
     #[test]
     fn test_rule_to_expression() {
         let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
-        // x(T(?x, ?y), x(T(?y, ?z), T(?y, hardcore)))
-        // [T(?x, ?y), T(?y1, ?z), U(?y2, ?Strhardcore), EQ(?y1, ?y), EQ(?y2, ?y))]
         let parsed_rule = parse_rule(rule);
 
         let expected_expression_arena = "π_[0, 3](σ_2=4usize(σ_1=4usize(σ_1=2usize(×(T(?x, ?y), ×(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))))";
@@ -516,14 +519,14 @@ mod test {
     #[test]
     fn test_select_product_to_join() {
         let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
-        // x(T(?x, ?y), x(T(?y, ?z), T(?y, hardcore)))
-        // [T(?x, ?y), T(?y1, ?z), U(?y2, ?Strhardcore), EQ(?y1, ?y), EQ(?y2, ?y))]
         let parsed_rule = parse_rule(rule);
 
-        let expected_expression_arena = "π_[0, 3](σ_1=4usize(⋈_1=0usize(T(?x, ?y), ⋈_0=1(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore)))))";
+        let expected_expression_arena = "π_[0, 3](σ_1=4usize(⋈_1=2(T(?x, ?y), ⋈_2=4(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
-        let actual_expression_arena =
-            select_product_to_join(&Expression::from(&parsed_rule)).to_string();
-        assert_eq!(expected_expression_arena, actual_expression_arena)
+        let rule_to_expression = Expression::from(&parsed_rule);
+        let actual_expression = select_product_to_join(&rule_to_expression);
+        let actual_expression_to_string = actual_expression.to_string();
+
+        assert_eq!(expected_expression_arena, actual_expression_to_string)
     }
 }

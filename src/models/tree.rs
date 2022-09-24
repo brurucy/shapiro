@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Node<T>
 where
     T: PartialEq + Eq + Display + Clone,
@@ -41,8 +41,19 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
         }
     }
 
-    pub fn set_root(&mut self, idx: usize) {
+    pub fn set_root(&mut self, idx: usize)
+    {
+        let previous_root = self.root;
         self.root = Some(idx);
+        if let Some(previous_root_addr) = previous_root {
+            self.arena[previous_root_addr].parent = self.root;
+        };
+    }
+
+    pub fn delete(&mut self, idx: usize) {
+        self.arena[idx].parent = None;
+        self.arena[idx].left_child = None;
+        self.arena[idx].right_child = None;
     }
 
     pub fn allocate(&mut self, value: &T) -> usize {
@@ -55,27 +66,19 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
     }
 
     pub fn set_parent(&mut self, addr: usize, parent_addr: usize) {
-        if self.arena.len() > addr && self.arena.len() > parent_addr {
-            self.arena[addr].parent = Some(parent_addr);
-        }
+        self.arena[addr].parent = Some(parent_addr);
     }
 
     pub fn set_value(&mut self, addr: usize, value: &T) {
-        if self.arena.len() > addr {
-            self.arena[addr].value = value.clone();
-        }
+        self.arena[addr].value = value.clone();
     }
 
     pub fn set_left_child(&mut self, addr: usize, left_child_addr: usize) {
-        if self.arena.len() > addr {
-            self.arena[addr].left_child = Some(left_child_addr);
-        }
+        self.arena[addr].left_child = Some(left_child_addr);
     }
 
     pub fn set_right_child(&mut self, addr: usize, right_child_addr: usize) {
-        if self.arena.len() > addr {
-            self.arena[addr].right_child = Some(right_child_addr);
-        }
+        self.arena[addr].right_child = Some(right_child_addr);
     }
 
     pub fn pre_order(&self) -> Vec<Node<T>> {
@@ -86,13 +89,17 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
             root_vec.push(root.clone());
 
             if let Some(left_subtree_addr) = root.left_child {
-                let left_subtree = self.arena[left_subtree_addr].clone();
-                root_vec.extend(vec![left_subtree])
+                let mut left_subtree = self.clone();
+                left_subtree.set_root(left_subtree_addr);
+
+                root_vec.extend(left_subtree.pre_order())
             }
 
             if let Some(right_subtree_addr) = root.right_child {
-                let right_subtree = self.arena[right_subtree_addr].clone();
-                root_vec.extend(vec![right_subtree])
+                let mut right_subtree = self.clone();
+                right_subtree.set_root(right_subtree_addr);
+
+                root_vec.extend(right_subtree.pre_order())
             }
 
             return root_vec;
