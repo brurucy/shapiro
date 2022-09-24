@@ -41,15 +41,22 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
         }
     }
 
-    pub fn set_root(&mut self, idx: usize)
-    {
-        let previous_root = self.root;
-        self.root = Some(idx);
-        if let Some(previous_root_addr) = previous_root {
-            self.arena[previous_root_addr].parent = self.root;
-        };
+    // Branch moves the root pointer and yields a new clone of the tree.
+    pub fn branch_at(&self, idx: usize) -> Tree<T> {
+        let mut current_tree = self.clone();
+        let previous_root = current_tree.root.unwrap();
+
+        current_tree.delete(previous_root);
+        current_tree.set_root(idx);
+
+        return current_tree;
     }
 
+    pub fn set_root(&mut self, idx: usize) {
+        self.root = Some(idx);
+    }
+
+    // Delete disconnects the given node from the tree
     pub fn delete(&mut self, idx: usize) {
         self.arena[idx].parent = None;
         self.arena[idx].left_child = None;
@@ -75,10 +82,12 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
 
     pub fn set_left_child(&mut self, addr: usize, left_child_addr: usize) {
         self.arena[addr].left_child = Some(left_child_addr);
+        self.arena[left_child_addr].parent = Some(addr);
     }
 
     pub fn set_right_child(&mut self, addr: usize, right_child_addr: usize) {
         self.arena[addr].right_child = Some(right_child_addr);
+        self.arena[right_child_addr].parent = Some(addr);
     }
 
     pub fn pre_order(&self) -> Vec<Node<T>> {
@@ -89,15 +98,13 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
             root_vec.push(root.clone());
 
             if let Some(left_subtree_addr) = root.left_child {
-                let mut left_subtree = self.clone();
-                left_subtree.set_root(left_subtree_addr);
+                let left_subtree = self.branch_at(left_subtree_addr);
 
                 root_vec.extend(left_subtree.pre_order())
             }
 
             if let Some(right_subtree_addr) = root.right_child {
-                let mut right_subtree = self.clone();
-                right_subtree.set_root(right_subtree_addr);
+                let right_subtree = self.branch_at(right_subtree_addr);
 
                 root_vec.extend(right_subtree.pre_order())
             }
@@ -112,12 +119,10 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
             let root_node = self.arena[root_addr].clone();
 
             match (root_node.left_child, root_node.right_child) {
-                (Some(left_child_addr), Some(right_child_addr)) => {
-                    let mut left_subtree = self.clone();
-                    left_subtree.set_root(left_child_addr);
+                (Some(left_subtree_addr), Some(right_subtree_addr)) => {
+                    let left_subtree = self.branch_at(left_subtree_addr);
 
-                    let mut right_subtree = self.clone();
-                    right_subtree.set_root(right_child_addr);
+                    let right_subtree = self.branch_at(right_subtree_addr);
 
                     return format!(
                         "{}({}, {})",
@@ -126,9 +131,8 @@ impl<T: PartialEq + Eq + Display + Clone> Tree<T> {
                         right_subtree.to_string()
                     );
                 }
-                (Some(left_child_addr), None) => {
-                    let mut left_subtree = self.clone();
-                    left_subtree.set_root(left_child_addr);
+                (Some(left_subtree_addr), None) => {
+                    let left_subtree = self.branch_at(left_subtree_addr);
 
                     format!("{}({})", root_node.value, left_subtree.to_string())
                 }
