@@ -1,3 +1,3 @@
+pub mod relational_algebra;
+pub mod rule_graph;
 pub mod simple;
-mod rule_graph;
-mod relational_algebra;

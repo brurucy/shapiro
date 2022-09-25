@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use crate::implementations::relational_algebra::evaluate;
+
 use super::{
     datalog::TypedValue,
-    relational_algebra::{ColumnType, Relation},
+    relational_algebra::{ColumnType, Expression, Relation},
 };
 
 pub type Database = HashMap<String, Relation>;
@@ -47,9 +49,12 @@ impl Instance {
             .into_iter()
             .collect();
     }
-    fn new() -> Self {
+    pub fn new() -> Self {
         return Self {
             database: HashMap::new(),
         };
+    }
+    pub fn evaluate(&self, expression: &Expression, view_name: &str) -> Relation {
+        return evaluate(expression, self.database.clone(), view_name);
     }
 }

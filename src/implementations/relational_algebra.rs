@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
@@ -192,7 +192,7 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
         .enumerate()
         .map(|(column_idx, idx)| {
             let mut new_index = idx.index.clone();
-            if idx.index.len() > 0 {
+            if idx.active {
                 new_index.clear();
                 product
                     .clone()
@@ -297,14 +297,15 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
 }
 
 mod test {
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
 
     use crate::implementations::relational_algebra::{
         evaluate, product, select_equality, select_value,
     };
     use crate::models::datalog::TypedValue;
+    use crate::models::instance::Instance;
     use crate::models::relational_algebra::{
-        Column, ColumnType, Expression, Relation, SelectionTypedValue,
+        Column, ColumnType, Expression, Index, Relation, SelectionTypedValue,
     };
     use crate::parsers::datalog::parse_rule;
 
@@ -557,66 +558,54 @@ mod test {
 
         let expression = Expression::from(&parse_rule(rule));
 
-        let mut database = HashMap::new();
-        database.insert(
-            "child".to_string(),
-            Relation {
-                columns: vec![
-                    Column {
-                        ty: ColumnType::Str,
-                        contents: vec![
-                            TypedValue::Str("adam".to_string()),
-                            TypedValue::Str("vanasarvik".to_string()),
-                            TypedValue::Str("eve".to_string()),
-                            TypedValue::Str("jumala".to_string()),
-                        ],
-                    },
-                    Column {
-                        ty: ColumnType::Str,
-                        contents: vec![
-                            TypedValue::Str("jumala".to_string()),
-                            TypedValue::Str("jumala".to_string()),
-                            TypedValue::Str("adam".to_string()),
-                            TypedValue::Str("cthulu".to_string()),
-                        ],
-                    },
-                ],
-                symbol: "child".to_string(),
-                indexes: vec![],
-            },
-        );
-        database.insert(
-            "subClassOf".to_string(),
-            Relation {
-                columns: vec![
-                    Column {
-                        ty: ColumnType::Str,
-                        contents: vec![
-                            TypedValue::Str("adam".to_string()),
-                            TypedValue::Str("vanasarvik".to_string()),
-                            TypedValue::Str("eve".to_string()),
-                            TypedValue::Str("jumala".to_string()),
-                            TypedValue::Str("cthulu".to_string()),
-                        ],
-                    },
-                    Column {
-                        ty: ColumnType::Str,
-                        contents: vec![
-                            TypedValue::Str("human".to_string()),
-                            TypedValue::Str("demiGod".to_string()),
-                            TypedValue::Str("human".to_string()),
-                            TypedValue::Str("demiGod".to_string()),
-                            TypedValue::Str("demiGod".to_string()),
-                        ],
-                    },
-                ],
-                symbol: "subClassOf".to_string(),
-                indexes: vec![],
-            },
-        );
+        let mut instance = Instance::new();
+        vec![
+            vec![
+                TypedValue::Str("adam".to_string()),
+                TypedValue::Str("jumala".to_string()),
+            ],
+            vec![
+                TypedValue::Str("vanasarvik".to_string()),
+                TypedValue::Str("jumala".to_string()),
+            ],
+            vec![
+                TypedValue::Str("eve".to_string()),
+                TypedValue::Str("adam".to_string()),
+            ],
+            vec![
+                TypedValue::Str("jumala".to_string()),
+                TypedValue::Str("cthulu".to_string()),
+            ],
+        ]
+        .into_iter()
+        .for_each(|row| instance.insert("child", row));
+
+        vec![
+            vec![
+                TypedValue::Str("adam".to_string()),
+                TypedValue::Str("human".to_string()),
+            ],
+            vec![
+                TypedValue::Str("vanasarvik".to_string()),
+                TypedValue::Str("demiGod".to_string()),
+            ],
+            vec![
+                TypedValue::Str("eve".to_string()),
+                TypedValue::Str("human".to_string()),
+            ],
+            vec![
+                TypedValue::Str("jumala".to_string()),
+                TypedValue::Str("demiGod".to_string()),
+            ],
+            vec![
+                TypedValue::Str("cthulu".to_string()),
+                TypedValue::Str("demiGod".to_string()),
+            ],
+        ]
+        .into_iter()
+        .for_each(|row| instance.insert("subClassOf", row));
 
         let expected_relation = Relation {
-            symbol: "ancestor".to_string(),
             columns: vec![
                 Column {
                     ty: ColumnType::Str,
@@ -633,9 +622,19 @@ mod test {
                     ],
                 },
             ],
-            indexes: vec![],
+            symbol: "ancestor".to_string(),
+            indexes: vec![
+                Index {
+                    index: BTreeSet::new(),
+                    active: false,
+                },
+                Index {
+                    index: BTreeSet::new(),
+                    active: false,
+                },
+            ],
         };
-        let actual_relation = evaluate(&expression, database, "ancestor");
+        let actual_relation = evaluate(&expression, instance.database, "ancestor");
 
         assert_eq!(expected_relation, actual_relation);
     }
