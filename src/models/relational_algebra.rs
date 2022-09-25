@@ -12,7 +12,7 @@ pub enum ColumnType {
     Str,
     Bool,
     UInt,
-    Float(OrderedFloat<f64>),
+    OrderedFloat,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -60,72 +60,94 @@ impl Iterator for RowIterator {
     }
 }
 
-pub type Database = HashMap<String, Relation>;
-
-pub struct Instance {
-    database: Database,
-}
-
-impl Default for Instance {
-    fn default() -> Self {
-        return Self {
-            database: HashMap::new(),
-        };
-    }
-}
-
-impl Instance {
-    pub fn evaluate(expr: &str, new_symbol: &str) -> Relation {
-        todo!()
-    }
-    // Get a relation schema instead
-    pub fn add_relation(&mut self, relation: &Relation) {
-        self.database
-            .insert(relation.symbol.clone(), relation.clone());
-    }
-    pub fn add_to_relation(&mut self, symbol: &str, row: Vec<TypedValue>) {
-        if let Some(relation) = self.database.get_mut(symbol) {
-            row.into_iter().enumerate().for_each(|(column_idx, value)| {
-                relation.columns[column_idx].contents.push(value);
-            })
-        };
-    }
-    pub fn contains(&self, atom: Atom) -> bool {
-        if let Some(relation) = self.database.get(&atom.symbol) {
-            let rel_iter = relation
-                .columns
-                .clone()
-                .into_iter()
-                .zip(atom.terms.into_iter());
-
-            for (column, term) in rel_iter {
-                if let datalog::Term::Constant(typed_value) = term {
-                    if !(column.contents.contains(&typed_value)) {
-                        return false;
-                    }
-                } else {
-                    continue;
-                }
-            }
-            return true;
-        }
-        return false;
-    }
+#[derive(Clone, Debug, PartialEq)]
+pub struct Index {
+    pub index: BTreeSet<(TypedValue, usize)>,
+    pub active: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
     pub columns: Vec<Column>,
     pub symbol: String,
-    //pub indexes: Vec<Index<I>>,
+    pub indexes: Vec<Index>,
+}
+
+pub struct RelationSchema {
+    pub column_types: Vec<ColumnType>,
+    pub symbol: String,
 }
 
 impl Relation {
+    pub fn activate_index(&mut self, idx: usize) {
+        self.indexes[idx].index.extend(
+            self.columns[idx]
+                .contents
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(|(row_id, row)| (row, row_id)),
+        );
+        self.indexes[idx].active = true
+    }
+    pub fn insert(&mut self, row: &Vec<TypedValue>) {
+        let active_indexes: HashSet<usize> = self
+            .indexes
+            .clone()
+            .into_iter()
+            .enumerate()
+            .filter(|(column_idx, idx)| idx.active)
+            .map(|(column_idx, idx)| column_idx)
+            .collect();
+
+        row.into_iter()
+            .enumerate()
+            .for_each(|(column_idx, column_value)| {
+                self.columns[column_idx].contents.push(column_value.clone());
+                if active_indexes.contains(&column_idx) {
+                    self.indexes[column_idx].index.insert((
+                        column_value.clone(),
+                        self.columns[column_idx].contents.len() - 1,
+                    ));
+                }
+            });
+    }
     fn iter(&self) -> RowIterator {
         return RowIterator {
             relation: self.clone(),
             row: 0,
         };
+    }
+    pub fn new(schema: &RelationSchema) -> Self {
+        let columns = schema
+            .column_types
+            .clone()
+            .into_iter()
+            .map(|ty| {
+                return (Column {
+                    ty,
+                    contents: vec![],
+                });
+            })
+            .collect();
+
+        let indexes = schema
+            .column_types
+            .clone()
+            .into_iter()
+            .map(|_ty| {
+                return Index {
+                    index: BTreeSet::new(),
+                    active: false,
+                };
+            })
+            .collect();
+
+        Relation {
+            columns,
+            symbol: schema.symbol.to_string(),
+            indexes,
+        }
     }
 }
 

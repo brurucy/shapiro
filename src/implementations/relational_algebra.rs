@@ -1,6 +1,9 @@
+use std::collections::{BTreeSet, HashSet};
+
 use crate::models::datalog::TypedValue;
+use crate::models::instance::Database;
 use crate::models::relational_algebra::{
-    Column, Database, Expression, Relation, SelectionTypedValue, Term,
+    Column, Expression, Index, Relation, SelectionTypedValue, Term,
 };
 
 pub fn select_value(
@@ -19,10 +22,11 @@ pub fn select_value(
         })
         .collect();
 
-    relation
+    let filtered_rows: Vec<(usize, Vec<TypedValue>)> = relation
         .clone()
         .into_iter()
-        .filter(|row| match row[column_idx].clone() {
+        .enumerate()
+        .filter(|(_row_id, row)| match row[column_idx].clone() {
             TypedValue::Str(outer) => match value.clone() {
                 SelectionTypedValue::Str(inner) => outer == inner,
                 _ => false,
@@ -40,15 +44,44 @@ pub fn select_value(
                 _ => false,
             },
         })
-        .for_each(|row| {
+        .collect();
+
+    filtered_rows
+        .clone()
+        .into_iter()
+        .for_each(|(_row_id, row)| {
             row.into_iter()
                 .enumerate()
                 .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
         });
 
+    let filtered_row_set: HashSet<usize> = filtered_rows
+        .into_iter()
+        .map(|(row_id, _row)| row_id)
+        .collect();
+
+    let indexes: Vec<Index> = relation
+        .clone()
+        .indexes
+        .into_iter()
+        .map(|idx| {
+            return Index {
+                index: idx
+                    .index
+                    .into_iter()
+                    .filter(|(_value, row_id)| {
+                        return filtered_row_set.contains(row_id);
+                    })
+                    .collect(),
+                active: idx.active,
+            };
+        })
+        .collect();
+
     return Relation {
-        symbol: symbol,
-        columns: columns,
+        symbol,
+        columns,
+        indexes,
     };
 }
 
@@ -68,22 +101,53 @@ pub fn select_equality(
         })
         .collect();
 
-    relation
+    let filtered_rows: Vec<(usize, Vec<TypedValue>)> = relation
         .clone()
         .into_iter()
-        .filter(|row| row[left_column_idx] == row[right_column_idx])
-        .for_each(|row| {
+        .enumerate()
+        .filter(|(_row_id, row)| row[left_column_idx] == row[right_column_idx])
+        .collect();
+
+    filtered_rows
+        .clone()
+        .into_iter()
+        .for_each(|(_row_id, row)| {
             row.into_iter()
                 .enumerate()
                 .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
         });
 
+    let filtered_row_set: HashSet<usize> = filtered_rows
+        .into_iter()
+        .map(|(row_id, _row)| row_id)
+        .collect();
+
+    let indexes: Vec<Index> = relation
+        .clone()
+        .indexes
+        .into_iter()
+        .map(|idx| {
+            return Index {
+                index: idx
+                    .index
+                    .into_iter()
+                    .filter(|(_value, row_id)| {
+                        return filtered_row_set.contains(row_id);
+                    })
+                    .collect(),
+                active: idx.active,
+            };
+        })
+        .collect();
+
     return Relation {
         symbol: symbol,
         columns: columns,
+        indexes: indexes,
     };
 }
 
+// Indexes need to be merged
 pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation {
     let mut columns: Vec<Column> = left_relation
         .columns
@@ -96,7 +160,7 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
         })
         .collect();
 
-    left_relation
+    let product: Vec<Vec<TypedValue>> = left_relation
         .clone()
         .into_iter()
         .flat_map(|left_row| {
@@ -112,30 +176,63 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
                 })
                 .collect::<Vec<Vec<TypedValue>>>()
         })
-        .for_each(|row| {
-            row.into_iter()
-                .enumerate()
-                .for_each(|(column_idx, column_value)| {
-                    columns[column_idx].contents.push(column_value)
-                })
-        });
+        .collect();
+
+    product.clone().into_iter().for_each(|row| {
+        row.into_iter()
+            .enumerate()
+            .for_each(|(column_idx, column_value)| columns[column_idx].contents.push(column_value))
+    });
+
+    let indexes: Vec<Index> = left_relation
+        .indexes
+        .clone()
+        .into_iter()
+        .chain(right_relation.indexes.clone().into_iter())
+        .enumerate()
+        .map(|(column_idx, idx)| {
+            let mut new_index = idx.index.clone();
+            if idx.index.len() > 0 {
+                new_index.clear();
+                product
+                    .clone()
+                    .into_iter()
+                    .enumerate()
+                    .for_each(|(row_id, row)| {
+                        new_index.insert((row[column_idx].clone(), row_id));
+                    })
+            }
+            return Index {
+                index: new_index,
+                active: idx.active,
+            };
+        })
+        .collect();
 
     return Relation {
         columns,
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
+        indexes,
     };
 }
 
-pub fn project(relation: &Relation, indexes: &Vec<usize>, new_symbol: &str) -> Relation {
-    let columns: Vec<Column> = indexes
+pub fn project(relation: &Relation, column_indexes: &Vec<usize>, new_symbol: &str) -> Relation {
+    let columns: Vec<Column> = column_indexes
         .clone()
         .into_iter()
         .map(|column_idx| relation.columns[column_idx].clone())
         .collect();
 
+    let indexes: Vec<Index> = column_indexes
+        .clone()
+        .into_iter()
+        .map(|column_idx| relation.indexes[column_idx].clone())
+        .collect();
+
     return Relation {
         symbol: new_symbol.to_string(),
         columns,
+        indexes,
     };
 }
 
@@ -143,6 +240,7 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
     let output: Relation = Relation {
         columns: vec![],
         symbol: new_symbol.to_string(),
+        indexes: vec![],
     };
 
     if let Some(root_addr) = expr.root {
@@ -232,6 +330,7 @@ mod test {
                 },
             ],
             symbol: "four".to_string(),
+            indexes: vec![],
         };
 
         let expected_select_application = Relation {
@@ -246,6 +345,7 @@ mod test {
                 },
             ],
             symbol: "four".to_string(),
+            indexes: vec![],
         };
 
         let actual_select_application = select_value(&rel, 1, SelectionTypedValue::UInt(4));
@@ -282,6 +382,7 @@ mod test {
                 },
             ],
             symbol: "four".to_string(),
+            indexes: vec![],
         };
 
         let expected_select_application = Relation {
@@ -300,6 +401,7 @@ mod test {
                 },
             ],
             symbol: "four".to_string(),
+            indexes: vec![],
         };
 
         let actual_select_application = select_equality(&rel, 1, 2);
@@ -332,6 +434,7 @@ mod test {
                 },
             ],
             symbol: "X".to_string(),
+            indexes: vec![],
         };
 
         let right_relation = Relation {
@@ -354,6 +457,7 @@ mod test {
                 },
             ],
             symbol: "Y".to_string(),
+            indexes: vec![],
         };
 
         let expected_product = Relation {
@@ -440,6 +544,7 @@ mod test {
                 },
             ],
             symbol: "XY".to_string(),
+            indexes: vec![],
         };
         let actual_product = product(&left_relation, &right_relation);
         assert_eq!(expected_product, actual_product);
@@ -477,6 +582,7 @@ mod test {
                     },
                 ],
                 symbol: "child".to_string(),
+                indexes: vec![],
             },
         );
         database.insert(
@@ -505,6 +611,7 @@ mod test {
                     },
                 ],
                 symbol: "subClassOf".to_string(),
+                indexes: vec![],
             },
         );
 
@@ -526,6 +633,7 @@ mod test {
                     ],
                 },
             ],
+            indexes: vec![],
         };
         let actual_relation = evaluate(&expression, database, "ancestor");
 
