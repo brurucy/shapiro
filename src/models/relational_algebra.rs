@@ -80,15 +80,37 @@ pub struct RelationSchema {
 
 impl Relation {
     pub fn activate_index(&mut self, idx: usize) {
-        self.indexes[idx].index.extend(
-            self.columns[idx]
-                .contents
+        if let Some(index) = self.indexes.get_mut(idx) {
+            index.index.extend(
+                self.columns[idx]
+                    .contents
+                    .clone()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row_id, column_value)| (column_value, row_id)),
+            );
+            self.indexes[idx].active = true
+        } else {
+            self.columns
                 .clone()
                 .into_iter()
                 .enumerate()
-                .map(|(row_id, row)| (row, row_id)),
-        );
-        self.indexes[idx].active = true
+                .for_each(|(column_idx, column)| {
+                    let mut new_index = Index {
+                        index: BTreeSet::new(),
+                        active: false,
+                    };
+                    if column_idx == idx {
+                        new_index.active = true;
+                        column.contents.clone().into_iter().enumerate().for_each(
+                            |(row_id, column_value)| {
+                                new_index.index.insert((column_value, row_id));
+                            },
+                        )
+                    };
+                    self.indexes.push(new_index);
+                })
+        }
     }
     pub fn insert(&mut self, row: &Vec<TypedValue>) {
         let active_indexes: HashSet<usize> = self
@@ -525,6 +547,7 @@ impl From<&Rule> for Expression {
             constant_to_selection(&duplicate_to_eq_application, &products);
         let mut expression =
             equality_to_selection(&duplicate_to_eq_application, &products_and_selections);
+        expression = select_product_to_join(&expression);
         // Projecting the head
         let projection_idx = expression.allocate(&project_head(&duplicate_to_eq_application));
         expression.set_left_child(projection_idx, expression.root.unwrap());

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
@@ -147,7 +147,6 @@ pub fn select_equality(
     };
 }
 
-// Indexes need to be merged
 pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation {
     let mut columns: Vec<Column> = left_relation
         .columns
@@ -216,6 +215,97 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
     };
 }
 
+pub fn join(
+    left_relation: &Relation,
+    right_relation: &Relation,
+    left_index: usize,
+    right_index: usize,
+) -> Relation {
+    let mut left_iterator = left_relation
+        .clone()
+        .into_iter()
+        .zip(left_relation.indexes[left_index].index.clone().into_iter())
+        .peekable();
+
+    let mut right_iterator = right_relation
+        .clone()
+        .into_iter()
+        .zip(
+            right_relation.indexes[right_index]
+                .index
+                .clone()
+                .into_iter(),
+        )
+        .peekable();
+
+    let columns = left_relation
+        .columns
+        .clone()
+        .into_iter()
+        .chain(right_relation.columns.clone().into_iter())
+        .map(|column| Column {
+            contents: vec![],
+            ty: column.ty,
+        })
+        .collect();
+
+    let indexes = left_relation
+        .indexes
+        .clone()
+        .into_iter()
+        .chain(right_relation.indexes.clone().into_iter())
+        .map(|idx| Index {
+            index: BTreeSet::new(),
+            active: idx.active,
+        })
+        .collect();
+
+    let mut result = Relation {
+        columns: columns,
+        symbol: left_relation.symbol.to_string() + &right_relation.symbol,
+        indexes: indexes,
+    };
+
+    while let (current_left, current_right) = (left_iterator.peek(), right_iterator.peek()) {
+        if let Some(left_zip) = current_left {
+            if let Some(right_zip) = current_right {
+                let left_index_value = &left_zip.1;
+                let right_index_value = &right_zip.1;
+
+                match left_index_value.cmp(right_index_value) {
+                    std::cmp::Ordering::Less => {
+                        left_iterator.next();
+                    }
+                    std::cmp::Ordering::Equal => {
+                        let left_row = &left_zip.0;
+                        let right_row = &right_zip.0;
+
+                        result.insert(
+                            &left_row
+                                .into_iter()
+                                .chain(right_row.into_iter())
+                                .cloned()
+                                .collect(),
+                        );
+
+                        left_iterator.next();
+                        right_iterator.next();
+                    }
+                    std::cmp::Ordering::Greater => {
+                        right_iterator.next();
+                    }
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    return result;
+}
+
 pub fn project(relation: &Relation, column_indexes: &Vec<usize>, new_symbol: &str) -> Relation {
     let columns: Vec<Column> = column_indexes
         .clone()
@@ -259,6 +349,19 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                     &evaluate(&right_subtree, database, new_symbol),
                 );
             }
+            Term::Join(left_column_idx, right_column_idx) => {
+                let mut left_subtree = expr.clone();
+                left_subtree.set_root(root_node.left_child.unwrap());
+                let mut right_subtree = expr.clone();
+                right_subtree.set_root(root_node.right_child.unwrap());
+
+                return join(
+                    &evaluate(&left_subtree, database.clone(), new_symbol),
+                    &evaluate(&right_subtree, database, new_symbol),
+                    left_column_idx,
+                    right_column_idx,
+                );
+            }
             unary_operators => {
                 let mut left_subtree = expr.clone();
                 left_subtree.set_root(root_node.left_child.unwrap());
@@ -300,7 +403,7 @@ mod test {
     use std::collections::{BTreeSet, HashMap};
 
     use crate::implementations::relational_algebra::{
-        evaluate, product, select_equality, select_value,
+        evaluate, join, product, select_equality, select_value,
     };
     use crate::models::datalog::TypedValue;
     use crate::models::instance::Instance;
@@ -429,8 +532,8 @@ mod test {
                         TypedValue::Str("Arlis".to_string()),
                         TypedValue::Str("Robert".to_string()),
                         TypedValue::Str("Rego".to_string()),
-                        TypedValue::Str("Mihkel".to_string()),
-                        TypedValue::Str("Glenn".to_string()),
+                        TypedValue::Str("Michael".to_string()),
+                        TypedValue::Str("Rucy".to_string()),
                     ],
                 },
             ],
@@ -495,12 +598,12 @@ mod test {
                         TypedValue::Str("Rego".to_string()),
                         TypedValue::Str("Rego".to_string()),
                         TypedValue::Str("Rego".to_string()),
-                        TypedValue::Str("Mihkel".to_string()),
-                        TypedValue::Str("Mihkel".to_string()),
-                        TypedValue::Str("Mihkel".to_string()),
-                        TypedValue::Str("Glenn".to_string()),
-                        TypedValue::Str("Glenn".to_string()),
-                        TypedValue::Str("Glenn".to_string()),
+                        TypedValue::Str("Michael".to_string()),
+                        TypedValue::Str("Michael".to_string()),
+                        TypedValue::Str("Michael".to_string()),
+                        TypedValue::Str("Rucy".to_string()),
+                        TypedValue::Str("Rucy".to_string()),
+                        TypedValue::Str("Rucy".to_string()),
                     ],
                 },
                 Column {
@@ -548,6 +651,133 @@ mod test {
             indexes: vec![],
         };
         let actual_product = product(&left_relation, &right_relation);
+        assert_eq!(expected_product, actual_product);
+    }
+
+    #[test]
+    fn join_test() {
+        let mut left_relation = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                        TypedValue::UInt(1004),
+                        TypedValue::UInt(1005),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("Arlis".to_string()),
+                        TypedValue::Str("Robert".to_string()),
+                        TypedValue::Str("Rego".to_string()),
+                        TypedValue::Str("Michael".to_string()),
+                        TypedValue::Str("Rucy".to_string()),
+                    ],
+                },
+            ],
+            symbol: "X".to_string(),
+            indexes: vec![],
+        };
+
+        left_relation.activate_index(0);
+
+        let mut right_relation = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                    ],
+                },
+            ],
+            symbol: "Y".to_string(),
+            indexes: vec![],
+        };
+
+        right_relation.activate_index(0);
+
+        let expected_product = Relation {
+            columns: vec![
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("Arlis".to_string()),
+                        TypedValue::Str("Robert".to_string()),
+                        TypedValue::Str("Rego".to_string()),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::UInt,
+                    contents: vec![
+                        TypedValue::UInt(1001),
+                        TypedValue::UInt(1002),
+                        TypedValue::UInt(1003),
+                    ],
+                },
+                Column {
+                    ty: ColumnType::Str,
+                    contents: vec![
+                        TypedValue::Str("Bulbasaur".to_string()),
+                        TypedValue::Str("Charmander".to_string()),
+                        TypedValue::Str("Squirtle".to_string()),
+                    ],
+                },
+            ],
+            symbol: "XY".to_string(),
+            indexes: vec![
+                Index {
+                    index: vec![
+                        (TypedValue::UInt(1001), 0),
+                        (TypedValue::UInt(1002), 1),
+                        (TypedValue::UInt(1003), 2),
+                    ]
+                    .into_iter()
+                    .collect::<BTreeSet<(TypedValue, usize)>>(),
+                    active: true,
+                },
+                Index {
+                    index: BTreeSet::new(),
+                    active: false,
+                },
+                Index {
+                    index: vec![
+                        (TypedValue::UInt(1001), 0),
+                        (TypedValue::UInt(1002), 1),
+                        (TypedValue::UInt(1003), 2),
+                    ]
+                    .into_iter()
+                    .collect::<BTreeSet<(TypedValue, usize)>>(),
+                    active: true,
+                },
+                Index {
+                    index: BTreeSet::new(),
+                    active: false,
+                },
+            ],
+        };
+        let actual_product = join(&left_relation, &right_relation, 0, 0);
         assert_eq!(expected_product, actual_product);
     }
 
@@ -634,7 +864,7 @@ mod test {
                 },
             ],
         };
-        let actual_relation = evaluate(&expression, instance.database, "ancestor");
+        let actual_relation = instance.evaluate(&expression, "ancestor");
 
         assert_eq!(expected_relation, actual_relation);
     }
