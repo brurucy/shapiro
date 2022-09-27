@@ -350,14 +350,17 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                 );
             }
             Term::Join(left_column_idx, right_column_idx) => {
-                let mut left_subtree = expr.clone();
-                left_subtree.set_root(root_node.left_child.unwrap());
-                let mut right_subtree = expr.clone();
-                right_subtree.set_root(root_node.right_child.unwrap());
+                let left_subtree = expr.branch_at(root_node.left_child.unwrap());
+                let mut left_relation = evaluate(&left_subtree, database.clone(), new_symbol);
+                left_relation.activate_index(left_column_idx);
+
+                let right_subtree = expr.branch_at(root_node.right_child.unwrap());
+                let mut right_relation = evaluate(&right_subtree, database, new_symbol);
+                right_relation.activate_index(right_column_idx);
 
                 return join(
-                    &evaluate(&left_subtree, database.clone(), new_symbol),
-                    &evaluate(&right_subtree, database, new_symbol),
+                    &left_relation,
+                    &right_relation,
                     left_column_idx,
                     right_column_idx,
                 );
