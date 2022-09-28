@@ -29,6 +29,7 @@ impl Column {
 
 type Row = Vec<TypedValue>;
 
+#[derive(Clone)]
 pub struct RowIterator {
     relation: Relation,
     row: usize,
@@ -140,6 +141,15 @@ impl Relation {
             row: 0,
         };
     }
+    pub fn get_row(&self, idx: usize) -> Row {
+        return
+            self
+                .columns
+                .clone()
+                .into_iter()
+                .map(|column| column.contents[idx].clone())
+                .collect()
+    }
     pub fn new(schema: &RelationSchema) -> Self {
         let columns = schema
             .column_types
@@ -240,10 +250,6 @@ impl Display for Term {
 pub type Expression = Tree<Term>;
 
 // Paper: SkipList + Roaring Bitmap + BTree + Fenwick Indexed Tree
-// 1: Figure out the join stuff, maybe undo selection pushdown
-// 2: Make the join function
-// 3: Make the index
-// 4: Auto index. two-cases: bitmap and regular
 pub fn select_product_to_join(expr: &Expression) -> Expression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
@@ -404,7 +410,7 @@ fn rule_body_to_expression(rule: &Rule) -> Expression {
     return expression;
 }
 
-fn constant_to_selection(rule: &Rule, expr: &Expression) -> Expression {
+fn constant_to_selection(expr: &Expression) -> Expression {
     let mut expression = expr.clone();
     expression.arena.clone().into_iter().for_each(|node| {
         if let Term::Relation(atom) = node.value {
@@ -460,7 +466,7 @@ fn constant_to_selection(rule: &Rule, expr: &Expression) -> Expression {
     return expression;
 }
 
-fn equality_to_selection(rule: &Rule, expr: &Expression) -> Expression {
+fn equality_to_selection(expr: &Expression) -> Expression {
     let mut expression = expr.clone();
     let relations = expression.arena.clone().into_iter().enumerate().fold(
         vec![],
@@ -544,14 +550,15 @@ impl From<&Rule> for Expression {
         let products = rule_body_to_expression(&duplicate_to_eq_application);
         // Morphing relations with constants to selection equalities
         let products_and_selections =
-            constant_to_selection(&duplicate_to_eq_application, &products);
+            constant_to_selection(&products);
         let mut expression =
-            equality_to_selection(&duplicate_to_eq_application, &products_and_selections);
-        expression = select_product_to_join(&expression);
+            equality_to_selection(&products_and_selections);
         // Projecting the head
         let projection_idx = expression.allocate(&project_head(&duplicate_to_eq_application));
         expression.set_left_child(projection_idx, expression.root.unwrap());
         expression.set_root(projection_idx);
+        // Converting selections followed by products into joins
+        expression = select_product_to_join(&expression.clone());
         expression
     }
 }
@@ -567,23 +574,9 @@ mod test {
         let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
         let parsed_rule = parse_rule(rule);
 
-        let expected_expression_arena = "π_[0, 3](σ_2=4usize(σ_1=4usize(σ_1=2usize(×(T(?x, ?y), ×(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))))";
+        let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
-        let actual_expression_arena = Expression::from(&parsed_rule).to_string();
-        assert_eq!(expected_expression_arena, actual_expression_arena)
-    }
-
-    #[test]
-    fn test_select_product_to_join() {
-        let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
-        let parsed_rule = parse_rule(rule);
-
-        let expected_expression_arena = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
-
-        let rule_to_expression = Expression::from(&parsed_rule);
-        let actual_expression = select_product_to_join(&rule_to_expression);
-        let actual_expression_to_string = actual_expression.to_string();
-
-        assert_eq!(expected_expression_arena, actual_expression_to_string)
+        let actual_expression = Expression::from(&parsed_rule).to_string();
+        assert_eq!(expected_expression, actual_expression)
     }
 }

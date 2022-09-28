@@ -222,12 +222,39 @@ pub fn join(
     right_index: usize,
 ) -> Relation {
     let mut left_iterator = left_relation
+        .indexes[left_index]
+        .index
         .clone()
         .into_iter()
-        .zip(left_relation.indexes[left_index].index.clone().into_iter())
-        .peekable();
+        .map(|idx| {
+            (left_relation.get_row(idx.1), idx)
+        });
+
+    let leiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = left_relation
+        .clone()
+        .into_iter()
+        .zip(
+            left_relation.indexes[left_index]
+                .index
+                .clone()
+                .into_iter(),
+        )
+        .collect();
+
+    if leiter.len() > 0 {
+
+    }
 
     let mut right_iterator = right_relation
+        .indexes[right_index]
+        .index
+        .clone()
+        .into_iter()
+        .map(|idx| {
+            (right_relation.get_row(idx.1), idx)
+        });
+
+    let reiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = right_relation
         .clone()
         .into_iter()
         .zip(
@@ -236,9 +263,13 @@ pub fn join(
                 .clone()
                 .into_iter(),
         )
-        .peekable();
+        .collect();
 
-    let columns = left_relation
+    if reiter.len() > 0 {
+
+    }
+
+    let columns: Vec<Column> = left_relation
         .columns
         .clone()
         .into_iter()
@@ -249,7 +280,7 @@ pub fn join(
         })
         .collect();
 
-    let indexes = left_relation
+    let indexes: Vec<Index> = left_relation
         .indexes
         .clone()
         .into_iter()
@@ -261,38 +292,37 @@ pub fn join(
         .collect();
 
     let mut result = Relation {
-        columns: columns,
+        columns: columns.clone(),
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
-        indexes: indexes,
+        indexes: indexes.clone(),
     };
 
-    while let (current_left, current_right) = (left_iterator.peek(), right_iterator.peek()) {
-        if let Some(left_zip) = current_left {
-            if let Some(right_zip) = current_right {
-                let left_index_value = &left_zip.1;
-                let right_index_value = &right_zip.1;
+    let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
+    loop {
+        if let Some(left_zip) = current_left.clone() {
+            if let Some(right_zip) = current_right.clone() {
+                let left_index_value = left_zip.1;
+                let right_index_value = right_zip.1;
 
-                match left_index_value.cmp(right_index_value) {
+                match left_index_value.0.cmp(&right_index_value.0) {
                     std::cmp::Ordering::Less => {
-                        left_iterator.next();
+                        current_left = left_iterator.next();
                     }
                     std::cmp::Ordering::Equal => {
-                        let left_row = &left_zip.0;
-                        let right_row = &right_zip.0;
+                        let left_row = left_zip.0;
+                        let right_row = right_zip.0;
+                        let joined_row = left_row
+                            .into_iter()
+                            .chain(right_row.into_iter())
+                            .collect();
 
-                        result.insert(
-                            &left_row
-                                .into_iter()
-                                .chain(right_row.into_iter())
-                                .cloned()
-                                .collect(),
-                        );
+                        result.insert(&joined_row);
 
-                        left_iterator.next();
-                        right_iterator.next();
+                        current_left = left_iterator.next();
+                        current_right = left_iterator.next()
                     }
                     std::cmp::Ordering::Greater => {
-                        right_iterator.next();
+                        current_right = right_iterator.next();
                     }
                 }
             } else {
@@ -350,20 +380,27 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                 );
             }
             Term::Join(left_column_idx, right_column_idx) => {
-                let left_subtree = expr.branch_at(root_node.left_child.unwrap());
-                let mut left_relation = evaluate(&left_subtree, database.clone(), new_symbol);
-                left_relation.activate_index(left_column_idx);
+                let mut left_subtree = expr.clone();
+                left_subtree.set_root(root_node.left_child.unwrap());
 
-                let right_subtree = expr.branch_at(root_node.right_child.unwrap());
-                let mut right_relation = evaluate(&right_subtree, database, new_symbol);
-                right_relation.activate_index(right_column_idx);
+                let mut right_subtree = expr.clone();
+                right_subtree.set_root(root_node.right_child.unwrap());
 
-                return join(
-                    &left_relation,
-                    &right_relation,
+                let mut left_subtree_evaluation = evaluate(&left_subtree, database.clone(), new_symbol);
+                left_subtree_evaluation.activate_index(left_column_idx);
+
+                let mut right_subtree_evaluation = evaluate(&right_subtree, database.clone(), new_symbol);
+                right_subtree_evaluation.activate_index(right_column_idx);
+
+
+                let join_result = join(
+                    &left_subtree_evaluation,
+                    &right_subtree_evaluation,
                     left_column_idx,
                     right_column_idx,
                 );
+
+                return join_result;
             }
             unary_operators => {
                 let mut left_subtree = expr.clone();
@@ -790,6 +827,8 @@ mod test {
             "mysticalAncestor(?x, ?z) <- [child(?x, ?y), child(?y, ?z), subClassOf(?y, demiGod)]";
 
         let expression = Expression::from(&parse_rule(rule));
+
+        let expr_relalg = expression.to_string();
 
         let mut instance = Instance::new();
         vec![
