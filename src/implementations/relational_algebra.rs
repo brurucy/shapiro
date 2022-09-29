@@ -22,11 +22,10 @@ pub fn select_value(
         })
         .collect();
 
-    let filtered_rows: Vec<(usize, Vec<TypedValue>)> = relation
+    let filtered_rows: Vec<Vec<TypedValue>> = relation
         .clone()
         .into_iter()
-        .enumerate()
-        .filter(|(_row_id, row)| match row[column_idx].clone() {
+        .filter(|row| match row[column_idx].clone() {
             TypedValue::Str(outer) => match value.clone() {
                 SelectionTypedValue::Str(inner) => outer == inner,
                 _ => false,
@@ -46,42 +45,16 @@ pub fn select_value(
         })
         .collect();
 
-    filtered_rows
-        .clone()
-        .into_iter()
-        .for_each(|(_row_id, row)| {
-            row.into_iter()
-                .enumerate()
-                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
-        });
-
-    let filtered_row_set: HashSet<usize> = filtered_rows
-        .into_iter()
-        .map(|(row_id, _row)| row_id)
-        .collect();
-
-    let indexes: Vec<Index> = relation
-        .clone()
-        .indexes
-        .into_iter()
-        .map(|idx| {
-            return Index {
-                index: idx
-                    .index
-                    .into_iter()
-                    .filter(|(_value, row_id)| {
-                        return filtered_row_set.contains(row_id);
-                    })
-                    .collect(),
-                active: idx.active,
-            };
-        })
-        .collect();
+    filtered_rows.clone().into_iter().for_each(|row| {
+        row.into_iter()
+            .enumerate()
+            .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
+    });
 
     return Relation {
         symbol,
         columns,
-        indexes,
+        indexes: vec![],
     };
 }
 
@@ -101,49 +74,22 @@ pub fn select_equality(
         })
         .collect();
 
-    let filtered_rows: Vec<(usize, Vec<TypedValue>)> = relation
+    let filtered_rows: Vec<Vec<TypedValue>> = relation
         .clone()
         .into_iter()
-        .enumerate()
-        .filter(|(_row_id, row)| row[left_column_idx] == row[right_column_idx])
+        .filter(|row| row[left_column_idx] == row[right_column_idx])
         .collect();
 
-    filtered_rows
-        .clone()
-        .into_iter()
-        .for_each(|(_row_id, row)| {
-            row.into_iter()
-                .enumerate()
-                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
-        });
-
-    let filtered_row_set: HashSet<usize> = filtered_rows
-        .into_iter()
-        .map(|(row_id, _row)| row_id)
-        .collect();
-
-    let indexes: Vec<Index> = relation
-        .clone()
-        .indexes
-        .into_iter()
-        .map(|idx| {
-            return Index {
-                index: idx
-                    .index
-                    .into_iter()
-                    .filter(|(_value, row_id)| {
-                        return filtered_row_set.contains(row_id);
-                    })
-                    .collect(),
-                active: idx.active,
-            };
-        })
-        .collect();
+    filtered_rows.clone().into_iter().for_each(|row| {
+        row.into_iter()
+            .enumerate()
+            .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
+    });
 
     return Relation {
-        symbol: symbol,
-        columns: columns,
-        indexes: indexes,
+        symbol,
+        columns,
+        indexes: vec![],
     };
 }
 
@@ -183,35 +129,10 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
             .for_each(|(column_idx, column_value)| columns[column_idx].contents.push(column_value))
     });
 
-    let indexes: Vec<Index> = left_relation
-        .indexes
-        .clone()
-        .into_iter()
-        .chain(right_relation.indexes.clone().into_iter())
-        .enumerate()
-        .map(|(column_idx, idx)| {
-            let mut new_index = idx.index.clone();
-            if idx.active {
-                new_index.clear();
-                product
-                    .clone()
-                    .into_iter()
-                    .enumerate()
-                    .for_each(|(row_id, row)| {
-                        new_index.insert((row[column_idx].clone(), row_id));
-                    })
-            }
-            return Index {
-                index: new_index,
-                active: idx.active,
-            };
-        })
-        .collect();
-
     return Relation {
         columns,
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
-        indexes,
+        indexes: vec![],
     };
 }
 
@@ -326,16 +247,10 @@ pub fn project(relation: &Relation, column_indexes: &Vec<usize>, new_symbol: &st
         .map(|column_idx| relation.columns[column_idx].clone())
         .collect();
 
-    let indexes: Vec<Index> = column_indexes
-        .clone()
-        .into_iter()
-        .map(|column_idx| relation.indexes[column_idx].clone())
-        .collect();
-
     return Relation {
         symbol: new_symbol.to_string(),
         columns,
-        indexes,
+        indexes: vec![],
     };
 }
 
