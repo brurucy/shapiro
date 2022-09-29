@@ -221,38 +221,25 @@ pub fn join(
     left_index: usize,
     right_index: usize,
 ) -> Relation {
-    let mut left_iterator = left_relation
-        .indexes[left_index]
+    let mut left_iterator = left_relation.indexes[left_index]
         .index
         .clone()
         .into_iter()
-        .map(|idx| {
-            (left_relation.get_row(idx.1), idx)
-        });
+        .map(|idx| (left_relation.get_row(idx.1), idx));
 
     let leiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = left_relation
         .clone()
         .into_iter()
-        .zip(
-            left_relation.indexes[left_index]
-                .index
-                .clone()
-                .into_iter(),
-        )
+        .zip(left_relation.indexes[left_index].index.clone().into_iter())
         .collect();
 
-    if leiter.len() > 0 {
+    if leiter.len() > 0 {}
 
-    }
-
-    let mut right_iterator = right_relation
-        .indexes[right_index]
+    let mut right_iterator = right_relation.indexes[right_index]
         .index
         .clone()
         .into_iter()
-        .map(|idx| {
-            (right_relation.get_row(idx.1), idx)
-        });
+        .map(|idx| (right_relation.get_row(idx.1), idx));
 
     let reiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = right_relation
         .clone()
@@ -265,9 +252,7 @@ pub fn join(
         )
         .collect();
 
-    if reiter.len() > 0 {
-
-    }
+    if reiter.len() > 0 {}
 
     let columns: Vec<Column> = left_relation
         .columns
@@ -311,15 +296,13 @@ pub fn join(
                     std::cmp::Ordering::Equal => {
                         let left_row = left_zip.0;
                         let right_row = right_zip.0;
-                        let joined_row = left_row
-                            .into_iter()
-                            .chain(right_row.into_iter())
-                            .collect();
+                        let joined_row =
+                            left_row.into_iter().chain(right_row.into_iter()).collect();
 
                         result.insert(&joined_row);
 
                         current_left = left_iterator.next();
-                        current_right = left_iterator.next()
+                        current_right = right_iterator.next();
                     }
                     std::cmp::Ordering::Greater => {
                         current_right = right_iterator.next();
@@ -386,12 +369,13 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                 let mut right_subtree = expr.clone();
                 right_subtree.set_root(root_node.right_child.unwrap());
 
-                let mut left_subtree_evaluation = evaluate(&left_subtree, database.clone(), new_symbol);
+                let mut left_subtree_evaluation =
+                    evaluate(&left_subtree, database.clone(), new_symbol);
                 left_subtree_evaluation.activate_index(left_column_idx);
 
-                let mut right_subtree_evaluation = evaluate(&right_subtree, database.clone(), new_symbol);
+                let mut right_subtree_evaluation =
+                    evaluate(&right_subtree, database.clone(), new_symbol);
                 right_subtree_evaluation.activate_index(right_column_idx);
-
 
                 let join_result = join(
                     &left_subtree_evaluation,
@@ -722,7 +706,6 @@ mod test {
             symbol: "X".to_string(),
             indexes: vec![],
         };
-
         left_relation.activate_index(0);
 
         let mut right_relation = Relation {
@@ -747,7 +730,6 @@ mod test {
             symbol: "Y".to_string(),
             indexes: vec![],
         };
-
         right_relation.activate_index(0);
 
         let expected_product = Relation {
