@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 
 use crate::models::datalog::TypedValue;
@@ -5,6 +6,7 @@ use crate::models::instance::Database;
 use crate::models::relational_algebra::{
     Column, Expression, Index, Relation, SelectionTypedValue, Term,
 };
+use itertools::Itertools;
 
 pub fn select_value(
     relation: &Relation,
@@ -136,6 +138,10 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
     };
 }
 
+pub fn hash_join() -> Relation {
+    todo!()
+}
+
 pub fn join(
     left_relation: &Relation,
     right_relation: &Relation,
@@ -148,32 +154,11 @@ pub fn join(
         .into_iter()
         .map(|idx| (left_relation.get_row(idx.1), idx));
 
-    let leiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = left_relation
-        .clone()
-        .into_iter()
-        .zip(left_relation.indexes[left_index].index.clone().into_iter())
-        .collect();
-
-    if leiter.len() > 0 {}
-
     let mut right_iterator = right_relation.indexes[right_index]
         .index
         .clone()
         .into_iter()
         .map(|idx| (right_relation.get_row(idx.1), idx));
-
-    let reiter: Vec<(Vec<TypedValue>, (TypedValue, usize))> = right_relation
-        .clone()
-        .into_iter()
-        .zip(
-            right_relation.indexes[right_index]
-                .index
-                .clone()
-                .into_iter(),
-        )
-        .collect();
-
-    if reiter.len() > 0 {}
 
     let columns: Vec<Column> = left_relation
         .columns
@@ -193,7 +178,7 @@ pub fn join(
         .chain(right_relation.indexes.clone().into_iter())
         .map(|idx| Index {
             index: BTreeSet::new(),
-            active: idx.active,
+            active: false,
         })
         .collect();
 
@@ -211,21 +196,55 @@ pub fn join(
                 let right_index_value = right_zip.1;
 
                 match left_index_value.0.cmp(&right_index_value.0) {
-                    std::cmp::Ordering::Less => {
+                    Ordering::Less => {
                         current_left = left_iterator.next();
                     }
-                    std::cmp::Ordering::Equal => {
-                        let left_row = left_zip.0;
-                        let right_row = right_zip.0;
-                        let joined_row =
-                            left_row.into_iter().chain(right_row.into_iter()).collect();
+                    Ordering::Equal => {
+                        let mut left_matches: Vec<(Vec<TypedValue>)> = vec![];
+                        left_matches.push(left_zip.0);
+                        let mut right_matches: Vec<(Vec<TypedValue>)> = vec![];
+                        right_matches.push(right_zip.0);
 
-                        result.insert(&joined_row);
+                        loop {
+                            current_left = left_iterator.next();
+                            if let Some(left) = current_left.as_ref() {
+                                if left.1.0.cmp(&left_index_value.0) == Ordering::Equal {
+                                    left_matches.push(left.clone().0);
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
 
-                        current_left = left_iterator.next();
-                        current_right = right_iterator.next();
+                        loop {
+                            current_right = right_iterator.next();
+                            if let Some(right) = current_right.as_ref() {
+                                if right.1.0.cmp(&left_index_value.0) == Ordering::Equal {
+                                    right_matches.push(right.clone().0);
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+
+                        left_matches
+                            .into_iter()
+                            .for_each(|left_value| {
+                                right_matches
+                                    .clone()
+                                    .into_iter()
+                                    .for_each(|right_value| {
+                                        result.insert(
+                                            &left_value.clone().into_iter().chain(right_value.into_iter()).collect()
+                                        )
+                                    })
+                            });
                     }
-                    std::cmp::Ordering::Greater => {
+                    Ordering::Greater => {
                         current_right = right_iterator.next();
                     }
                 }
@@ -267,10 +286,8 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
         match root_node.value {
             Term::Relation(atom) => return database.get(&atom.symbol).unwrap().clone(),
             Term::Product => {
-                let mut left_subtree = expr.clone();
-                left_subtree.set_root(root_node.left_child.unwrap());
-                let mut right_subtree = expr.clone();
-                right_subtree.set_root(root_node.right_child.unwrap());
+                let left_subtree = expr.branch_at(root_node.left_child.unwrap());
+                let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
                 return product(
                     &evaluate(&left_subtree, database.clone(), new_symbol),
@@ -278,11 +295,8 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                 );
             }
             Term::Join(left_column_idx, right_column_idx) => {
-                let mut left_subtree = expr.clone();
-                left_subtree.set_root(root_node.left_child.unwrap());
-
-                let mut right_subtree = expr.clone();
-                right_subtree.set_root(root_node.right_child.unwrap());
+                let left_subtree = expr.branch_at(root_node.left_child.unwrap());
+                let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
                 let mut left_subtree_evaluation =
                     evaluate(&left_subtree, database.clone(), new_symbol);
@@ -302,29 +316,31 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                 return join_result;
             }
             unary_operators => {
-                let mut left_subtree = expr.clone();
-                left_subtree.set_root(root_node.left_child.unwrap());
+                let left_subtree = expr.branch_at(root_node.left_child.unwrap());
 
                 match unary_operators {
                     Term::Selection(column_index, selection_target) => match selection_target {
                         SelectionTypedValue::Column(idx) => {
+                            let evaluation = &evaluate(&left_subtree, database, new_symbol);
                             return select_equality(
-                                &evaluate(&left_subtree, database, new_symbol),
+                                evaluation,
                                 column_index,
                                 idx,
                             )
                         }
                         _ => {
+                            let evaluation = &evaluate(&left_subtree, database, new_symbol);
                             return select_value(
-                                &evaluate(&left_subtree, database, new_symbol),
+                                evaluation,
                                 column_index,
                                 selection_target,
                             )
                         }
                     },
                     Term::Projection(column_idxs) => {
+                        let evaluation = &evaluate(&left_subtree, database, new_symbol);
                         return project(
-                            &evaluate(&left_subtree, database, new_symbol),
+                            evaluation,
                             &column_idxs,
                             new_symbol,
                         );
@@ -725,8 +741,6 @@ mod test {
 
         let expression = Expression::from(&parse_rule(rule));
 
-        let expr_relalg = expression.to_string();
-
         let mut instance = Instance::new();
         vec![
             vec![
@@ -792,16 +806,7 @@ mod test {
                 },
             ],
             symbol: "ancestor".to_string(),
-            indexes: vec![
-                Index {
-                    index: BTreeSet::new(),
-                    active: false,
-                },
-                Index {
-                    index: BTreeSet::new(),
-                    active: false,
-                },
-            ],
+            indexes: vec![],
         };
         let actual_relation = instance.evaluate(&expression, "ancestor");
 
