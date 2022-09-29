@@ -208,7 +208,7 @@ pub fn join(
                         loop {
                             current_left = left_iterator.next();
                             if let Some(left) = current_left.as_ref() {
-                                if left.1.0.cmp(&left_index_value.0) == Ordering::Equal {
+                                if left.1 .0.cmp(&left_index_value.0) == Ordering::Equal {
                                     left_matches.push(left.clone().0);
                                 } else {
                                     break;
@@ -221,7 +221,7 @@ pub fn join(
                         loop {
                             current_right = right_iterator.next();
                             if let Some(right) = current_right.as_ref() {
-                                if right.1.0.cmp(&left_index_value.0) == Ordering::Equal {
+                                if right.1 .0.cmp(&left_index_value.0) == Ordering::Equal {
                                     right_matches.push(right.clone().0);
                                 } else {
                                     break;
@@ -231,18 +231,17 @@ pub fn join(
                             }
                         }
 
-                        left_matches
-                            .into_iter()
-                            .for_each(|left_value| {
-                                right_matches
-                                    .clone()
-                                    .into_iter()
-                                    .for_each(|right_value| {
-                                        result.insert(
-                                            &left_value.clone().into_iter().chain(right_value.into_iter()).collect()
-                                        )
-                                    })
-                            });
+                        left_matches.into_iter().for_each(|left_value| {
+                            right_matches.clone().into_iter().for_each(|right_value| {
+                                result.insert(
+                                    &left_value
+                                        .clone()
+                                        .into_iter()
+                                        .chain(right_value.into_iter())
+                                        .collect(),
+                                )
+                            })
+                        });
                     }
                     Ordering::Greater => {
                         current_right = right_iterator.next();
@@ -322,28 +321,16 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
                     Term::Selection(column_index, selection_target) => match selection_target {
                         SelectionTypedValue::Column(idx) => {
                             let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                            return select_equality(
-                                evaluation,
-                                column_index,
-                                idx,
-                            )
+                            return select_equality(evaluation, column_index, idx);
                         }
                         _ => {
                             let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                            return select_value(
-                                evaluation,
-                                column_index,
-                                selection_target,
-                            )
+                            return select_value(evaluation, column_index, selection_target);
                         }
                     },
                     Term::Projection(column_idxs) => {
                         let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                        return project(
-                            evaluation,
-                            &column_idxs,
-                            new_symbol,
-                        );
+                        return project(evaluation, &column_idxs, new_symbol);
                     }
                     _ => {}
                 }
@@ -701,28 +688,16 @@ mod test {
             symbol: "XY".to_string(),
             indexes: vec![
                 Index {
-                    index: vec![
-                        (TypedValue::UInt(1001), 0),
-                        (TypedValue::UInt(1002), 1),
-                        (TypedValue::UInt(1003), 2),
-                    ]
-                    .into_iter()
-                    .collect::<BTreeSet<(TypedValue, usize)>>(),
-                    active: true,
+                    index: BTreeSet::new(),
+                    active: false,
                 },
                 Index {
                     index: BTreeSet::new(),
                     active: false,
                 },
                 Index {
-                    index: vec![
-                        (TypedValue::UInt(1001), 0),
-                        (TypedValue::UInt(1002), 1),
-                        (TypedValue::UInt(1003), 2),
-                    ]
-                    .into_iter()
-                    .collect::<BTreeSet<(TypedValue, usize)>>(),
-                    active: true,
+                    index: BTreeSet::new(),
+                    active: false,
                 },
                 Index {
                     index: BTreeSet::new(),
