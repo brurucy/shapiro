@@ -27,7 +27,7 @@ impl Column {
     }
 }
 
-type Row = Vec<TypedValue>;
+pub type Row = Vec<TypedValue>;
 
 #[derive(Clone)]
 pub struct RowIterator {
@@ -72,6 +72,7 @@ pub struct Relation {
     pub columns: Vec<Column>,
     pub symbol: String,
     pub indexes: Vec<Index>,
+    pub ward: HashSet<Row>,
 }
 
 pub struct RelationSchema {
@@ -114,26 +115,30 @@ impl Relation {
         }
     }
     pub fn insert(&mut self, row: &Vec<TypedValue>) {
-        let active_indexes: HashSet<usize> = self
-            .indexes
-            .clone()
-            .into_iter()
-            .enumerate()
-            .filter(|(column_idx, idx)| idx.active)
-            .map(|(column_idx, idx)| column_idx)
-            .collect();
+        if !self.ward.contains(row) {
+            let active_indexes: HashSet<usize> = self
+                .indexes
+                .clone()
+                .into_iter()
+                .enumerate()
+                .filter(|(column_idx, idx)| idx.active)
+                .map(|(column_idx, idx)| column_idx)
+                .collect();
 
-        row.into_iter()
-            .enumerate()
-            .for_each(|(column_idx, column_value)| {
-                self.columns[column_idx].contents.push(column_value.clone());
-                if active_indexes.contains(&column_idx) {
-                    self.indexes[column_idx].index.insert((
-                        column_value.clone(),
-                        self.columns[column_idx].contents.len() - 1,
-                    ));
-                }
-            });
+            row.into_iter()
+                .enumerate()
+                .for_each(|(column_idx, column_value)| {
+                    self.columns[column_idx].contents.push(column_value.clone());
+                    if active_indexes.contains(&column_idx) {
+                        self.indexes[column_idx].index.insert((
+                            column_value.clone(),
+                            self.columns[column_idx].contents.len() - 1,
+                        ));
+                    }
+                });
+
+            self.ward.insert(row.clone());
+        }
     }
     fn iter(&self) -> RowIterator {
         return RowIterator {
@@ -178,7 +183,19 @@ impl Relation {
             columns,
             symbol: schema.symbol.to_string(),
             indexes,
+            ward: HashSet::new(),
         }
+    }
+}
+
+impl Default for Relation {
+    fn default() -> Self {
+        return Relation {
+            columns: vec![],
+            symbol: "default".to_string(),
+            indexes: vec![],
+            ward: HashSet::new(),
+        };
     }
 }
 
@@ -562,19 +579,17 @@ impl From<&Rule> for Expression {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::relational_algebra::{Expression, Term};
-    use crate::parsers::datalog::{parse_atom, parse_rule};
-
-    use super::select_product_to_join;
+    use crate::models::datalog::Rule;
+    use crate::models::relational_algebra::Expression;
 
     #[test]
     fn test_rule_to_expression() {
-        let rule = "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]";
-        let parsed_rule = parse_rule(rule);
+        let rule =
+            Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
 
         let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
-        let actual_expression = Expression::from(&parsed_rule).to_string();
+        let actual_expression = Expression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)
     }
 }

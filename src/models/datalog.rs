@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use crate::parsers::datalog::{parse_atom, parse_rule};
+
 use super::instance::Instance;
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -11,6 +13,40 @@ pub enum TypedValue {
     Bool(bool),
     UInt(u32),
     Float(OrderedFloat<f64>),
+}
+
+pub trait Ty {
+    fn to_typed_value(&self) -> TypedValue;
+}
+
+impl Ty for String {
+    fn to_typed_value(&self) -> TypedValue {
+        return TypedValue::Str(self.to_string());
+    }
+}
+
+impl Ty for &str {
+    fn to_typed_value(&self) -> TypedValue {
+        return TypedValue::Str(self.to_string());
+    }
+}
+
+impl Ty for u32 {
+    fn to_typed_value(&self) -> TypedValue {
+        return TypedValue::UInt(self.clone());
+    }
+}
+
+impl Ty for bool {
+    fn to_typed_value(&self) -> TypedValue {
+        return TypedValue::Bool(self.clone());
+    }
+}
+
+impl Ty for f64 {
+    fn to_typed_value(&self) -> TypedValue {
+        return TypedValue::Float(OrderedFloat(self.clone()));
+    }
 }
 
 impl Display for TypedValue {
@@ -69,6 +105,12 @@ impl Display for Atom {
     }
 }
 
+impl From<&str> for Atom {
+    fn from(str: &str) -> Self {
+        return parse_atom(str);
+    }
+}
+
 impl Hash for Atom {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.symbol.hash(state);
@@ -85,6 +127,12 @@ pub type Body = Vec<Atom>;
 pub struct Rule {
     pub head: Atom,
     pub body: Body,
+}
+
+impl From<&str> for Rule {
+    fn from(str: &str) -> Self {
+        return parse_rule(str);
+    }
 }
 
 pub trait BottomUpEvaluator {

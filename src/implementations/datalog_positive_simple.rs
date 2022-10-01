@@ -226,8 +226,8 @@ mod tests {
 
     #[test]
     fn test_make_substitution() {
-        let rule_atom_0 = parse_atom("edge(?X, ?Y)");
-        let data_0 = parse_atom("edge(a,b)");
+        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
+        let data_0 = Atom::from("edge(a,b)");
 
         if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
             let expected_sub: Substitutions = vec![
@@ -244,8 +244,8 @@ mod tests {
 
     #[test]
     fn test_attempt_to_substitute() {
-        let rule_atom_0 = parse_atom("edge(?X, ?Y)");
-        let data_0 = parse_atom("edge(a,b)");
+        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
+        let data_0 = Atom::from("edge(a,b)");
 
         if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
             assert_eq!(data_0, attempt_to_rewrite(&sub, &rule_atom_0))
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_ground_atom() {
         let mut fact_store = Instance::new();
-        let rule_atom_0 = parse_atom("edge(?X, ?Y)");
+        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
         fact_store.insert(
             "edge",
             vec![
@@ -295,8 +295,8 @@ mod tests {
 
     #[test]
     fn test_is_ground() {
-        let rule_atom_0 = parse_atom("T(?X, ?Y, PLlab)");
-        let data_0 = parse_atom("T(student, takesClassesFrom, PLlab)");
+        let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
+        let data_0 = Atom::from("T(student, takesClassesFrom, PLlab)");
 
         assert_eq!(is_ground(&rule_atom_0), false);
         assert_eq!(is_ground(&data_0), true)
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_extend_substitutions() {
-        let rule_atom_0 = parse_atom("T(?X, ?Y, PLlab)");
+        let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
         let mut fact_store = Instance::new();
         fact_store.insert(
             "T",
@@ -357,8 +357,8 @@ mod tests {
 
     #[test]
     fn test_explode_body_substitutions() {
-        let rule_atom_0 = parse_atom("ancestor(?X, ?Y)");
-        let rule_atom_1 = parse_atom("ancestor(?Y, ?Z)");
+        let rule_atom_0 = Atom::from("ancestor(?X, ?Y)");
+        let rule_atom_1 = Atom::from("ancestor(?Y, ?Z)");
         let rule_body = vec![rule_atom_0, rule_atom_1];
 
         let mut fact_store = Instance::new();
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_program() {
-        let rule_0 = parse_rule("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let rule_0 = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
 
         let mut fact_store = Instance::new();
         fact_store.insert(
@@ -458,10 +458,10 @@ mod tests {
             .flat_map(|(k, v)| v)
             .collect();
         let expected_evaluation: HashSet<Vec<TypedValue>> = vec![
-            parse_atom("ancestor(adam, cthulu)"),
-            parse_atom("ancestor(vanasarvik, cthulu)"),
-            parse_atom("ancestor(eve, jumala)"),
-            parse_atom("ancestor(eve, cthulu)"),
+            Atom::from("ancestor(adam, cthulu)"),
+            Atom::from("ancestor(vanasarvik, cthulu)"),
+            Atom::from("ancestor(eve, jumala)"),
+            Atom::from("ancestor(eve, cthulu)"),
         ]
         .into_iter()
         .map(|atom| {
