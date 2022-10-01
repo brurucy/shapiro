@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use super::instance::Instance;
+
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum TypedValue {
     Str(String),
@@ -85,18 +87,12 @@ pub struct Rule {
     pub body: Body,
 }
 
-pub trait BottomUpEvaluator<I>
-where
-    I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom>,
-{
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> I;
+pub trait BottomUpEvaluator {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance;
 }
 
-pub trait TopDownEvaluator<I>
-where
-    I: IntoIterator<Item = Atom> + Clone + Default + Eq + FromIterator<Atom> + Extend<Atom>,
-{
-    fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> I;
+pub trait TopDownEvaluator {
+    fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> Instance;
 }
 
 pub fn remove_redundant_atoms(rule: &Rule) -> Rule {
@@ -167,6 +163,7 @@ pub fn duplicate_to_eq(rule: &Rule) -> Rule {
     return new_rule;
 }
 
+#[cfg(test)]
 mod tests {
     use crate::{models::datalog::duplicate_to_eq, parsers::datalog::parse_rule};
 

@@ -9,6 +9,7 @@ use super::{
 
 pub type Database = HashMap<String, Relation>;
 
+#[derive(Clone, PartialEq)]
 pub struct Instance {
     pub database: Database,
 }
@@ -41,13 +42,11 @@ impl Instance {
             .insert(relation.symbol.to_string(), relation.clone());
     }
     pub fn view(&self, table: &str) -> Vec<Vec<TypedValue>> {
-        return self
-            .database
-            .get(table)
-            .unwrap()
-            .clone()
-            .into_iter()
-            .collect();
+        if let Some(relation) = self.database.get(table) {
+            return relation.clone().into_iter().collect();
+        } else {
+            return vec![];
+        }
     }
     pub fn new() -> Self {
         return Self {

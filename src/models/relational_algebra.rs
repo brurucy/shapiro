@@ -142,13 +142,12 @@ impl Relation {
         };
     }
     pub fn get_row(&self, idx: usize) -> Row {
-        return
-            self
-                .columns
-                .clone()
-                .into_iter()
-                .map(|column| column.contents[idx].clone())
-                .collect()
+        return self
+            .columns
+            .clone()
+            .into_iter()
+            .map(|column| column.contents[idx].clone())
+            .collect();
     }
     pub fn new(schema: &RelationSchema) -> Self {
         let columns = schema
@@ -549,10 +548,8 @@ impl From<&Rule> for Expression {
         // Turning the body into products
         let products = rule_body_to_expression(&duplicate_to_eq_application);
         // Morphing relations with constants to selection equalities
-        let products_and_selections =
-            constant_to_selection(&products);
-        let mut expression =
-            equality_to_selection(&products_and_selections);
+        let products_and_selections = constant_to_selection(&products);
+        let mut expression = equality_to_selection(&products_and_selections);
         // Projecting the head
         let projection_idx = expression.allocate(&project_head(&duplicate_to_eq_application));
         expression.set_left_child(projection_idx, expression.root.unwrap());
@@ -563,7 +560,8 @@ impl From<&Rule> for Expression {
     }
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
     use crate::models::relational_algebra::{Expression, Term};
     use crate::parsers::datalog::{parse_atom, parse_rule};
 

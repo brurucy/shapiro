@@ -96,7 +96,8 @@ pub fn parse_rule(rule: &str) -> Rule {
     return Rule { head, body };
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
     use crate::models::datalog::Term::{Constant, Variable};
     use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
     use crate::parsers::datalog::{parse_atom, parse_rule};

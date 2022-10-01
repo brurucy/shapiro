@@ -32,7 +32,8 @@ pub enum DatalogToken<'a> {
     Error,
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
     use crate::lexers::datalog::DatalogToken;
     use logos::Logos;
     use ordered_float::OrderedFloat;

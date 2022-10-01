@@ -1,12 +1,11 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{
     Column, Expression, Index, Relation, SelectionTypedValue, Term,
 };
-use itertools::Itertools;
 
 pub fn select_value(
     relation: &Relation,
@@ -138,7 +137,12 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
     };
 }
 
-pub fn hash_join() -> Relation {
+pub fn hash_join(
+    left_relation: &Relation,
+    right_relation: &Relation,
+    left_index: usize,
+    right_index: usize,
+) -> Relation {
     todo!()
 }
 
@@ -341,7 +345,8 @@ pub fn evaluate(expr: &Expression, database: Database, new_symbol: &str) -> Rela
     return output;
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use crate::implementations::relational_algebra::{
