@@ -1,0 +1,86 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::time::Instant;
+use shapiro::ChibiDatalog;
+use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
+use shapiro::models::datalog::{BottomUpEvaluator, Rule};
+
+fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
+    return if let Ok(file) = File::open(filename) {
+        if let buffer = BufReader::new(file) {
+            Ok(buffer.lines().filter_map(|line| line.ok()))
+        } else {
+            Err("fail to make buffer")
+        }
+    } else {
+        Err("fail to open file")
+    };
+}
+
+pub fn load3enc<'a>(
+    filename: &str,
+) -> Result<impl Iterator<Item = (String,String, String)> + 'a, &'static str> {
+    match read_file(filename) {
+        Ok(file) => {
+            Ok(file.map(move |line| {
+                let mut split_line = line.split(' ');
+                let digit_one: String = split_line.next().unwrap().to_string();
+                let digit_two: String = split_line.next().unwrap().to_string();
+                let digit_three: String = split_line.next().unwrap().to_string();
+                (digit_one.clone(), digit_two.clone(), digit_three.clone())
+            }))
+        }
+        Err(msg) => Err(msg),
+    }
+}
+
+fn main() {
+    let program = vec![
+        Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]"),
+        Rule::from("T(?z, rdf:type, ?x) <- [T(?a, rdfs:range, ?x), T(?y, ?a, ?z)]"),
+        Rule::from("T(?x, rdfs:subPropertyOf, ?z) <- [T(?x, rdfs:subPropertyOf, ?y), T(?y, rdfs:subPropertyOf, ?z)]"),
+        Rule::from("T(?x, rdfs:subClassOf, ?z) <- [T(?x, rdfs:subClassOf, ?y), T(?y, rdfs:subClassOf, ?z)]"),
+        Rule::from("T(?z, rdf:type, ?y) <- [T(?x, rdfs:subClassOf, ?y), T(?z, rdf:type, ?x)]"),
+        Rule::from("T(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), T(?x, ?a, ?y)]"),
+    ];
+
+    const ABOX_LOCATION: &str = "./data/real_10000_abox.nt";
+    const TBOX_LOCATION: &str = "./data/real_tbox.nt";
+
+    let abox = load3enc(&ABOX_LOCATION).unwrap();
+    let tbox = load3enc(&TBOX_LOCATION).unwrap();
+
+    let mut simple_reasoner: SimpleDatalog = Default::default();
+    let mut infer_reasoner: ChibiDatalog = Default::default();
+
+    abox.chain(tbox).for_each(|row| {
+        let mut predicate = row.2.clone();
+        match row.2 {
+            "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" => {
+                predicate = "rdf:type"
+            }
+            _ => {
+
+            }
+        }
+        simple_reasoner.fact_store.insert("T", vec![
+            Box::new(row.clone().0),
+            Box::new(row.clone().1),
+            Box::new(row.clone().2)
+        ]);
+        infer_reasoner.fact_store.insert("T", vec![
+            Box::new(row.0),
+            Box::new(row.1),
+            Box::new(row.2)
+        ])
+    });
+
+    println!("starting bench");
+    let mut now = Instant::now();
+    simple_reasoner.evaluate_program_bottom_up(program.clone());
+    println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
+
+    now = Instant::now();
+    infer_reasoner.evaluate_program_bottom_up(program.clone());
+    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
+}
