@@ -5,10 +5,33 @@ use crate::models::datalog::{Atom, Ty};
 
 use super::{
     datalog::TypedValue,
-    relational_algebra::{ColumnType, RelationalExpression, Relation},
+    relational_algebra::{ColumnType, Relation, RelationalExpression},
 };
 
 pub type Database = HashMap<String, Relation>;
+
+pub enum IndexBacking {
+    Hash,
+    BTree,
+    SkipList,
+    Spine,
+}
+
+pub struct InstanceCfg {
+    pub lazy_indexing: bool,
+    pub index_backing: IndexBacking,
+    pub joins: bool,
+}
+
+impl Default for InstanceCfg {
+    fn default() -> Self {
+        return InstanceCfg {
+            lazy_indexing: false,
+            index_backing: IndexBacking::BTree,
+            joins: true,
+        };
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub struct Instance {
@@ -64,7 +87,10 @@ impl Instance {
             .insert(relation.symbol.to_string(), relation.clone());
     }
     pub fn insert_atom(&mut self, atom: &Atom) {
-        let row = (&atom.terms).into_iter().map(|term| term.clone().into()).collect();
+        let row = (&atom.terms)
+            .into_iter()
+            .map(|term| term.clone().into())
+            .collect();
         self.insert_typed(&atom.symbol.to_string(), row)
     }
     pub fn view(&self, table: &str) -> Vec<Vec<TypedValue>> {
@@ -72,7 +98,7 @@ impl Instance {
             relation.clone().into_iter().collect()
         } else {
             vec![]
-        }
+        };
     }
     pub fn new() -> Self {
         return Self {
