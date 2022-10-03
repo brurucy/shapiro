@@ -42,13 +42,13 @@ fn main() {
         Rule::from("T(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), T(?x, ?a, ?y)]"),
     ];
 
-    const ABOX_LOCATION: &str = "./data/real_100_abox.nt";
+    const ABOX_LOCATION: &str = "./data/real_10000_abox.nt";
     const TBOX_LOCATION: &str = "./data/real_tbox.nt";
 
     let abox = load3enc(&ABOX_LOCATION).unwrap();
     let tbox = load3enc(&TBOX_LOCATION).unwrap();
 
-    let mut simple_reasoner: SimpleDatalog = Default::default();
+    let mut lazy_simple_reasoner: SimpleDatalog = Default::default();
     let mut infer_reasoner: ChibiDatalog = Default::default();
 
     abox.chain(tbox).for_each(|row| {
@@ -64,7 +64,7 @@ fn main() {
         } else if predicate.clone().contains("subClassOf") {
             predicate = "rdfs:subClassOf".to_string()
         }
-        simple_reasoner.fact_store.insert(
+        lazy_simple_reasoner.fact_store.insert(
             "T",
             vec![
                 Box::new(row.clone().0),
@@ -80,8 +80,11 @@ fn main() {
 
     println!("starting bench");
     let mut now = Instant::now();
-    let simple_triples = simple_reasoner.evaluate_program_bottom_up(program.clone());
-    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
+    let simple_triples = lazy_simple_reasoner.evaluate_program_bottom_up(program.clone());
+    println!(
+        "reasoning time - lazy simple: {} ms",
+        now.elapsed().as_millis()
+    );
     println!(
         "triples - simple: {}",
         simple_triples.database.get("T").unwrap().columns[0]

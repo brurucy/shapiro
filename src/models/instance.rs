@@ -36,6 +36,7 @@ impl Default for InstanceCfg {
 #[derive(Clone, PartialEq)]
 pub struct Instance {
     pub database: Database,
+    lazy_index: bool,
 }
 
 impl Instance {
@@ -103,6 +104,13 @@ impl Instance {
     pub fn new() -> Self {
         return Self {
             database: HashMap::new(),
+            lazy_index: false,
+        };
+    }
+    pub fn new_cfg(cfg: InstanceCfg) -> Self {
+        return Self {
+            database: HashMap::new(),
+            lazy_index: cfg.lazy_indexing,
         };
     }
     pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation> {

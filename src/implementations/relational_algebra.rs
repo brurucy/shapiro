@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{
-    Column, RelationalExpression, Index, Relation, SelectionTypedValue, Term,
+    Column, Index, Relation, RelationalExpression, Row, SelectionTypedValue, Term,
 };
 
 pub fn select_value(
@@ -67,6 +67,7 @@ pub fn select_value(
         columns,
         ward,
         indexes,
+        ..Default::default()
     };
 }
 
@@ -113,6 +114,7 @@ pub fn select_equality(
         columns,
         ward,
         indexes,
+        ..Default::default()
     };
 }
 
@@ -170,6 +172,7 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
         ward,
         indexes,
+        ..Default::default()
     };
 }
 
@@ -179,7 +182,65 @@ pub fn hash_join(
     left_index: usize,
     right_index: usize,
 ) -> Relation {
-    todo!()
+    let columns: Vec<Column> = left_relation
+        .columns
+        .clone()
+        .into_iter()
+        .chain(right_relation.columns.clone().into_iter())
+        .map(|column| Column {
+            contents: vec![],
+            ty: column.ty,
+        })
+        .collect();
+    let ward = HashSet::new();
+
+    let indexes: Vec<Index> = left_relation
+        .indexes
+        .clone()
+        .into_iter()
+        .chain(right_relation.indexes.clone().into_iter())
+        .map(|_| Index {
+            index: BTreeSet::new(),
+            active: false,
+        })
+        .collect();
+
+    let mut result = Relation {
+        columns: columns.clone(),
+        symbol: left_relation.symbol.to_string() + &right_relation.symbol,
+        indexes: indexes.clone(),
+        ward,
+        ..Default::default()
+    };
+
+    let builder = left_relation
+        .clone()
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, curr| {
+            if !acc.contains_key(&curr[left_index]) {
+                acc.insert(curr[left_index].clone(), vec![curr]);
+            } else {
+                let rows = acc.get_mut(&curr[left_index]).unwrap();
+                rows.push(curr);
+            }
+            acc
+        });
+
+    right_relation.clone().into_iter().for_each(|right_row| {
+        if let Some(row_set) = builder.get(&right_row[right_index]) {
+            row_set.into_iter().for_each(|left_row| {
+                result.insert_typed(
+                    &left_row
+                        .clone()
+                        .into_iter()
+                        .chain(right_row.clone().into_iter())
+                        .collect::<Vec<TypedValue>>(),
+                )
+            })
+        }
+    });
+
+    return result;
 }
 
 pub fn join(
@@ -228,6 +289,7 @@ pub fn join(
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
         indexes: indexes.clone(),
         ward,
+        ..Default::default()
     };
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
@@ -299,22 +361,20 @@ pub fn join(
     return result;
 }
 
-pub fn project(relation: &Relation, column_indexes: &Vec<SelectionTypedValue>, new_symbol: &str) -> Relation {
+pub fn project(
+    relation: &Relation,
+    column_indexes: &Vec<SelectionTypedValue>,
+    new_symbol: &str,
+) -> Relation {
     let columns: Vec<Column> = column_indexes
         .clone()
         .into_iter()
-        .map(|column_idx| {
-            match column_idx {
-                SelectionTypedValue::Column(idx) => {
-                    relation.columns[idx].clone()
-                }
-                _ => {
-                    Column {
-                        ty: column_idx.clone().try_into().unwrap(),
-                        contents: vec![column_idx.try_into().unwrap(); relation.columns[0].contents.len()],
-                    }
-                }
-            }
+        .map(|column_idx| match column_idx {
+            SelectionTypedValue::Column(idx) => relation.columns[idx].clone(),
+            _ => Column {
+                ty: column_idx.clone().try_into().unwrap(),
+                contents: vec![column_idx.try_into().unwrap(); relation.columns[0].contents.len()],
+            },
         })
         .collect();
     let ward = relation
@@ -325,23 +385,20 @@ pub fn project(relation: &Relation, column_indexes: &Vec<SelectionTypedValue>, n
             column_indexes
                 .clone()
                 .into_iter()
-                .map(|column_idx|
-                    match column_idx {
-                        SelectionTypedValue::Column(idx) => {
-                            row[idx].clone()
-                        }
-                        _ => {
-                            column_idx.try_into().unwrap()
-                        }
-                    }
-                )
+                .map(|column_idx| match column_idx {
+                    SelectionTypedValue::Column(idx) => row[idx].clone(),
+                    _ => column_idx.try_into().unwrap(),
+                })
                 .collect()
         })
         .collect();
     let indexes: Vec<Index> = column_indexes
         .clone()
         .into_iter()
-        .map(|_| Index { index: Default::default(), active: false })
+        .map(|_| Index {
+            index: Default::default(),
+            active: false,
+        })
         .collect();
 
     return Relation {
@@ -349,10 +406,15 @@ pub fn project(relation: &Relation, column_indexes: &Vec<SelectionTypedValue>, n
         columns,
         ward,
         indexes,
+        ..Default::default()
     };
 }
 
-pub fn evaluate(expr: &RelationalExpression, database: &Database, new_symbol: &str) -> Option<Relation> {
+pub fn evaluate(
+    expr: &RelationalExpression,
+    database: &Database,
+    new_symbol: &str,
+) -> Option<Relation> {
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
 
@@ -362,36 +424,29 @@ pub fn evaluate(expr: &RelationalExpression, database: &Database, new_symbol: &s
                 let left_subtree = expr.branch_at(root_node.left_child.unwrap());
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
-                let left_subtree_evaluation =
-                    evaluate(&left_subtree, database, new_symbol);
+                let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
 
                 if let Some(left_relation) = left_subtree_evaluation {
-                    let right_subtree_evaluation =
-                        evaluate(&right_subtree, database, new_symbol);
+                    let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
                     if let Some(right_relation) = right_subtree_evaluation {
-                        return Some(product(
-                            &left_relation,
-                            &right_relation,
-                        ));
+                        return Some(product(&left_relation, &right_relation));
                     }
                 }
 
-                return None
+                return None;
             }
             Term::Join(left_column_idx, right_column_idx) => {
                 let left_subtree = expr.branch_at(root_node.left_child.unwrap());
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
-                let left_subtree_evaluation =
-                    evaluate(&left_subtree, database, new_symbol);
+                let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
 
                 if let Some(mut left_relation) = left_subtree_evaluation {
-                    left_relation.activate_index(left_column_idx);
-                    let right_subtree_evaluation =
-                        evaluate(&right_subtree, database, new_symbol);
+                    //left_relation.activate_index(left_column_idx);
+                    let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
                     if let Some(mut right_relation) = right_subtree_evaluation {
-                        right_relation.activate_index(right_column_idx);
-                        return Some(join(
+                        //right_relation.activate_index(right_column_idx);
+                        return Some(hash_join(
                             &left_relation,
                             &right_relation,
                             left_column_idx,
@@ -406,38 +461,40 @@ pub fn evaluate(expr: &RelationalExpression, database: &Database, new_symbol: &s
                 let left_subtree = expr.branch_at(root_node.left_child.unwrap());
 
                 match unary_operators {
-                    Term::Selection(column_index, selection_target) => return match selection_target {
-                        SelectionTypedValue::Column(idx) => {
-                            let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                            if let Some(relation) = evaluation {
-                                Some(select_equality(relation, column_index, idx))
-                            } else {
-                                None
+                    Term::Selection(column_index, selection_target) => {
+                        return match selection_target {
+                            SelectionTypedValue::Column(idx) => {
+                                let evaluation = &evaluate(&left_subtree, database, new_symbol);
+                                if let Some(relation) = evaluation {
+                                    Some(select_equality(relation, column_index, idx))
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => {
+                                let evaluation = &evaluate(&left_subtree, database, new_symbol);
+                                if let Some(relation) = evaluation {
+                                    Some(select_value(relation, column_index, selection_target))
+                                } else {
+                                    None
+                                }
                             }
                         }
-                        _ => {
-                            let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                            if let Some(relation) = evaluation {
-                                Some(select_value(relation, column_index, selection_target))
-                            } else {
-                                None
-                            }
-                        }
-                    },
+                    }
                     Term::Projection(column_idxs) => {
                         let evaluation = &evaluate(&left_subtree, database, new_symbol);
                         return if let Some(relation) = evaluation {
                             return Some(project(relation, &column_idxs, new_symbol));
                         } else {
-                            return None
-                        }
+                            return None;
+                        };
                     }
                     _ => {}
                 }
             }
         }
     }
-    return None
+    return None;
 }
 
 #[cfg(test)]
@@ -450,19 +507,26 @@ mod tests {
     use crate::models::datalog::{Rule, Ty, TypedValue};
     use crate::models::instance::Instance;
     use crate::models::relational_algebra::{
-        Column, ColumnType, RelationalExpression, Index, Relation, RelationSchema, SelectionTypedValue,
+        Column, ColumnType, Index, Relation, RelationSchema, RelationalExpression,
+        SelectionTypedValue,
     };
 
     #[test]
     fn select_value_test() {
-        let mut relation = Relation::new(&RelationSchema{ column_types: vec![ColumnType::Bool, ColumnType::UInt], symbol: "four".to_string()});
+        let mut relation = Relation::new(&RelationSchema {
+            column_types: vec![ColumnType::Bool, ColumnType::UInt],
+            symbol: "four".to_string(),
+        });
         let relation_data = vec![(true, 1), (true, 4), (false, 4)];
         relation_data.into_iter().for_each(|tuple| {
             relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
 
         let expected_selection_data = vec![(true, 4), (false, 4)];
-        let mut expected_selection = Relation::new(&RelationSchema{ column_types: vec![ColumnType::Bool, ColumnType::UInt], symbol: relation.symbol.to_string() });
+        let mut expected_selection = Relation::new(&RelationSchema {
+            column_types: vec![ColumnType::Bool, ColumnType::UInt],
+            symbol: relation.symbol.to_string(),
+        });
         expected_selection_data.into_iter().for_each(|tuple| {
             expected_selection.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
@@ -473,16 +537,30 @@ mod tests {
 
     #[test]
     fn select_equality_test() {
-        let mut relation = Relation::new(&RelationSchema{ column_types: vec![ColumnType::Bool, ColumnType::UInt, ColumnType::UInt], symbol: "four".to_string() });
+        let mut relation = Relation::new(&RelationSchema {
+            column_types: vec![ColumnType::Bool, ColumnType::UInt, ColumnType::UInt],
+            symbol: "four".to_string(),
+        });
         let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
         rel_data.into_iter().for_each(|tuple| {
-            relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1), Box::new(tuple.2)]);
+            relation.insert(vec![
+                Box::new(tuple.0),
+                Box::new(tuple.1),
+                Box::new(tuple.2),
+            ]);
         });
 
         let expected_selection_data = vec![(true, 4, 4), (false, 4, 4)];
-        let mut expected_selection = Relation::new(&RelationSchema{ column_types: vec![ColumnType::Bool, ColumnType::UInt, ColumnType::UInt], symbol: relation.symbol.to_string() });
+        let mut expected_selection = Relation::new(&RelationSchema {
+            column_types: vec![ColumnType::Bool, ColumnType::UInt, ColumnType::UInt],
+            symbol: relation.symbol.to_string(),
+        });
         expected_selection_data.into_iter().for_each(|tuple| {
-            expected_selection.insert(vec![Box::new(tuple.0), Box::new(tuple.1), Box::new(tuple.2)]);
+            expected_selection.insert(vec![
+                Box::new(tuple.0),
+                Box::new(tuple.1),
+                Box::new(tuple.2),
+            ]);
         });
 
         let actual_selection = select_equality(&relation, 1, 2);
@@ -517,9 +595,10 @@ mod tests {
             (1002, "Charmander"),
             (1003, "Squirtle"),
         ];
-        right_data.clone().into_iter().for_each(|tuple| {
-            right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)])
-        });
+        right_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
         let mut expected_product = Relation::new(&RelationSchema {
             column_types: vec![
@@ -535,7 +614,12 @@ mod tests {
             .into_iter()
             .cartesian_product(right_data.into_iter())
             .for_each(|tuple| {
-                expected_product.insert(vec![Box::new(tuple.0.0), Box::new(tuple.0.1), Box::new(tuple.1.0), Box::new(tuple.1.1)]);
+                expected_product.insert(vec![
+                    Box::new(tuple.0 .0),
+                    Box::new(tuple.0 .1),
+                    Box::new(tuple.1 .0),
+                    Box::new(tuple.1 .1),
+                ]);
             });
 
         let actual_product = product(&left_relation, &right_relation);
@@ -555,9 +639,10 @@ mod tests {
             (1004, "Michael"),
             (1005, "Rucy"),
         ];
-        left_data.clone().into_iter().for_each(|tuple| {
-            left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)])
-        });
+        left_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
         left_relation.activate_index(0);
 
         let mut right_relation = Relation::new(&RelationSchema {
@@ -569,13 +654,19 @@ mod tests {
             (1002, "Charmander"),
             (1003, "Squirtle"),
         ];
-        right_data.clone().into_iter().for_each(|tuple| {
-            right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)])
-        });
+        right_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
         right_relation.activate_index(0);
 
         let mut expected_join = Relation::new(&RelationSchema {
-            column_types: vec![ColumnType::UInt, ColumnType::Str, ColumnType::UInt, ColumnType::Str],
+            column_types: vec![
+                ColumnType::UInt,
+                ColumnType::Str,
+                ColumnType::UInt,
+                ColumnType::Str,
+            ],
             symbol: left_relation.symbol.to_string() + &right_relation.symbol.to_string(),
         });
         let expected_join_data = vec![
@@ -610,8 +701,8 @@ mod tests {
             ("eve", "adam"),
             ("jumala", "cthulu"),
         ]
-            .into_iter()
-            .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
+        .into_iter()
+        .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
         vec![
             ("adam", "human"),
@@ -620,23 +711,20 @@ mod tests {
             ("jumala", "demiGod"),
             ("cthulu", "demiGod"),
         ]
-            .into_iter()
-            .for_each(|tuple| instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)]));
+        .into_iter()
+        .for_each(|tuple| {
+            instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
+        });
 
         let mut expected_relation = Relation::new(&RelationSchema {
             column_types: vec![ColumnType::Str, ColumnType::Str],
             symbol: "ancestor".to_string(),
         });
-        let expected_relation_data = vec![
-            ("adam", "cthulu"),
-            ("vanasarvik", "cthulu"),
-        ];
-        expected_relation_data.clone().into_iter().for_each(|tuple| {
-            expected_relation.insert(vec![
-                Box::new(tuple.0),
-                Box::new(tuple.1)
-            ])
-        });
+        let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];
+        expected_relation_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| expected_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
         let actual_relation = instance.evaluate(&expression, "ancestor");
 

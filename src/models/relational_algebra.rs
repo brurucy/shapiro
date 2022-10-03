@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
-use ordered_float::OrderedFloat;
 use crate::models::datalog::Ty;
+use ordered_float::OrderedFloat;
 
 use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule, TypedValue};
 use super::tree::Tree;
@@ -74,6 +74,7 @@ pub struct Relation {
     pub symbol: String,
     pub indexes: Vec<Index>,
     pub ward: HashSet<Row>,
+    pub(crate) lazy_index: bool,
 }
 
 pub struct RelationSchema {
@@ -83,36 +84,38 @@ pub struct RelationSchema {
 
 impl Relation {
     pub fn activate_index(&mut self, idx: usize) {
-        if let Some(index) = self.indexes.get_mut(idx) {
-            index.index.extend(
-                self.columns[idx]
-                    .contents
+        if self.lazy_index {
+            if let Some(index) = self.indexes.get_mut(idx) {
+                index.index.extend(
+                    self.columns[idx]
+                        .contents
+                        .clone()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(row_id, column_value)| (column_value, row_id)),
+                );
+                self.indexes[idx].active = true
+            } else {
+                self.columns
                     .clone()
                     .into_iter()
                     .enumerate()
-                    .map(|(row_id, column_value)| (column_value, row_id)),
-            );
-            self.indexes[idx].active = true
-        } else {
-            self.columns
-                .clone()
-                .into_iter()
-                .enumerate()
-                .for_each(|(column_idx, column)| {
-                    let mut new_index = Index {
-                        index: BTreeSet::new(),
-                        active: false,
-                    };
-                    if column_idx == idx {
-                        new_index.active = true;
-                        column.contents.clone().into_iter().enumerate().for_each(
-                            |(row_id, column_value)| {
-                                new_index.index.insert((column_value, row_id));
-                            },
-                        )
-                    };
-                    self.indexes.push(new_index);
-                })
+                    .for_each(|(column_idx, column)| {
+                        let mut new_index = Index {
+                            index: BTreeSet::new(),
+                            active: false,
+                        };
+                        if column_idx == idx {
+                            new_index.active = true;
+                            column.contents.clone().into_iter().enumerate().for_each(
+                                |(row_id, column_value)| {
+                                    new_index.index.insert((column_value, row_id));
+                                },
+                            )
+                        };
+                        self.indexes.push(new_index);
+                    })
+            }
         }
     }
     pub(crate) fn insert_typed(&mut self, row: &Vec<TypedValue>) {
@@ -141,9 +144,11 @@ impl Relation {
             self.ward.insert(row.clone());
         }
     }
-    pub fn insert(&mut self, row: Vec<Box<dyn Ty>>)
-    {
-        let typed_row = row.into_iter().map(|element| element.to_typed_value()).collect();
+    pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
+        let typed_row = row
+            .into_iter()
+            .map(|element| element.to_typed_value())
+            .collect();
         self.insert_typed(&typed_row)
     }
     fn iter(&self) -> RowIterator {
@@ -190,6 +195,7 @@ impl Relation {
             symbol: schema.symbol.to_string(),
             indexes,
             ward: HashSet::new(),
+            ..Default::default()
         }
     }
 }
@@ -201,6 +207,7 @@ impl Default for Relation {
             symbol: "default".to_string(),
             indexes: vec![],
             ward: HashSet::new(),
+            lazy_index: true,
         };
     }
 }
@@ -228,14 +235,14 @@ impl From<TypedValue> for SelectionTypedValue {
             TypedValue::Str(inner) => SelectionTypedValue::Str(inner),
             TypedValue::Bool(inner) => SelectionTypedValue::Bool(inner),
             TypedValue::UInt(inner) => SelectionTypedValue::UInt(inner),
-            TypedValue::Float(inner) => SelectionTypedValue::Float(inner)
-        }
+            TypedValue::Float(inner) => SelectionTypedValue::Float(inner),
+        };
     }
 }
 
 impl From<usize> for SelectionTypedValue {
     fn from(ty: usize) -> Self {
-        return SelectionTypedValue::Column(ty)
+        return SelectionTypedValue::Column(ty);
     }
 }
 
@@ -243,12 +250,12 @@ impl TryInto<TypedValue> for SelectionTypedValue {
     type Error = ();
 
     fn try_into(self) -> Result<TypedValue, Self::Error> {
-       return match self {
+        return match self {
             SelectionTypedValue::Str(inner) => Ok(TypedValue::Str(inner)),
             SelectionTypedValue::Bool(inner) => Ok(TypedValue::Bool(inner)),
             SelectionTypedValue::UInt(inner) => Ok(TypedValue::UInt(inner)),
             SelectionTypedValue::Float(inner) => Ok(TypedValue::Float(inner)),
-            SelectionTypedValue::Column(_inner) => Err(())
+            SelectionTypedValue::Column(_inner) => Err(()),
         };
     }
 }
@@ -262,8 +269,8 @@ impl TryInto<ColumnType> for SelectionTypedValue {
             SelectionTypedValue::Bool(_) => Ok(ColumnType::Bool),
             SelectionTypedValue::UInt(_) => Ok(ColumnType::UInt),
             SelectionTypedValue::Column(_) => Err(()),
-            SelectionTypedValue::Float(_) => Ok(ColumnType::OrderedFloat)
-        }
+            SelectionTypedValue::Float(_) => Ok(ColumnType::OrderedFloat),
+        };
     }
 }
 
@@ -596,13 +603,15 @@ fn project_head(rule: &Rule) -> Term {
         .into_iter()
         .map(|head_term| {
             if let datalog::Term::Constant(constant) = head_term {
-                return SelectionTypedValue::from(constant)
+                return SelectionTypedValue::from(constant);
             }
-            return SelectionTypedValue::from(rule_body_terms
-                .clone()
-                .into_iter()
-                .position(|term| term == head_term)
-                .unwrap())
+            return SelectionTypedValue::from(
+                rule_body_terms
+                    .clone()
+                    .into_iter()
+                    .position(|term| term == head_term)
+                    .unwrap(),
+            );
         })
         .collect();
 
@@ -647,8 +656,7 @@ mod tests {
 
     #[test]
     fn test_rule_to_expression_complex() {
-        let rule =
-            Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
+        let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
         let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
