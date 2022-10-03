@@ -5,7 +5,7 @@ pub mod lexers;
 pub mod models;
 pub mod parsers;
 
-pub use implementations::datalog_positive_simple::ChibiDatalog;
+pub use implementations::datalog_positive_infer::ChibiDatalog;
 
 #[cfg(test)]
 mod tests {
@@ -20,22 +20,22 @@ mod tests {
         reasoner.fact_store.insert(
             "edge",
             vec![
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("b".to_string()),
+                Box::new("a".to_string()),
+                Box::new("b".to_string()),
             ],
         );
         reasoner.fact_store.insert(
             "edge",
             vec![
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("c".to_string()),
+                Box::new("b".to_string()),
+                Box::new("c".to_string()),
             ],
         );
         reasoner.fact_store.insert(
             "edge",
             vec![
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("d".to_string()),
+                Box::new("b".to_string()),
+                Box::new("d".to_string()),
             ],
         );
 
@@ -44,9 +44,8 @@ mod tests {
                 parse_rule("reachable(?x, ?y) <- [edge(?x, ?y)]"),
                 parse_rule("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
             ])
-            .database
+            .view("reachable")
             .into_iter()
-            .flat_map(|(_k, v)| v.into_iter().collect::<Vec<Vec<TypedValue>>>())
             .collect();
 
         let expected_new_tuples: HashSet<Vec<TypedValue>> = vec![

@@ -4,6 +4,7 @@ use crate::models::{
     relational_algebra::{Column, Relation},
 };
 use std::collections::HashMap;
+use std::time::Instant;
 
 // This is an implementation of the simplest datalog algorithm, INFER1
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
@@ -165,7 +166,9 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
                 relation
                     .1
                     .into_iter()
-                    .for_each(|row| edb_plus_previous_delta.insert_typed(&relation.0, row))
+                    .for_each(|row| {
+                        edb_plus_previous_delta.insert_typed(&relation.0, row)
+                    })
             });
         current_delta = Instance::new();
         program.clone().into_iter().for_each(|rule| {
@@ -176,7 +179,6 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
                 })
             }
         });
-
         if previous_delta == current_delta {
             break;
         }
@@ -205,7 +207,7 @@ impl Default for ChibiDatalog {
 
 #[cfg(test)]
 mod tests {
-    use crate::implementations::datalog_positive_simple::{
+    use crate::implementations::datalog_positive_infer::{
         accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite,
         evaluate_program, is_ground, make_substitutions,
     };
@@ -442,10 +444,10 @@ mod tests {
         );
 
         let evaluation: HashSet<Vec<TypedValue>> = evaluate_program(&fact_store, vec![rule_0])
-            .database
+            .view("ancestor")
             .into_iter()
-            .flat_map(|(k, v)| v)
             .collect();
+
         let expected_evaluation: HashSet<Vec<TypedValue>> = vec![
             Atom::from("ancestor(adam, cthulu)"),
             Atom::from("ancestor(vanasarvik, cthulu)"),

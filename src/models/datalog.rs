@@ -2,6 +2,7 @@ use ordered_float::{Float, OrderedFloat};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use crate::lexers::datalog::DatalogToken::Error;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -64,6 +65,17 @@ impl Display for TypedValue {
 pub enum Term {
     Constant(TypedValue),
     Variable(String),
+}
+
+impl Into<TypedValue> for Term {
+    fn into(self) -> TypedValue {
+        match self {
+            Term::Constant(constant) => constant,
+            Term::Variable(name) => {
+                panic!("cannot insert not-ground atom")
+            }
+        }
+    }
 }
 
 impl Display for Term {

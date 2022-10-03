@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
 use ordered_float::OrderedFloat;
+use crate::models::datalog::Ty;
 
 use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule, TypedValue};
 use super::tree::Tree;
@@ -114,7 +115,7 @@ impl Relation {
                 })
         }
     }
-    pub fn insert(&mut self, row: &Vec<TypedValue>) {
+    pub(crate) fn insert_typed(&mut self, row: &Vec<TypedValue>) {
         if !self.ward.contains(row) {
             let active_indexes: HashSet<usize> = self
                 .indexes
@@ -140,6 +141,11 @@ impl Relation {
             self.ward.insert(row.clone());
         }
     }
+    pub fn insert(&mut self, row: Vec<Box<dyn Ty>>)
+    {
+        let typed_row = row.into_iter().map(|element| element.to_typed_value()).collect();
+        self.insert_typed(&typed_row)
+    }
     fn iter(&self) -> RowIterator {
         return RowIterator {
             relation: self.clone(),
@@ -160,10 +166,10 @@ impl Relation {
             .clone()
             .into_iter()
             .map(|ty| {
-                return (Column {
+                return Column {
                     ty,
                     contents: vec![],
-                });
+                };
             })
             .collect();
 
@@ -263,10 +269,10 @@ impl Display for Term {
     }
 }
 
-pub type Expression = Tree<Term>;
+pub type RelationalExpression = Tree<Term>;
 
 // Paper: SkipList + Roaring Bitmap + BTree + Fenwick Indexed Tree
-pub fn select_product_to_join(expr: &Expression) -> Expression {
+pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
 
@@ -395,10 +401,10 @@ pub fn select_product_to_join(expr: &Expression) -> Expression {
 }
 
 // The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
-fn rule_body_to_expression(rule: &Rule) -> Expression {
+fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
     let rule_body = rule.body.clone();
 
-    let mut expression = Expression::new();
+    let mut expression = RelationalExpression::new();
 
     let mut body_iter = rule_body.into_iter().peekable();
 
@@ -426,7 +432,7 @@ fn rule_body_to_expression(rule: &Rule) -> Expression {
     return expression;
 }
 
-fn constant_to_selection(expr: &Expression) -> Expression {
+fn constant_to_selection(expr: &RelationalExpression) -> RelationalExpression {
     let mut expression = expr.clone();
     expression.arena.clone().into_iter().for_each(|node| {
         if let Term::Relation(atom) = node.value {
@@ -482,7 +488,7 @@ fn constant_to_selection(expr: &Expression) -> Expression {
     return expression;
 }
 
-fn equality_to_selection(expr: &Expression) -> Expression {
+fn equality_to_selection(expr: &RelationalExpression) -> RelationalExpression {
     let mut expression = expr.clone();
     let relations = expression.arena.clone().into_iter().enumerate().fold(
         vec![],
@@ -557,7 +563,7 @@ fn project_head(rule: &Rule) -> Term {
     return Term::Projection(projected_head_indexes.clone());
 }
 
-impl From<&Rule> for Expression {
+impl From<&Rule> for RelationalExpression {
     fn from(rule: &Rule) -> Self {
         // Shifting complexity from the head to the body
         let constant_pushing_application = constant_to_eq(rule);
@@ -580,7 +586,7 @@ impl From<&Rule> for Expression {
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::Rule;
-    use crate::models::relational_algebra::Expression;
+    use crate::models::relational_algebra::RelationalExpression;
 
     #[test]
     fn test_rule_to_expression() {
@@ -589,7 +595,7 @@ mod tests {
 
         let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
-        let actual_expression = Expression::from(&rule).to_string();
+        let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)
     }
 }
