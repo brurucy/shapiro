@@ -299,11 +299,23 @@ pub fn join(
     return result;
 }
 
-pub fn project(relation: &Relation, column_indexes: &Vec<usize>, new_symbol: &str) -> Relation {
+pub fn project(relation: &Relation, column_indexes: &Vec<SelectionTypedValue>, new_symbol: &str) -> Relation {
     let columns: Vec<Column> = column_indexes
         .clone()
         .into_iter()
-        .map(|column_idx| relation.columns[column_idx].clone())
+        .map(|column_idx| {
+            match column_idx {
+                SelectionTypedValue::Column(idx) => {
+                    relation.columns[idx].clone()
+                }
+                _ => {
+                    Column {
+                        ty: column_idx.clone().try_into().unwrap(),
+                        contents: vec![column_idx.try_into().unwrap(); relation.columns[0].contents.len()],
+                    }
+                }
+            }
+        })
         .collect();
     let ward = relation
         .ward
@@ -313,7 +325,16 @@ pub fn project(relation: &Relation, column_indexes: &Vec<usize>, new_symbol: &st
             column_indexes
                 .clone()
                 .into_iter()
-                .map(|column_idx| row[column_idx].clone())
+                .map(|column_idx|
+                    match column_idx {
+                        SelectionTypedValue::Column(idx) => {
+                            row[idx].clone()
+                        }
+                        _ => {
+                            column_idx.try_into().unwrap()
+                        }
+                    }
+                )
                 .collect()
         })
         .collect();

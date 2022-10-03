@@ -222,6 +222,51 @@ pub enum SelectionTypedValue {
     Float(OrderedFloat<f64>),
 }
 
+impl From<TypedValue> for SelectionTypedValue {
+    fn from(ty: TypedValue) -> Self {
+        return match ty {
+            TypedValue::Str(inner) => SelectionTypedValue::Str(inner),
+            TypedValue::Bool(inner) => SelectionTypedValue::Bool(inner),
+            TypedValue::UInt(inner) => SelectionTypedValue::UInt(inner),
+            TypedValue::Float(inner) => SelectionTypedValue::Float(inner)
+        }
+    }
+}
+
+impl From<usize> for SelectionTypedValue {
+    fn from(ty: usize) -> Self {
+        return SelectionTypedValue::Column(ty)
+    }
+}
+
+impl TryInto<TypedValue> for SelectionTypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<TypedValue, Self::Error> {
+       return match self {
+            SelectionTypedValue::Str(inner) => Ok(TypedValue::Str(inner)),
+            SelectionTypedValue::Bool(inner) => Ok(TypedValue::Bool(inner)),
+            SelectionTypedValue::UInt(inner) => Ok(TypedValue::UInt(inner)),
+            SelectionTypedValue::Float(inner) => Ok(TypedValue::Float(inner)),
+            SelectionTypedValue::Column(_inner) => Err(())
+        };
+    }
+}
+
+impl TryInto<ColumnType> for SelectionTypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<ColumnType, Self::Error> {
+        return match self {
+            SelectionTypedValue::Str(_) => Ok(ColumnType::Str),
+            SelectionTypedValue::Bool(_) => Ok(ColumnType::Bool),
+            SelectionTypedValue::UInt(_) => Ok(ColumnType::UInt),
+            SelectionTypedValue::Column(_) => Err(()),
+            SelectionTypedValue::Float(_) => Ok(ColumnType::OrderedFloat)
+        }
+    }
+}
+
 impl Display for SelectionTypedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -239,7 +284,7 @@ impl Display for SelectionTypedValue {
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum Term {
     Selection(usize, SelectionTypedValue),
-    Projection(Vec<usize>),
+    Projection(Vec<SelectionTypedValue>),
     Relation(Atom),
     Product,
     Join(usize, usize),
@@ -271,7 +316,6 @@ impl Display for Term {
 
 pub type RelationalExpression = Tree<Term>;
 
-// Paper: SkipList + Roaring Bitmap + BTree + Fenwick Indexed Tree
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
@@ -545,18 +589,20 @@ fn project_head(rule: &Rule) -> Term {
         .flat_map(|body_atom| body_atom.terms.clone())
         .collect();
 
-    let projected_head_indexes: Vec<usize> = rule
+    let projected_head_indexes: Vec<SelectionTypedValue> = rule
         .head
         .terms
         .clone()
         .into_iter()
         .map(|head_term| {
-            Option::unwrap(
-                rule_body_terms
-                    .clone()
-                    .into_iter()
-                    .position(|term| term == head_term),
-            )
+            if let datalog::Term::Constant(constant) = head_term {
+                return SelectionTypedValue::from(constant)
+            }
+            return SelectionTypedValue::from(rule_body_terms
+                .clone()
+                .into_iter()
+                .position(|term| term == head_term)
+                .unwrap())
         })
         .collect();
 
@@ -566,15 +612,15 @@ fn project_head(rule: &Rule) -> Term {
 impl From<&Rule> for RelationalExpression {
     fn from(rule: &Rule) -> Self {
         // Shifting complexity from the head to the body
-        let constant_pushing_application = constant_to_eq(rule);
-        let duplicate_to_eq_application = duplicate_to_eq(&constant_pushing_application);
+        // let constant_pushing_application = constant_to_eq(rule);
+        // let duplicate_to_eq_application = duplicate_to_eq(&constant_pushing_application);
         // Turning the body into products
-        let products = rule_body_to_expression(&duplicate_to_eq_application);
+        let products = rule_body_to_expression(&rule);
         // Morphing relations with constants to selection equalities
         let products_and_selections = constant_to_selection(&products);
         let mut expression = equality_to_selection(&products_and_selections);
         // Projecting the head
-        let projection_idx = expression.allocate(&project_head(&duplicate_to_eq_application));
+        let projection_idx = expression.allocate(&project_head(&rule));
         expression.set_left_child(projection_idx, expression.root.unwrap());
         expression.set_root(projection_idx);
         // Converting selections followed by products into joins
@@ -592,6 +638,17 @@ mod tests {
     fn test_rule_to_expression() {
         let rule =
             Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
+
+        let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
+
+        let actual_expression = RelationalExpression::from(&rule).to_string();
+        assert_eq!(expected_expression, actual_expression)
+    }
+
+    #[test]
+    fn test_rule_to_expression_complex() {
+        let rule =
+            Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
         let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 

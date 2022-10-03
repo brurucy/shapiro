@@ -7,9 +7,9 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
     let mut previous_delta = Instance::new();
     let mut current_delta = Instance::new();
     let mut output = Instance::new();
-    let relational_program: Vec<(String, RelationalExpression)> = program
+    let relational_program: Vec<(String, RelationalExpression, String)> = program
         .iter()
-        .map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule)))
+        .map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule), RelationalExpression::from(rule).to_string()))
         .collect();
 
     loop {
@@ -28,7 +28,7 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
                     })
             });
         current_delta = Instance::new();
-        relational_program.clone().into_iter().for_each(|(symbol, expression)| {
+        relational_program.clone().into_iter().for_each(|(symbol, expression, repr)| {
             if let Some(rule_evaluation) = edb_plus_previous_delta.evaluate(&expression, &symbol) {
                 rule_evaluation
                     .into_iter()
