@@ -51,8 +51,7 @@ impl Iterator for RowIterator {
         let row: Vec<TypedValue> = self
             .relation
             .columns
-            .clone()
-            .into_iter()
+            .iter()
             .map(|column| column.contents[self.row].clone())
             .collect();
 
@@ -73,7 +72,7 @@ pub struct Relation {
     pub columns: Vec<Column>,
     pub symbol: String,
     pub indexes: Vec<Index>,
-    pub ward: HashSet<Row>,
+    pub ward: HashMap<Row, bool>,
     pub(crate) lazy_index: bool,
 }
 
@@ -119,7 +118,7 @@ impl Relation {
         }
     }
     pub(crate) fn insert_typed(&mut self, row: &Vec<TypedValue>) {
-        if !self.ward.contains(row) {
+        if !self.ward.contains_key(row) {
             let active_indexes: HashSet<usize> = self
                 .indexes
                 .clone()
@@ -141,8 +140,42 @@ impl Relation {
                     }
                 });
 
-            self.ward.insert(row.clone());
+            self.ward.insert(row.clone(), true);
+        } else {
+            let sign = self.ward.get_mut(row).unwrap();
+            if !*sign {
+                *sign = true
+            }
         }
+    }
+    pub fn mark_deleted(&mut self, row: &Vec<TypedValue>) {
+        if let Some(sign) = self.ward.get_mut(row) {
+            *sign = false
+        }
+    }
+    pub fn compact(&mut self) {
+        let mut columns: Vec<Column> = self
+            .columns
+            .iter()
+            .map(|column| {
+                return Column {
+                    ty: column.ty,
+                    contents: vec![],
+                };
+            })
+            .collect();
+
+        self.iter().for_each(|row| {
+            if let Some(sign) = self.ward.get(&row) {
+                if *sign {
+                    row.into_iter()
+                        .enumerate()
+                        .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
+                }
+            }
+        });
+
+        self.columns = columns
     }
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
         let typed_row = row
@@ -185,7 +218,7 @@ impl Relation {
             .map(|_ty| {
                 return Index {
                     index: BTreeSet::new(),
-                    active: false,
+                    active: true,
                 };
             })
             .collect();
@@ -194,7 +227,7 @@ impl Relation {
             columns,
             symbol: schema.symbol.to_string(),
             indexes,
-            ward: HashSet::new(),
+            ward: HashMap::new(),
             ..Default::default()
         }
     }
@@ -206,7 +239,7 @@ impl Default for Relation {
             columns: vec![],
             symbol: "default".to_string(),
             indexes: vec![],
-            ward: HashSet::new(),
+            ward: HashMap::new(),
             lazy_index: true,
         };
     }

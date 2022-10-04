@@ -42,7 +42,7 @@ fn main() {
         Rule::from("T(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), T(?x, ?a, ?y)]"),
     ];
 
-    const ABOX_LOCATION: &str = "./data/real_10000_abox.nt";
+    const ABOX_LOCATION: &str = "./data/real_1000_abox.nt";
     const TBOX_LOCATION: &str = "./data/real_tbox.nt";
 
     let abox = load3enc(&ABOX_LOCATION).unwrap();

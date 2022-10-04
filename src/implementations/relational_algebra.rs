@@ -1,247 +1,151 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
+use std::time::Instant;
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{
-    Column, Index, Relation, RelationalExpression, Row, SelectionTypedValue, Term,
+    Column, Index, Relation, RelationalExpression, SelectionTypedValue, Term,
 };
 
-pub fn select_value(
-    relation: &Relation,
-    column_idx: usize,
-    value: SelectionTypedValue,
-) -> Relation {
-    let symbol = relation.symbol.clone();
-    let mut columns: Vec<Column> = relation
-        .columns
-        .clone()
-        .into_iter()
-        .map(|column| Column {
-            ty: column.ty,
-            contents: vec![],
-        })
-        .collect();
-    let mut ward = HashSet::new();
-
-    let indexes = (&relation.columns)
-        .into_iter()
-        .map(|_col| {
-            return Index {
-                index: BTreeSet::new(),
-                active: false,
-            };
-        })
-        .collect();
-
-    relation
-        .clone()
-        .into_iter()
-        .filter(|row| match row[column_idx].clone() {
-            TypedValue::Str(outer) => match value.clone() {
-                SelectionTypedValue::Str(inner) => outer == inner,
-                _ => false,
-            },
-            TypedValue::Bool(outer) => match value {
-                SelectionTypedValue::Bool(inner) => outer == inner,
-                _ => false,
-            },
-            TypedValue::UInt(outer) => match value {
-                SelectionTypedValue::UInt(inner) => outer == inner,
-                _ => false,
-            },
-            TypedValue::Float(outer) => match value {
-                SelectionTypedValue::Float(inner) => outer == inner,
-                _ => false,
-            },
-        })
-        .for_each(|row| {
-            ward.insert(row.clone());
-            row.into_iter()
-                .enumerate()
-                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
-        });
-
-    return Relation {
-        symbol,
-        columns,
-        ward,
-        indexes,
-        ..Default::default()
-    };
+pub fn select_value(relation: &mut Relation, column_idx: usize, value: SelectionTypedValue) {
+    relation.clone().into_iter().for_each(|row| {
+        if row[column_idx] == value.clone().try_into().unwrap() {
+            relation.mark_deleted(&row);
+        }
+    });
 }
 
-pub fn select_equality(
-    relation: &Relation,
-    left_column_idx: usize,
-    right_column_idx: usize,
-) -> Relation {
-    let symbol = relation.symbol.clone();
-    let mut columns: Vec<Column> = relation
-        .columns
-        .clone()
-        .into_iter()
-        .map(|column| Column {
-            ty: column.ty,
-            contents: vec![],
-        })
-        .collect();
-    let mut ward = HashSet::new();
-
-    relation
-        .clone()
-        .into_iter()
-        .filter(|row| row[left_column_idx] == row[right_column_idx])
-        .for_each(|row| {
-            ward.insert(row.clone());
-            row.into_iter()
-                .enumerate()
-                .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
-        });
-
-    let indexes = (&relation.columns)
-        .into_iter()
-        .map(|_col| {
-            return Index {
-                index: BTreeSet::new(),
-                active: false,
-            };
-        })
-        .collect();
-
-    return Relation {
-        symbol,
-        columns,
-        ward,
-        indexes,
-        ..Default::default()
-    };
+pub fn select_equality(relation: &mut Relation, left_column_idx: usize, right_column_idx: usize) {
+    relation.clone().into_iter().for_each(|row| {
+        if row[left_column_idx] == row[right_column_idx] {
+            relation.mark_deleted(&row);
+        }
+    });
 }
 
 pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation {
-    let mut columns: Vec<Column> = left_relation
-        .columns
-        .clone()
-        .into_iter()
-        .chain(right_relation.columns.clone().into_iter())
-        .map(|column| Column {
-            ty: column.ty,
-            contents: vec![],
-        })
-        .collect();
-    let indexes = (&left_relation.columns)
-        .into_iter()
-        .chain((&right_relation.columns).into_iter())
-        .map(|_ty| {
-            return Index {
-                index: BTreeSet::new(),
-                active: false,
-            };
-        })
-        .collect();
-
-    let mut ward = HashSet::new();
-
-    let product: Vec<Vec<TypedValue>> = left_relation
-        .clone()
-        .into_iter()
-        .flat_map(|left_row| {
-            right_relation
-                .clone()
-                .into_iter()
-                .map(|right_row| {
-                    left_row
-                        .clone()
-                        .into_iter()
-                        .chain(right_row.into_iter())
-                        .collect::<Vec<TypedValue>>()
-                })
-                .collect::<Vec<Vec<TypedValue>>>()
-        })
-        .collect();
-
-    product.clone().into_iter().for_each(|row| {
-        ward.insert(row.clone());
-        row.into_iter()
-            .enumerate()
-            .for_each(|(column_idx, column_value)| columns[column_idx].contents.push(column_value))
-    });
-
-    return Relation {
-        columns,
-        symbol: left_relation.symbol.to_string() + &right_relation.symbol,
-        ward,
-        indexes,
-        ..Default::default()
-    };
-}
-
-pub fn hash_join(
-    left_relation: &Relation,
-    right_relation: &Relation,
-    left_index: usize,
-    right_index: usize,
-) -> Relation {
     let columns: Vec<Column> = left_relation
         .columns
         .clone()
         .into_iter()
         .chain(right_relation.columns.clone().into_iter())
         .map(|column| Column {
-            contents: vec![],
             ty: column.ty,
+            contents: vec![],
         })
         .collect();
-    let ward = HashSet::new();
 
-    let indexes: Vec<Index> = left_relation
-        .indexes
-        .clone()
+    let indexes = (&left_relation.columns)
         .into_iter()
-        .chain(right_relation.indexes.clone().into_iter())
-        .map(|_| Index {
-            index: BTreeSet::new(),
-            active: false,
+        .chain((&right_relation.columns).into_iter())
+        .map(|_ty| {
+            return Index {
+                index: BTreeSet::new(),
+                active: true,
+            };
         })
         .collect();
 
-    let mut result = Relation {
-        columns: columns.clone(),
+    let ward = HashMap::new();
+
+    let mut relation = Relation {
+        columns,
         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
-        indexes: indexes.clone(),
         ward,
+        indexes,
         ..Default::default()
     };
 
-    let builder = left_relation
-        .clone()
-        .into_iter()
-        .fold(HashMap::new(), |mut acc, curr| {
-            if !acc.contains_key(&curr[left_index]) {
-                acc.insert(curr[left_index].clone(), vec![curr]);
-            } else {
-                let rows = acc.get_mut(&curr[left_index]).unwrap();
-                rows.push(curr);
+    left_relation.clone().into_iter().for_each(|left_row| {
+        if let Some(left_sign) = left_relation.ward.get(&left_row) {
+            if *left_sign {
+                right_relation.clone().into_iter().for_each(|right_row| {
+                    if let Some(right_sign) = right_relation.ward.get(&right_row) {
+                        if *right_sign {
+                            relation.insert_typed(
+                                &left_row
+                                    .clone()
+                                    .into_iter()
+                                    .chain(right_row.into_iter())
+                                    .collect(),
+                            )
+                        }
+                    }
+                })
             }
-            acc
-        });
-
-    right_relation.clone().into_iter().for_each(|right_row| {
-        if let Some(row_set) = builder.get(&right_row[right_index]) {
-            row_set.into_iter().for_each(|left_row| {
-                result.insert_typed(
-                    &left_row
-                        .clone()
-                        .into_iter()
-                        .chain(right_row.clone().into_iter())
-                        .collect::<Vec<TypedValue>>(),
-                )
-            })
         }
     });
 
-    return result;
+    return relation;
 }
+
+// pub fn hash_join(
+//     left_relation: &Relation,
+//     right_relation: &Relation,
+//     left_index: usize,
+//     right_index: usize,
+// ) -> Relation {
+//     let columns: Vec<Column> = left_relation
+//         .columns
+//         .clone()
+//         .into_iter()
+//         .chain(right_relation.columns.clone().into_iter())
+//         .map(|column| Column {
+//             contents: vec![],
+//             ty: column.ty,
+//         })
+//         .collect();
+//     let ward = HashSet::new();
+
+//     let indexes: Vec<Index> = left_relation
+//         .indexes
+//         .clone()
+//         .into_iter()
+//         .chain(right_relation.indexes.clone().into_iter())
+//         .map(|_| Index {
+//             index: BTreeSet::new(),
+//             active: false,
+//         })
+//         .collect();
+
+//     let mut result = Relation {
+//         columns: columns.clone(),
+//         symbol: left_relation.symbol.to_string() + &right_relation.symbol,
+//         indexes: indexes.clone(),
+//         ward,
+//         ..Default::default()
+//     };
+
+//     let builder = left_relation
+//         .clone()
+//         .into_iter()
+//         .fold(HashMap::new(), |mut acc, curr| {
+//             if !acc.contains_key(&curr[left_index]) {
+//                 acc.insert(curr[left_index].clone(), vec![curr]);
+//             } else {
+//                 let rows = acc.get_mut(&curr[left_index]).unwrap();
+//                 rows.push(curr);
+//             }
+//             acc
+//         });
+
+//     right_relation.clone().into_iter().for_each(|right_row| {
+//         if let Some(row_set) = builder.get(&right_row[right_index]) {
+//             row_set.into_iter().for_each(|left_row| {
+//                 result.insert_typed(
+//                     &left_row
+//                         .clone()
+//                         .into_iter()
+//                         .chain(right_row.clone().into_iter())
+//                         .collect::<Vec<TypedValue>>(),
+//                 )
+//             })
+//         }
+//     });
+
+//     todo!()
+// }
 
 pub fn join(
     left_relation: &Relation,
@@ -253,13 +157,27 @@ pub fn join(
         .index
         .clone()
         .into_iter()
-        .map(|idx| (left_relation.get_row(idx.1), idx));
+        .filter_map(|idx| {
+            let row = left_relation.get_row(idx.1);
+            let sign = left_relation.ward.get(&row).unwrap();
+            if *sign {
+                return Some((row, idx));
+            }
+            return None;
+        });
 
     let mut right_iterator = right_relation.indexes[right_index]
         .index
         .clone()
         .into_iter()
-        .map(|idx| (right_relation.get_row(idx.1), idx));
+        .filter_map(|idx| {
+            let row = right_relation.get_row(idx.1);
+            let sign = right_relation.ward.get(&row).unwrap();
+            if *sign {
+                return Some((row, idx));
+            }
+            return None;
+        });
 
     let columns: Vec<Column> = left_relation
         .columns
@@ -271,7 +189,8 @@ pub fn join(
             ty: column.ty,
         })
         .collect();
-    let ward = HashSet::new();
+
+    let ward = HashMap::new();
 
     let indexes: Vec<Index> = left_relation
         .indexes
@@ -280,7 +199,7 @@ pub fn join(
         .chain(right_relation.indexes.clone().into_iter())
         .map(|_| Index {
             index: BTreeSet::new(),
-            active: false,
+            active: true,
         })
         .collect();
 
@@ -377,21 +296,24 @@ pub fn project(
             },
         })
         .collect();
+
     let ward = relation
         .ward
         .clone()
         .into_iter()
-        .map(|row| {
-            column_indexes
+        .map(|(row, sign)| {
+            let row = column_indexes
                 .clone()
                 .into_iter()
                 .map(|column_idx| match column_idx {
                     SelectionTypedValue::Column(idx) => row[idx].clone(),
                     _ => column_idx.try_into().unwrap(),
                 })
-                .collect()
+                .collect();
+            (row, sign)
         })
         .collect();
+
     let indexes: Vec<Index> = column_indexes
         .clone()
         .into_iter()
@@ -416,6 +338,7 @@ pub fn evaluate(
     new_symbol: &str,
 ) -> Option<Relation> {
     if let Some(root_addr) = expr.root {
+        println!("expr: {}", expr.to_string());
         let root_node = expr.arena[root_addr].clone();
 
         match root_node.value {
@@ -436,22 +359,24 @@ pub fn evaluate(
                 return None;
             }
             Term::Join(left_column_idx, right_column_idx) => {
+                let now = Instant::now();
+                println!("Join {} {}", left_column_idx, right_column_idx);
                 let left_subtree = expr.branch_at(root_node.left_child.unwrap());
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
 
-                if let Some(mut left_relation) = left_subtree_evaluation {
-                    //left_relation.activate_index(left_column_idx);
+                if let Some(left_relation) = left_subtree_evaluation {
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
-                    if let Some(mut right_relation) = right_subtree_evaluation {
-                        //right_relation.activate_index(right_column_idx);
-                        return Some(hash_join(
+                    if let Some(right_relation) = right_subtree_evaluation {
+                        let join_result = join(
                             &left_relation,
                             &right_relation,
                             left_column_idx,
                             right_column_idx,
-                        ));
+                        );
+                        println!("Join duration: {}", now.elapsed().as_millis());
+                        return Some(join_result);
                     }
                 }
 
@@ -464,17 +389,19 @@ pub fn evaluate(
                     Term::Selection(column_index, selection_target) => {
                         return match selection_target {
                             SelectionTypedValue::Column(idx) => {
-                                let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                                if let Some(relation) = evaluation {
-                                    Some(select_equality(relation, column_index, idx))
+                                let evaluation = evaluate(&left_subtree, database, new_symbol);
+                                if let Some(mut relation) = evaluation {
+                                    select_equality(&mut relation, column_index, idx);
+                                    Some(relation)
                                 } else {
                                     None
                                 }
                             }
                             _ => {
-                                let evaluation = &evaluate(&left_subtree, database, new_symbol);
-                                if let Some(relation) = evaluation {
-                                    Some(select_value(relation, column_index, selection_target))
+                                let evaluation = evaluate(&left_subtree, database, new_symbol);
+                                if let Some(mut relation) = evaluation {
+                                    select_value(&mut relation, column_index, selection_target);
+                                    Some(relation)
                                 } else {
                                     None
                                 }
@@ -531,8 +458,9 @@ mod tests {
             expected_selection.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
 
-        let actual_selection = select_value(&relation, 1, SelectionTypedValue::UInt(4));
-        assert_eq!(expected_selection, actual_selection);
+        select_value(&mut relation, 1, SelectionTypedValue::UInt(4));
+        relation.compact();
+        assert_eq!(expected_selection, relation);
     }
 
     #[test]
@@ -563,8 +491,9 @@ mod tests {
             ]);
         });
 
-        let actual_selection = select_equality(&relation, 1, 2);
-        assert_eq!(expected_selection, actual_selection);
+        select_equality(&mut relation, 1, 2);
+        relation.compact();
+        assert_eq!(expected_selection, relation);
     }
 
     use itertools::Itertools;
@@ -726,8 +655,9 @@ mod tests {
             .into_iter()
             .for_each(|tuple| expected_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
-        let actual_relation = instance.evaluate(&expression, "ancestor");
+        let mut actual_relation = instance.evaluate(&expression, "ancestor").unwrap();
+        actual_relation.compact();
 
-        assert_eq!(expected_relation, actual_relation.unwrap());
+        assert_eq!(expected_relation, actual_relation);
     }
 }
