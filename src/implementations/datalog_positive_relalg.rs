@@ -29,6 +29,7 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
             });
         current_delta = Instance::new();
         relational_program.clone().into_iter().for_each(|(symbol, expression, repr)| {
+            println!("evaluating: {}", repr);
             if let Some(rule_evaluation) = edb_plus_previous_delta.evaluate(&expression, &symbol) {
                 rule_evaluation
                     .into_iter()

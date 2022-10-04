@@ -212,7 +212,10 @@ pub fn join(
     };
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
+    let mut cnt = 0;
     loop {
+        //println!("loop {}", cnt);
+        cnt+=1;
         if let Some(left_zip) = current_left.clone() {
             if let Some(right_zip) = current_right.clone() {
                 let left_index_value = left_zip.1;
@@ -223,15 +226,19 @@ pub fn join(
                         current_left = left_iterator.next();
                     }
                     Ordering::Equal => {
+                        println!("{} == {}", left_index_value.0, right_index_value.0);
                         let mut left_matches: Vec<(Vec<TypedValue>)> = vec![];
                         left_matches.push(left_zip.0);
                         let mut right_matches: Vec<(Vec<TypedValue>)> = vec![];
                         right_matches.push(right_zip.0);
-
+                        let mut left_cnt = 0;
                         loop {
+                            //println!("left loop: {}", left_cnt);
+                            left_cnt += 1;
                             current_left = left_iterator.next();
                             if let Some(left) = current_left.as_ref() {
                                 if left.1 .0.cmp(&left_index_value.0) == Ordering::Equal {
+                                    //println!("found: {} == {}", left.1.0, left_index_value.0);
                                     left_matches.push(left.clone().0);
                                 } else {
                                     break;
@@ -241,10 +248,14 @@ pub fn join(
                             }
                         }
 
+                        let mut right_cnt = 0;
                         loop {
+                            //println!("right loop: {}", right_cnt);
+                            right_cnt += 1;
                             current_right = right_iterator.next();
                             if let Some(right) = current_right.as_ref() {
-                                if right.1 .0.cmp(&left_index_value.0) == Ordering::Equal {
+                                if right.1 .0.cmp(&right_index_value.0) == Ordering::Equal {
+                                    //println!("found: {} == {}", right.1.0, right_index_value.0);
                                     right_matches.push(right.clone().0);
                                 } else {
                                     break;
@@ -254,14 +265,21 @@ pub fn join(
                             }
                         }
 
-                        left_matches.into_iter().for_each(|left_value| {
-                            right_matches.clone().into_iter().for_each(|right_value| {
+                        let mut matches = 0;
+                        println!("left * right: {}", left_cnt * right_cnt);
+                        left_matches.iter().for_each(|left_value| {
+                            right_matches.iter().for_each(|right_value| {
+                                //println!("matches: {}", matches);
+                                matches += 1;
                                 let row = left_value
                                     .clone()
-                                    .into_iter()
+                                    .iter()
                                     .chain(right_value.into_iter())
+                                    .cloned()
                                     .collect();
+                                let now = Instant::now();
                                 result.insert_typed(&row);
+                                println!("time to insert a row: {}, size: {}", now.elapsed().as_micros(), result.columns[0].contents.len())
                             })
                         });
                     }
@@ -276,6 +294,7 @@ pub fn join(
             break;
         }
     }
+    println!("loop end");
 
     return result;
 }
