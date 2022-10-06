@@ -51,30 +51,30 @@ mod tests {
 
     #[test]
     fn generate_rule_dependency_graph_test() {
-        let R = "R".to_string();
-        let R_prime_1 = "R'_1'".to_string();
-        let R_prime_2 = "R'_2".to_string();
-        let R_prime_3 = "R'_3".to_string();
-        let R_prime_4 = "R'_4".to_string();
-        let S = "S".to_string();
-        let T = "T".to_string();
-        let U = "U".to_string();
-        let V = "V".to_string();
+        let r = "r".to_string();
+        let r_prime_1 = "r'_1'".to_string();
+        let r_prime_2 = "r'_2".to_string();
+        let r_prime_3 = "r'_3".to_string();
+        let r_prime_4 = "r'_4".to_string();
+        let s = "S".to_string();
+        let t = "T".to_string();
+        let u = "U".to_string();
+        let v = "V".to_string();
         let r_1 = Rule {
             head: Atom {
                 terms: vec![],
-                symbol: S.clone(),
+                symbol: s.clone(),
                 sign: Sign::Positive,
             },
             body: vec![
                 Atom {
                     terms: vec![],
-                    symbol: R_prime_1.clone(),
+                    symbol: r_prime_1.clone(),
                     sign: Sign::Positive,
                 },
                 Atom {
                     terms: vec![],
-                    symbol: R.clone(),
+                    symbol: r.clone(),
                     sign: Sign::Negative,
                 },
             ],
@@ -83,18 +83,18 @@ mod tests {
         let r_2 = Rule {
             head: Atom {
                 terms: vec![],
-                symbol: T.clone(),
+                symbol: t.clone(),
                 sign: Sign::Positive,
             },
             body: vec![
                 Atom {
                     terms: vec![],
-                    symbol: R_prime_2.clone(),
+                    symbol: r_prime_2.clone(),
                     sign: Sign::Positive,
                 },
                 Atom {
                     terms: vec![],
-                    symbol: R.clone(),
+                    symbol: r.clone(),
                     sign: Sign::Negative,
                 },
             ],
@@ -103,18 +103,18 @@ mod tests {
         let r_3 = Rule {
             head: Atom {
                 terms: vec![],
-                symbol: U.clone(),
+                symbol: u.clone(),
                 sign: Sign::Positive,
             },
             body: vec![
                 Atom {
                     terms: vec![],
-                    symbol: R_prime_3.clone(),
+                    symbol: r_prime_3.clone(),
                     sign: Sign::Positive,
                 },
                 Atom {
                     terms: vec![],
-                    symbol: T.clone(),
+                    symbol: t.clone(),
                     sign: Sign::Negative,
                 },
             ],
@@ -123,23 +123,23 @@ mod tests {
         let r_4 = Rule {
             head: Atom {
                 terms: vec![],
-                symbol: V.clone(),
+                symbol: v.clone(),
                 sign: Sign::Positive,
             },
             body: vec![
                 Atom {
                     terms: vec![],
-                    symbol: R_prime_4.clone(),
+                    symbol: r_prime_4.clone(),
                     sign: Sign::Positive,
                 },
                 Atom {
                     terms: vec![],
-                    symbol: S.clone(),
+                    symbol: s.clone(),
                     sign: Sign::Negative,
                 },
                 Atom {
                     terms: vec![],
-                    symbol: U.clone(),
+                    symbol: u.clone(),
                     sign: Sign::Negative,
                 },
             ],

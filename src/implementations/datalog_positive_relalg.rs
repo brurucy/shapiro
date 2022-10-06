@@ -1,12 +1,15 @@
+use std::time::Instant;
 use crate::implementations::datalog_positive_infer::evaluate_rule;
 use crate::models::datalog::{BottomUpEvaluator, Rule};
 use crate::models::instance::Instance;
-use crate::models::relational_algebra::RelationalExpression;
+use crate::models::relational_algebra::{Relation, RelationalExpression};
+use rayon::prelude::*;
+use crate::implementations::rule_graph::{generate_rule_dependency_graph, stratify};
 
 pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instance {
-    let mut previous_delta = Instance::new();
-    let mut current_delta = Instance::new();
-    let mut output = Instance::new();
+    let mut previous_delta = Instance::new(knowledge_base.use_indexes);
+    let mut current_delta = Instance::new(knowledge_base.use_indexes);
+    let mut output = Instance::new(knowledge_base.use_indexes);
     let relational_program: Vec<(String, RelationalExpression, String)> = program
         .iter()
         .map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule), RelationalExpression::from(rule).to_string()))
@@ -17,28 +20,41 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
         let mut edb_plus_previous_delta = knowledge_base.clone();
         previous_delta
             .database
-            .clone()
-            .into_iter()
+            .iter()
             .for_each(|relation| {
                 relation
                     .1
-                    .into_iter()
-                    .for_each(|row| {
-                        edb_plus_previous_delta.insert_typed(&relation.0, row)
+                    .ward
+                    .iter()
+                    .for_each(|(row, notdeleted)| {
+                        if *notdeleted {
+                            edb_plus_previous_delta.insert_typed(&relation.0, row.clone())
+                        }
                     })
             });
-        current_delta = Instance::new();
-        relational_program.clone().into_iter().for_each(|(symbol, expression, repr)| {
-            println!("evaluating: {}", repr);
-            if let Some(rule_evaluation) = edb_plus_previous_delta.evaluate(&expression, &symbol) {
-                rule_evaluation
-                    .into_iter()
-                    .for_each(|row| {
-                        current_delta.insert_typed(&symbol, row.clone());
-                        output.insert_typed(&symbol, row);
-                })
-            }
-        });
+        current_delta = Instance::new(knowledge_base.use_indexes);
+        let evals: Vec<Relation> = relational_program
+            .clone()
+            .into_par_iter()
+            .filter_map(|(symbol, expression, repr)| {
+                println!("evaluating: {}", repr);
+                return edb_plus_previous_delta.evaluate(&expression, &symbol)
+            })
+            .collect();
+
+        evals
+            .iter()
+                    .for_each(|relation| {
+                        relation
+                            .ward
+                            .iter()
+                            .for_each(|(row, notdeleted)| {
+                                if *notdeleted {
+                                    current_delta.insert_typed(&relation.symbol, row.clone());
+                                    output.insert_typed(&relation.symbol, row.clone());
+                                }
+                            })
+                    });
 
         if previous_delta == current_delta {
             break;
@@ -54,14 +70,45 @@ pub struct SimpleDatalog {
 
 impl BottomUpEvaluator for SimpleDatalog {
     fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+        let rule_graph = generate_rule_dependency_graph(&program);
+        let (_valid, stratification) = stratify(&rule_graph);
+        let program = stratification.iter().flatten().cloned().cloned().collect();
+
         return evaluate_program(&self.fact_store, program);
     }
+    // fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+    //     let rule_graph = generate_rule_dependency_graph(&program);
+    //     let (_valid, stratification) = stratify(&rule_graph);
+    //
+    //     let mut output = Instance::new(false);
+    //
+    //     stratification
+    //         .iter()
+    //         .for_each(|program| {
+    //             evaluate_program(&self.fact_store, program.iter().cloned().cloned().collect())
+    //                 .database
+    //                 .iter()
+    //                 .for_each(|relation| {
+    //                     relation
+    //                         .1
+    //                         .ward
+    //                         .iter()
+    //                         .for_each(|(row, sign)| {
+    //                             if *sign {
+    //                                 output.insert_typed(relation.0, row.clone());
+    //                             }
+    //                         })
+    //                 });
+    //         });
+    //
+    //     return output
+    // }
 }
 
 impl Default for SimpleDatalog {
     fn default() -> Self {
         SimpleDatalog {
-            fact_store: Instance::new()
+            fact_store: Instance::new(false)
         }
     }
 }
@@ -70,6 +117,7 @@ impl Default for SimpleDatalog {
 mod tests {
     use crate::models::datalog::{BottomUpEvaluator, Rule, Term, TypedValue};
     use std::collections::HashSet;
+    use std::ops::Deref;
     use crate::implementations::datalog_positive_relalg::SimpleDatalog;
 
     #[test]
@@ -104,6 +152,7 @@ mod tests {
             ])
             .view("reachable")
             .into_iter()
+            .map(|boxed_slice| boxed_slice.deref().into())
             .collect();
 
         let expected_new_tuples: HashSet<Vec<TypedValue>> = vec![

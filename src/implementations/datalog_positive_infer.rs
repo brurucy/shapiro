@@ -1,10 +1,11 @@
 use crate::models::{
     datalog::{Atom, Body, BottomUpEvaluator, Rule, Sign, Substitutions, Term},
     instance::Instance,
-    relational_algebra::{Column, Relation},
+    relational_algebra::{Relation},
 };
 use std::collections::HashMap;
 use std::time::Instant;
+use crate::implementations::rule_graph::{generate_rule_dependency_graph, stratify};
 
 // This is an implementation of the simplest datalog algorithm, INFER1
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
@@ -66,7 +67,7 @@ pub fn generate_all_substitutions(
         .map(|row| {
             let term_vec = row
                 .into_iter()
-                .map(|row_element| Term::Constant(row_element))
+                .map(|row_element| Term::Constant(row_element.clone()))
                 .collect();
 
             return make_substitutions(
@@ -130,7 +131,7 @@ pub fn accumulate_body_substitutions(knowledge_base: &Instance, body: Body) -> V
 }
 
 pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation> {
-    let mut output_instance = Instance::new();
+    let mut output_instance = Instance::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
         let rewrite_attempt = attempt_to_rewrite(&substitutions, head);
@@ -151,9 +152,9 @@ pub fn evaluate_rule(knowledge_base: &Instance, rule: &Rule) -> Option<Relation>
 }
 
 pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instance {
-    let mut previous_delta = Instance::new();
-    let mut current_delta = Instance::new();
-    let mut output = Instance::new();
+    let mut previous_delta = Instance::new(false);
+    let mut current_delta = Instance::new(false);
+    let mut output = Instance::new(false);
 
     loop {
         previous_delta = current_delta.clone();
@@ -165,17 +166,18 @@ pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instan
             .for_each(|relation| {
                 relation
                     .1
-                    .into_iter()
+                    .ward
+                    .keys()
                     .for_each(|row| {
-                        edb_plus_previous_delta.insert_typed(&relation.0, row)
+                        edb_plus_previous_delta.insert_typed(&relation.0, row.clone())
                     })
             });
-        current_delta = Instance::new();
+        current_delta = Instance::new(false);
         program.clone().into_iter().for_each(|rule| {
             if let Some(rule_evaluation) = evaluate_rule(&edb_plus_previous_delta, &rule) {
-                rule_evaluation.clone().into_iter().for_each(|row| {
+                rule_evaluation.ward.keys().for_each(|row| {
                     current_delta.insert_typed(&rule_evaluation.symbol, row.clone());
-                    output.insert_typed(&rule_evaluation.symbol, row);
+                    output.insert_typed(&rule_evaluation.symbol, row.clone());
                 })
             }
         });
@@ -193,6 +195,10 @@ pub struct ChibiDatalog {
 
 impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+        // let rule_graph = generate_rule_dependency_graph(&program);
+        // let (_valid, stratified_program) = stratify(&rule_graph);
+        // let ordered_program = stratified_program.into_iter().flatten().cloned().collect();
+
         return evaluate_program(&self.fact_store, program);
     }
 }
@@ -200,7 +206,7 @@ impl BottomUpEvaluator for ChibiDatalog {
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
-            fact_store: Instance::new(),
+            fact_store: Instance::new(false),
         }
     }
 }
@@ -250,21 +256,21 @@ mod tests {
 
     #[test]
     fn test_ground_atom() {
-        let mut fact_store = Instance::new();
+        let mut fact_store = Instance::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
         fact_store.insert_typed(
             "edge",
-            vec![
+            Box::new([
                 TypedValue::Str("a".to_string()),
                 TypedValue::Str("b".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "edge",
-            vec![
+            Box::new([
                 TypedValue::Str("b".to_string()),
                 TypedValue::Str("c".to_string()),
-            ],
+            ]),
         );
 
         let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
@@ -299,22 +305,22 @@ mod tests {
     #[test]
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store = Instance::new();
+        let mut fact_store = Instance::new(false);
         fact_store.insert_typed(
             "T",
-            vec![
+            Box::new([
                 TypedValue::Str("student".to_string()),
                 TypedValue::Str("takesClassesFrom".to_string()),
                 TypedValue::Str("PLlab".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "T",
-            vec![
+            Box::new([
                 TypedValue::Str("professor".to_string()),
                 TypedValue::Str("worksAt".to_string()),
                 TypedValue::Str("PLlab".to_string()),
-            ],
+            ]),
         );
 
         let partial_subs = vec![
@@ -352,34 +358,34 @@ mod tests {
         let rule_atom_1 = Atom::from("ancestor(?Y, ?Z)");
         let rule_body = vec![rule_atom_0, rule_atom_1];
 
-        let mut fact_store = Instance::new();
+        let mut fact_store = Instance::new(false);
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("adam".to_string()),
                 TypedValue::Str("jumala".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("vanasarvik".to_string()),
                 TypedValue::Str("jumala".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("eve".to_string()),
                 TypedValue::Str("adam".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("jumala".to_string()),
                 TypedValue::Str("cthulu".to_string()),
-            ],
+            ]),
         );
 
         let fitting_substitutions = vec![
@@ -413,42 +419,42 @@ mod tests {
     fn test_evaluate_program() {
         let rule_0 = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
 
-        let mut fact_store = Instance::new();
+        let mut fact_store = Instance::new(false);
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("adam".to_string()),
                 TypedValue::Str("jumala".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("vanasarvik".to_string()),
                 TypedValue::Str("jumala".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("eve".to_string()),
                 TypedValue::Str("adam".to_string()),
-            ],
+            ]),
         );
         fact_store.insert_typed(
             "ancestor",
-            vec![
+            Box::new([
                 TypedValue::Str("jumala".to_string()),
                 TypedValue::Str("cthulu".to_string()),
-            ],
+            ]),
         );
 
-        let evaluation: HashSet<Vec<TypedValue>> = evaluate_program(&fact_store, vec![rule_0])
+        let evaluation: HashSet<Box<[TypedValue]>> = evaluate_program(&fact_store, vec![rule_0])
             .view("ancestor")
             .into_iter()
             .collect();
 
-        let expected_evaluation: HashSet<Vec<TypedValue>> = vec![
+        let expected_evaluation: HashSet<Box<[TypedValue]>> = vec![
             Atom::from("ancestor(adam, cthulu)"),
             Atom::from("ancestor(vanasarvik, cthulu)"),
             Atom::from("ancestor(eve, jumala)"),

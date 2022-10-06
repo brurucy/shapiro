@@ -4,6 +4,7 @@ pub mod implementations;
 pub mod lexers;
 pub mod models;
 pub mod parsers;
+pub mod utils;
 
 pub use implementations::datalog_positive_infer::ChibiDatalog;
 
@@ -11,6 +12,7 @@ pub use implementations::datalog_positive_infer::ChibiDatalog;
 mod tests {
     use crate::models::datalog::{BottomUpEvaluator, Term, TypedValue};
     use std::collections::HashSet;
+    use std::ops::Deref;
 
     #[test]
     fn test_chibi_datalog() {
@@ -46,6 +48,7 @@ mod tests {
             ])
             .view("reachable")
             .into_iter()
+            .map(|boxed_slice| boxed_slice.deref().into())
             .collect();
 
         let expected_new_tuples: HashSet<Vec<TypedValue>> = vec![

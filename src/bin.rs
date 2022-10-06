@@ -4,6 +4,7 @@ use shapiro::ChibiDatalog;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use lasso::{Key, Rodeo};
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
@@ -33,16 +34,25 @@ pub fn load3enc<'a>(
 }
 
 fn main() {
+    let mut grand_ole_pry = Rodeo::default();
+    let rdf_type = grand_ole_pry.get_or_intern("rdf:type");
+    let rdfs_domain = grand_ole_pry.get_or_intern("rdfs:domain");
+    let rdfs_range = grand_ole_pry.get_or_intern("rdfs:range");
+    let rdf_spo  = grand_ole_pry.get_or_intern("rdfs:subPropertyOf");
+    let rdf_sco  = grand_ole_pry.get_or_intern("rdfs:subClassOf");
+
     let program = vec![
-        Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]"),
-        Rule::from("T(?z, rdf:type, ?x) <- [T(?a, rdfs:range, ?x), T(?y, ?a, ?z)]"),
-        Rule::from("T(?x, rdfs:subPropertyOf, ?z) <- [T(?x, rdfs:subPropertyOf, ?y), T(?y, rdfs:subPropertyOf, ?z)]"),
+        Rule::from(& format!("T(?y, {}, ?x) <- [T(?a, {}, ?x), T(?y, ?a, ?z)]", rdf_type.into_usize(), rdfs_domain.into_usize())),
+        Rule::from(&format!("T(?z, {}, ?x) <- [T(?a, {}, ?x), T(?y, ?a, ?z)]", rdf_type.into_usize(), rdfs_range.into_usize())),
+        Rule::from(&format!("T(?x, {}, ?z) <- [T(?x, {}, ?y), T(?y, {}, ?z)]", rdf_spo.into_usize(), rdf_spo.into_usize(), rdf_spo.into_usize())),
         Rule::from("T(?x, rdfs:subClassOf, ?z) <- [T(?x, rdfs:subClassOf, ?y), T(?y, rdfs:subClassOf, ?z)]"),
         Rule::from("T(?z, rdf:type, ?y) <- [T(?x, rdfs:subClassOf, ?y), T(?z, rdf:type, ?x)]"),
         Rule::from("T(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), T(?x, ?a, ?y)]"),
     ];
 
-    const ABOX_LOCATION: &str = "./data/real_1000_abox.nt";
+    //const ABOX_LOCATION: &str = "./data/tiny_abox.nt";
+    //const TBOX_LOCATION: &str = "./data/tiny_tbox.nt";
+    const ABOX_LOCATION: &str = "./data/real_abox.nt";
     const TBOX_LOCATION: &str = "./data/real_tbox.nt";
 
     let abox = load3enc(&ABOX_LOCATION).unwrap();
@@ -64,17 +74,22 @@ fn main() {
         } else if predicate.clone().contains("subClassOf") {
             predicate = "rdfs:subClassOf".to_string()
         }
+
+        let s = grand_ole_pry.get_or_intern(row.clone().0).into_usize() as u32;
+        let p = grand_ole_pry.get_or_intern(predicate).into_usize() as u32;
+        let o = grand_ole_pry.get_or_intern(row.clone().1).into_usize() as u32;
+
         lazy_simple_reasoner.fact_store.insert(
             "T",
             vec![
-                Box::new(row.clone().0),
-                Box::new(predicate.clone()),
-                Box::new(row.clone().2),
+                Box::new(s),
+                Box::new(p),
+                Box::new(o),
             ],
         );
         infer_reasoner.fact_store.insert(
             "T",
-            vec![Box::new(row.0), Box::new(predicate), Box::new(row.2)],
+            vec![Box::new(s), Box::new(p), Box::new(o)],
         )
     });
 
@@ -87,9 +102,7 @@ fn main() {
     );
     println!(
         "triples - simple: {}",
-        simple_triples.database.get("T").unwrap().columns[0]
-            .contents
-            .len()
+        simple_triples.database.get("T").unwrap().ward.len()
     );
 
     now = Instant::now();
@@ -97,8 +110,8 @@ fn main() {
     println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
     println!(
         "triples - infer: {}",
-        infer_triples.database.get("T").unwrap().columns[0]
-            .contents
+        infer_triples.database.get("T").unwrap().ward
             .len()
     );
+
 }

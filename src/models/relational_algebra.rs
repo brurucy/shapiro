@@ -1,65 +1,14 @@
-use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
+use crate::utils::hashmap::IndexedHashMap;
 
-use super::datalog::{self, constant_to_eq, duplicate_to_eq, Atom, Rule, TypedValue};
+use super::datalog::{self, Atom, Rule, TypedValue};
 use super::tree::Tree;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ColumnType {
-    Str,
-    Bool,
-    UInt,
-    OrderedFloat,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Column {
-    pub ty: ColumnType,
-    pub contents: Vec<TypedValue>,
-}
-
-impl Column {
-    pub fn is_empty(&self) -> bool {
-        return self.contents.is_empty();
-    }
-}
-
-pub type Row = Vec<TypedValue>;
-
-#[derive(Clone)]
-pub struct RowIterator {
-    relation: Relation,
-    row: usize,
-}
-
-impl Iterator for RowIterator {
-    type Item = Row;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.relation.columns.len() == 0 {
-            return None;
-        }
-
-        if self.relation.columns[0].contents.len() <= self.row {
-            return None;
-        }
-
-        let row: Vec<TypedValue> = self
-            .relation
-            .columns
-            .iter()
-            .map(|column| column.contents[self.row].clone())
-            .collect();
-
-        self.row += 1;
-
-        return Some(row.clone());
-    }
-}
+pub type Row = Box<[TypedValue]>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Index {
@@ -69,187 +18,91 @@ pub struct Index {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
-    pub columns: Vec<Column>,
     pub symbol: String,
     pub indexes: Vec<Index>,
-    pub ward: HashMap<Row, bool>,
-    pub(crate) lazy_index: bool,
-}
-
-pub struct RelationSchema {
-    pub column_types: Vec<ColumnType>,
-    pub symbol: String,
+    pub ward: IndexedHashMap<Row, bool>,
+    pub use_indexes: bool,
 }
 
 impl Relation {
-    pub fn activate_index(&mut self, idx: usize) {
-        if self.lazy_index {
-            if let Some(index) = self.indexes.get_mut(idx) {
-                index.index.extend(
-                    self.columns[idx]
-                        .contents
-                        .clone()
-                        .into_iter()
-                        .enumerate()
-                        .map(|(row_id, column_value)| (column_value, row_id)),
-                );
-                self.indexes[idx].active = true
-            } else {
-                self.columns
-                    .clone()
-                    .into_iter()
-                    .enumerate()
-                    .for_each(|(column_idx, column)| {
-                        let mut new_index = Index {
-                            index: BTreeSet::new(),
-                            active: false,
-                        };
-                        if column_idx == idx {
-                            new_index.active = true;
-                            column.contents.clone().into_iter().enumerate().for_each(
-                                |(row_id, column_value)| {
-                                    new_index.index.insert((column_value, row_id));
-                                },
-                            )
-                        };
-                        self.indexes.push(new_index);
-                    })
-            }
-        }
-    }
-    pub(crate) fn insert_typed(&mut self, row: &Vec<TypedValue>) {
-        if !self.ward.contains_key(row) {
-            let active_indexes: HashSet<usize> = self
-                .indexes
-                .clone()
-                .into_iter()
-                .enumerate()
-                .filter(|(column_idx, idx)| idx.active)
-                .map(|(column_idx, idx)| column_idx)
-                .collect();
-
-            row.into_iter()
-                .enumerate()
-                .for_each(|(column_idx, column_value)| {
-                    self.columns[column_idx].contents.push(column_value.clone());
-                    if active_indexes.contains(&column_idx) {
-                        self.indexes[column_idx].index.insert((
-                            column_value.clone(),
-                            self.columns[column_idx].contents.len() - 1,
-                        ));
-                    }
-                });
-
+    pub(crate) fn insert_typed(&mut self, row: Row) {
+        if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
         } else {
-            let sign = self.ward.get_mut(row).unwrap();
+            let sign = self.ward.get_mut(&row).unwrap();
             if !*sign {
                 *sign = true
             }
         }
+        if self.use_indexes {
+            row.iter()
+                .enumerate()
+                .for_each(|(column_idx, column_value)| {
+                    self.indexes[column_idx].index.insert((
+                        column_value.clone(),
+                        self.ward.len() - 1,
+                    ));
+                });
+        }
     }
-    pub fn mark_deleted(&mut self, row: &Vec<TypedValue>) {
+    pub fn mark_deleted(&mut self, row: &Row) {
         if let Some(sign) = self.ward.get_mut(row) {
             *sign = false
         }
     }
+
     pub fn compact(&mut self) {
-        let mut columns: Vec<Column> = self
-            .columns
+        let mut indexes: Vec<Index> = self
+            .indexes
             .iter()
-            .map(|column| {
-                return Column {
-                    ty: column.ty,
-                    contents: vec![],
-                };
+            .enumerate()
+            .map(|(index_idx, index)| {
+                return Index {
+                    index: Default::default(),
+                    active: true
+                }
             })
             .collect();
 
-        self.iter().for_each(|row| {
-            if let Some(sign) = self.ward.get(&row) {
-                if *sign {
-                    row.into_iter()
+        if self.use_indexes {
+            let mut idx = 0usize;
+            self.ward.retain(|k, v| {
+                if *v {
+                    k
+                        .iter()
                         .enumerate()
-                        .for_each(|(idx, column_value)| columns[idx].contents.push(column_value))
+                        .for_each(|(column_idx, column_value)| {
+                            indexes[column_idx].index.insert((column_value.clone(), idx));
+                        });
+                    idx += 1;
                 }
-            }
-        });
+                *v
+            });
+        }
 
-        self.columns = columns
+        self.indexes = indexes;
     }
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
-        let typed_row = row
+        let typed_row: Vec<TypedValue> = row
             .into_iter()
             .map(|element| element.to_typed_value())
             .collect();
-        self.insert_typed(&typed_row)
-    }
-    fn iter(&self) -> RowIterator {
-        return RowIterator {
-            relation: self.clone(),
-            row: 0,
-        };
+        self.insert_typed(typed_row.into_boxed_slice())
     }
     pub fn get_row(&self, idx: usize) -> Row {
-        return self
-            .columns
-            .clone()
-            .into_iter()
-            .map(|column| column.contents[idx].clone())
-            .collect();
+        return self.ward.get_index(idx).unwrap().0.clone()
     }
-    pub fn new(schema: &RelationSchema) -> Self {
-        let columns = schema
-            .column_types
-            .clone()
-            .into_iter()
-            .map(|ty| {
-                return Column {
-                    ty,
-                    contents: vec![],
-                };
-            })
-            .collect();
+    pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
+        let indexes = vec![Index { index: BTreeSet::new(), active: true}; arity];
 
-        let indexes = schema
-            .column_types
-            .clone()
-            .into_iter()
-            .map(|_ty| {
-                return Index {
-                    index: BTreeSet::new(),
-                    active: true,
-                };
-            })
-            .collect();
+        let backing: IndexedHashMap<Box<[TypedValue]>, bool> = Default::default();
 
         Relation {
-            columns,
-            symbol: schema.symbol.to_string(),
+            symbol: symbol.to_string(),
             indexes,
-            ward: HashMap::new(),
-            ..Default::default()
+            ward: backing,
+            use_indexes
         }
-    }
-}
-
-impl Default for Relation {
-    fn default() -> Self {
-        return Relation {
-            columns: vec![],
-            symbol: "default".to_string(),
-            indexes: vec![],
-            ward: HashMap::new(),
-            lazy_index: true,
-        };
-    }
-}
-
-impl IntoIterator for Relation {
-    type Item = Row;
-    type IntoIter = RowIterator;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
     }
 }
 
@@ -289,20 +142,6 @@ impl TryInto<TypedValue> for SelectionTypedValue {
             SelectionTypedValue::UInt(inner) => Ok(TypedValue::UInt(inner)),
             SelectionTypedValue::Float(inner) => Ok(TypedValue::Float(inner)),
             SelectionTypedValue::Column(_inner) => Err(()),
-        };
-    }
-}
-
-impl TryInto<ColumnType> for SelectionTypedValue {
-    type Error = ();
-
-    fn try_into(self) -> Result<ColumnType, Self::Error> {
-        return match self {
-            SelectionTypedValue::Str(_) => Ok(ColumnType::Str),
-            SelectionTypedValue::Bool(_) => Ok(ColumnType::Bool),
-            SelectionTypedValue::UInt(_) => Ok(ColumnType::UInt),
-            SelectionTypedValue::Column(_) => Err(()),
-            SelectionTypedValue::Float(_) => Ok(ColumnType::OrderedFloat),
         };
     }
 }
