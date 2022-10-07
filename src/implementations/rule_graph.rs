@@ -16,9 +16,9 @@ pub fn generate_rule_dependency_graph<'a>(program: &Vec<Rule>) -> RuleGraph {
         output.add_node(rule);
     }
     for rule in program {
-        for bodyAtom in &rule.body {
-            if let Some(bodyAtomRule) = idb_relations.get(&bodyAtom.symbol) {
-                output.add_edge(bodyAtomRule, rule, bodyAtom.sign.clone());
+        for body_atom in &rule.body {
+            if let Some(body_atom_rule) = idb_relations.get(&body_atom.symbol) {
+                output.add_edge(body_atom_rule, rule, body_atom.sign.clone());
             }
         }
     }
@@ -41,6 +41,13 @@ pub fn stratify<'a>(rule_graph: &'a RuleGraph) -> (bool, Vec<Vec<&'a Rule>>) {
         }
     }
     return (true, sccs);
+}
+
+pub fn sort_program(program: &Vec<Rule>) -> Vec<Rule> {
+    let rule_graph = generate_rule_dependency_graph(&program);
+    let (_valid, stratification) = stratify(&rule_graph);
+
+    return stratification.iter().flatten().cloned().cloned().collect();
 }
 
 #[cfg(test)]

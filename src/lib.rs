@@ -4,76 +4,49 @@ pub mod implementations;
 pub mod lexers;
 pub mod models;
 pub mod parsers;
-pub mod utils;
+pub mod data_structures;
 
 pub use implementations::datalog_positive_infer::ChibiDatalog;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{BottomUpEvaluator, Term, TypedValue};
+    use crate::models::datalog::{BottomUpEvaluator, Rule};
     use std::collections::HashSet;
-    use std::ops::Deref;
 
     #[test]
     fn test_chibi_datalog() {
-        use crate::{parsers::datalog::parse_rule, ChibiDatalog};
+        use crate::ChibiDatalog;
 
+        // Chibi Datalog is a very simple reasoner, that supports only positive datalog queries
+        // with no negation, aggregates and else.
         let mut reasoner: ChibiDatalog = Default::default();
-        reasoner.fact_store.insert(
-            "edge",
-            vec![
-                Box::new("a".to_string()),
-                Box::new("b".to_string()),
-            ],
-        );
-        reasoner.fact_store.insert(
-            "edge",
-            vec![
-                Box::new("b".to_string()),
-                Box::new("c".to_string()),
-            ],
-        );
-        reasoner.fact_store.insert(
-            "edge",
-            vec![
-                Box::new("b".to_string()),
-                Box::new("d".to_string()),
-            ],
-        );
+        // Atoms are of arbitrary arity
+        reasoner.fact_store.insert("edge", vec![Box::new(1), Box::new(2)]);
+        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(3)]);
+        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(4)]);
 
-        let new_tuples: HashSet<Vec<TypedValue>> = reasoner
+        let new_tuples: HashSet<(u32, u32)> = reasoner
             .evaluate_program_bottom_up(vec![
-                parse_rule("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-                parse_rule("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+                Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+                Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
             ])
             .view("reachable")
             .into_iter()
-            .map(|boxed_slice| boxed_slice.deref().into())
+            .map(|boxed_slice| {
+                // The output is boxed, so there's some wrangling to do
+                let boxed_vec = boxed_slice.to_vec();
+                (boxed_vec[0].clone().try_into().unwrap(), boxed_vec[1].clone().try_into().unwrap())
+            })
             .collect();
 
-        let expected_new_tuples: HashSet<Vec<TypedValue>> = vec![
+        let expected_new_tuples: HashSet<(u32, u32)> = vec![
             // Rule 1 output
-            vec![
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("b".to_string()),
-            ],
-            vec![
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("c".to_string()),
-            ],
-            vec![
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("d".to_string()),
-            ],
+            (1, 2),
+            (2, 3),
+            (2, 4),
             // Rule 2 output
-            vec![
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("c".to_string()),
-            ],
-            vec![
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("d".to_string()),
-            ],
+            (1, 3),
+            (1, 4)
         ]
         .into_iter()
         .collect();

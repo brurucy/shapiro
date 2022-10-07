@@ -1,13 +1,13 @@
 use crate::models::{
     datalog::{Atom, Body, BottomUpEvaluator, Rule, Sign, Substitutions, Term},
     instance::Instance,
-    relational_algebra::{Relation},
+    relational_algebra::Relation,
 };
 use std::collections::HashMap;
-use std::time::Instant;
-use crate::implementations::rule_graph::{generate_rule_dependency_graph, stratify};
+use rayon::prelude::*;
+use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
+use crate::implementations::rule_graph::sort_program;
 
-// This is an implementation of the simplest datalog algorithm, INFER1
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = HashMap::new();
 
@@ -63,8 +63,8 @@ pub fn generate_all_substitutions(
     let relation = knowledge_base.view(&target_atom.symbol);
 
     return relation
-        .into_iter()
-        .map(|row| {
+        .into_par_iter()
+        .filter_map(|row| {
             let term_vec = row
                 .into_iter()
                 .map(|row_element| Term::Constant(row_element.clone()))
@@ -79,8 +79,6 @@ pub fn generate_all_substitutions(
                 },
             );
         })
-        .filter(|substitution| substitution.clone() != None)
-        .map(|some_fact| some_fact.unwrap())
         .collect();
 }
 
@@ -151,76 +149,100 @@ pub fn evaluate_rule(knowledge_base: &Instance, rule: &Rule) -> Option<Relation>
     );
 }
 
-pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instance {
-    let mut previous_delta = Instance::new(false);
-    let mut current_delta = Instance::new(false);
-    let mut output = Instance::new(false);
+pub struct Rewriting {
+    pub program: Vec<Rule>,
+}
 
-    loop {
-        previous_delta = current_delta.clone();
-        let mut edb_plus_previous_delta = knowledge_base.clone();
-        previous_delta
-            .database
-            .clone()
-            .into_iter()
-            .for_each(|relation| {
-                relation
-                    .1
-                    .ward
-                    .keys()
-                    .for_each(|row| {
-                        edb_plus_previous_delta.insert_typed(&relation.0, row.clone())
-                    })
-            });
-        current_delta = Instance::new(false);
-        program.clone().into_iter().for_each(|rule| {
-            if let Some(rule_evaluation) = evaluate_rule(&edb_plus_previous_delta, &rule) {
-                rule_evaluation.ward.keys().for_each(|row| {
-                    current_delta.insert_typed(&rule_evaluation.symbol, row.clone());
-                    output.insert_typed(&rule_evaluation.symbol, row.clone());
-                })
-            }
-        });
-        if previous_delta == current_delta {
-            break;
+impl Rewriting {
+    fn new(program: &Vec<Rule>) -> Self {
+        return Rewriting {
+            program: program.clone()
         }
     }
-
-    return output;
 }
+
+impl InstanceEvaluator for Rewriting {
+    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+        return self.program
+            .clone()
+            .into_iter()
+            .filter_map(|rule| {
+                println!("evaluating: {}", rule);
+                return evaluate_rule(&instance, &rule)
+            })
+            .collect();
+    }
+}
+
+pub struct ParallelRewriting {
+    pub program: Vec<Rule>
+}
+
+impl ParallelRewriting {
+    fn new(program: &Vec<Rule>) -> Self {
+        return ParallelRewriting {
+            program: program.clone()
+        }
+    }
+}
+
+impl InstanceEvaluator for ParallelRewriting {
+    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+        return self.program
+            .clone()
+            .into_par_iter()
+            .filter_map(|rule| {
+                println!("evaluating: {}", rule);
+                return evaluate_rule(&instance, &rule)
+            })
+            .collect();
+    }
+}
+
 
 pub struct ChibiDatalog {
     pub fact_store: Instance,
-}
-
-impl BottomUpEvaluator for ChibiDatalog {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
-        // let rule_graph = generate_rule_dependency_graph(&program);
-        // let (_valid, stratified_program) = stratify(&rule_graph);
-        // let ordered_program = stratified_program.into_iter().flatten().cloned().collect();
-
-        return evaluate_program(&self.fact_store, program);
-    }
+    parallel: bool,
 }
 
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
             fact_store: Instance::new(false),
+            parallel: true
         }
+    }
+}
+
+impl ChibiDatalog {
+    pub fn new(parallel: bool) -> Self {
+        return Self {
+            parallel,
+            ..Default::default()
+        }
+    }
+}
+
+impl BottomUpEvaluator for ChibiDatalog {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&program))));
+        if self.parallel {
+            evaluation.evaluator = Box::new(ParallelRewriting::new(&program));
+        }
+        evaluation.semi_naive();
+
+        return evaluation.output
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::implementations::datalog_positive_infer::{
-        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite,
-        evaluate_program, is_ground, make_substitutions,
+        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions,
     };
-    use crate::models::datalog::{Atom, Rule, Sign, Substitutions, Term, TypedValue};
+    use crate::models::datalog::{Atom, Substitutions, TypedValue};
     use crate::models::instance::Instance;
-    use crate::parsers::datalog::{parse_atom, parse_rule};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     use super::generate_all_substitutions;
 
@@ -413,65 +435,5 @@ mod tests {
         ];
         let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);
         assert_eq!(all_substitutions, fitting_substitutions);
-    }
-
-    #[test]
-    fn test_evaluate_program() {
-        let rule_0 = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
-
-        let mut fact_store = Instance::new(false);
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("adam".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("vanasarvik".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("eve".to_string()),
-                TypedValue::Str("adam".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("jumala".to_string()),
-                TypedValue::Str("cthulu".to_string()),
-            ]),
-        );
-
-        let evaluation: HashSet<Box<[TypedValue]>> = evaluate_program(&fact_store, vec![rule_0])
-            .view("ancestor")
-            .into_iter()
-            .collect();
-
-        let expected_evaluation: HashSet<Box<[TypedValue]>> = vec![
-            Atom::from("ancestor(adam, cthulu)"),
-            Atom::from("ancestor(vanasarvik, cthulu)"),
-            Atom::from("ancestor(eve, jumala)"),
-            Atom::from("ancestor(eve, cthulu)"),
-        ]
-        .into_iter()
-        .map(|atom| {
-            atom.terms
-                .into_iter()
-                .map(|term| match term {
-                    Term::Constant(constant) => return constant,
-                    Term::Variable(_) => unreachable!(),
-                })
-                .collect()
-        })
-        .collect();
-
-        assert_eq!(evaluation, expected_evaluation)
     }
 }

@@ -1,121 +1,98 @@
-use std::time::Instant;
-use crate::implementations::datalog_positive_infer::evaluate_rule;
 use crate::models::datalog::{BottomUpEvaluator, Rule};
 use crate::models::instance::Instance;
 use crate::models::relational_algebra::{Relation, RelationalExpression};
 use rayon::prelude::*;
-use crate::implementations::rule_graph::{generate_rule_dependency_graph, stratify};
+use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
+use crate::implementations::rule_graph::{sort_program};
 
-pub fn evaluate_program(knowledge_base: &Instance, program: Vec<Rule>) -> Instance {
-    let mut previous_delta = Instance::new(knowledge_base.use_indexes);
-    let mut current_delta = Instance::new(knowledge_base.use_indexes);
-    let mut output = Instance::new(knowledge_base.use_indexes);
-    let relational_program: Vec<(String, RelationalExpression, String)> = program
-        .iter()
-        .map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule), RelationalExpression::from(rule).to_string()))
-        .collect();
+pub struct RelationalAlgebra {
+    pub program: Vec<(String, RelationalExpression)>
+}
 
-    loop {
-        previous_delta = current_delta.clone();
-        let mut edb_plus_previous_delta = knowledge_base.clone();
-        previous_delta
-            .database
-            .iter()
-            .for_each(|relation| {
-                relation
-                    .1
-                    .ward
-                    .iter()
-                    .for_each(|(row, notdeleted)| {
-                        if *notdeleted {
-                            edb_plus_previous_delta.insert_typed(&relation.0, row.clone())
-                        }
-                    })
-            });
-        current_delta = Instance::new(knowledge_base.use_indexes);
-        let evals: Vec<Relation> = relational_program
-            .clone()
-            .into_par_iter()
-            .filter_map(|(symbol, expression, repr)| {
-                println!("evaluating: {}", repr);
-                return edb_plus_previous_delta.evaluate(&expression, &symbol)
-            })
-            .collect();
-
-        evals
-            .iter()
-                    .for_each(|relation| {
-                        relation
-                            .ward
-                            .iter()
-                            .for_each(|(row, notdeleted)| {
-                                if *notdeleted {
-                                    current_delta.insert_typed(&relation.symbol, row.clone());
-                                    output.insert_typed(&relation.symbol, row.clone());
-                                }
-                            })
-                    });
-
-        if previous_delta == current_delta {
-            break;
+impl RelationalAlgebra {
+    fn new(program: &Vec<Rule>) -> Self {
+        return RelationalAlgebra {
+            program: program.iter().map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule))).collect()
         }
     }
+}
 
-    return output;
+impl InstanceEvaluator for RelationalAlgebra {
+    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+        return self.program
+            .clone()
+            .into_iter()
+            .filter_map(|(symbol, expression)| {
+                println!("evaluating: {}", expression.to_string());
+                return instance.evaluate(&expression, &symbol)
+            })
+            .collect();
+    }
+}
+
+pub struct ParallelRelationalAlgebra {
+    pub program: Vec<(String, RelationalExpression)>
+}
+
+impl ParallelRelationalAlgebra {
+    fn new(program: &Vec<Rule>) -> Self {
+        return ParallelRelationalAlgebra {
+            program: program.iter().map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule))).collect()
+        }
+    }
+}
+
+impl InstanceEvaluator for ParallelRelationalAlgebra {
+    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+        return self.program
+            .clone()
+            .into_par_iter()
+            .filter_map(|(symbol, expression)| {
+                println!("evaluating: {}", expression.to_string());
+                return instance.evaluate(&expression, &symbol)
+            })
+            .collect();
+    }
 }
 
 pub struct SimpleDatalog {
-    pub fact_store: Instance
-}
-
-impl BottomUpEvaluator for SimpleDatalog {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
-        let rule_graph = generate_rule_dependency_graph(&program);
-        let (_valid, stratification) = stratify(&rule_graph);
-        let program = stratification.iter().flatten().cloned().cloned().collect();
-
-        return evaluate_program(&self.fact_store, program);
-    }
-    // fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
-    //     let rule_graph = generate_rule_dependency_graph(&program);
-    //     let (_valid, stratification) = stratify(&rule_graph);
-    //
-    //     let mut output = Instance::new(false);
-    //
-    //     stratification
-    //         .iter()
-    //         .for_each(|program| {
-    //             evaluate_program(&self.fact_store, program.iter().cloned().cloned().collect())
-    //                 .database
-    //                 .iter()
-    //                 .for_each(|relation| {
-    //                     relation
-    //                         .1
-    //                         .ward
-    //                         .iter()
-    //                         .for_each(|(row, sign)| {
-    //                             if *sign {
-    //                                 output.insert_typed(relation.0, row.clone());
-    //                             }
-    //                         })
-    //                 });
-    //         });
-    //
-    //     return output
-    // }
+    pub fact_store: Instance,
+    parallel: bool
 }
 
 impl Default for SimpleDatalog {
     fn default() -> Self {
         SimpleDatalog {
-            fact_store: Instance::new(false)
+            fact_store: Instance::new(false),
+            parallel: true
         }
+    }
+}
+
+impl SimpleDatalog {
+    pub fn new(parallel: bool) -> Self {
+        return Self {
+            parallel,
+            ..Default::default()
+        }
+    }
+}
+
+impl BottomUpEvaluator for SimpleDatalog {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RelationalAlgebra::new(&sort_program(&program))));
+        if self.parallel {
+            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&program));
+        }
+        evaluation.semi_naive();
+
+        return evaluation.output
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{BottomUpEvaluator, Rule, Term, TypedValue};
+    use crate::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
     use std::collections::HashSet;
     use std::ops::Deref;
     use crate::implementations::datalog_positive_relalg::SimpleDatalog;

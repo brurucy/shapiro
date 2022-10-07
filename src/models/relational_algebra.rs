@@ -3,10 +3,11 @@ use std::fmt::{Display, Formatter};
 
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
-use crate::utils::hashmap::IndexedHashMap;
+use crate::data_structures::hashmap::IndexedHashMap;
 
 use super::datalog::{self, Atom, Rule, TypedValue};
-use super::tree::Tree;
+use data_structures::tree::Tree;
+use crate::data_structures;
 
 pub type Row = Box<[TypedValue]>;
 
@@ -56,7 +57,7 @@ impl Relation {
             .indexes
             .iter()
             .enumerate()
-            .map(|(index_idx, index)| {
+            .map(|(_index_idx, _index)| {
                 return Index {
                     index: Default::default(),
                     active: true
@@ -64,10 +65,10 @@ impl Relation {
             })
             .collect();
 
-        if self.use_indexes {
-            let mut idx = 0usize;
-            self.ward.retain(|k, v| {
-                if *v {
+        let mut idx = 0usize;
+        self.ward.retain(|k, v| {
+            if *v {
+                if self.use_indexes {
                     k
                         .iter()
                         .enumerate()
@@ -76,9 +77,9 @@ impl Relation {
                         });
                     idx += 1;
                 }
-                *v
-            });
-        }
+            }
+            *v
+        });
 
         self.indexes = indexes;
     }
@@ -520,7 +521,7 @@ mod tests {
         let rule =
             Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
 
-        let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
+        let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)
@@ -530,7 +531,7 @@ mod tests {
     fn test_rule_to_expression_complex() {
         let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
-        let expected_expression = "π_[0, 3](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
+        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?a, ?Strrdfs:domain, ?x)), T(?y, ?a4, ?z)))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)

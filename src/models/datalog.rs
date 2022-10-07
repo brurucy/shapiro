@@ -1,8 +1,8 @@
-use ordered_float::{Float, OrderedFloat};
+use ordered_float::{OrderedFloat};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use crate::lexers::datalog::DatalogToken::Error;
+use itertools::Itertools;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -14,6 +14,50 @@ pub enum TypedValue {
     Bool(bool),
     UInt(u32),
     Float(OrderedFloat<f64>),
+}
+
+impl TryInto<u32> for TypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<u32, Self::Error> {
+        match self {
+            TypedValue::UInt(inner) => Ok(inner),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryInto<String> for TypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<String, Self::Error> {
+        match self {
+            TypedValue::Str(inner) => Ok(inner.to_string()),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryInto<bool> for TypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<bool, Self::Error> {
+        match self {
+            TypedValue::Bool(inner) => Ok(inner),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryInto<f64> for TypedValue {
+    type Error = ();
+
+    fn try_into(self) -> Result<f64, Self::Error> {
+        match self {
+            TypedValue::Float(inner) => Ok(inner.into_inner()),
+            _ => Err(())
+        }
+    }
 }
 
 pub trait Ty {
@@ -71,7 +115,7 @@ impl Into<TypedValue> for Term {
     fn into(self) -> TypedValue {
         match self {
             Term::Constant(constant) => constant,
-            Term::Variable(name) => {
+            Term::Variable(_name) => {
                 panic!("cannot insert not-ground atom")
             }
         }
@@ -147,6 +191,17 @@ impl From<&str> for Rule {
     }
 }
 
+impl Display for Rule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let body = self
+            .body
+            .iter()
+            .map(|atom| atom.to_string())
+            .join(", ");
+        write!(f, "{} <- [{}]", self.head, body)
+    }
+}
+
 pub trait BottomUpEvaluator {
     fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance;
 }
@@ -155,7 +210,7 @@ pub trait TopDownEvaluator {
     fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> Instance;
 }
 
-pub fn remove_redundant_atoms(rule: &Rule) -> Rule {
+pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {
     todo!()
 }
 

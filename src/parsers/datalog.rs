@@ -1,9 +1,8 @@
 use logos::{Lexer, Logos};
-use std::collections::HashSet;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
-use crate::lexers::datalog::DatalogToken::{Comma, RParen};
+use crate::lexers::datalog::DatalogToken::RParen;
 use crate::models::datalog::Sign::{Negative, Positive};
 use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
 
@@ -98,9 +97,7 @@ pub fn parse_rule(rule: &str) -> Rule {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::Term::{Constant, Variable};
     use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
-    use crate::parsers::datalog::{parse_atom, parse_rule};
 
     #[test]
     fn test_parse_atom() {
@@ -108,9 +105,9 @@ mod tests {
         let some_atom_2 = "!Y(?a, yeah, false)";
         let some_atom_3 = "Z(?a, 4, 5)";
 
-        let parsed_atom_1 = parse_atom(some_atom_1);
-        let parsed_atom_2 = parse_atom(some_atom_2);
-        let parsed_atom_3 = parse_atom(some_atom_3);
+        let parsed_atom_1 = Atom::from(some_atom_1);
+        let parsed_atom_2 = Atom::from(some_atom_2);
+        let parsed_atom_3 = Atom::from(some_atom_3);
 
         let expected_parsed_atom_1 = Atom {
             terms: vec![
@@ -180,8 +177,8 @@ mod tests {
                 },
             ],
         };
-        let some_parsed_rule = parse_rule(some_rule);
-        let some_parsed_reversed_rule = parse_rule(some_reversed_rule);
+        let some_parsed_rule = Rule::from(some_rule);
+        let some_parsed_reversed_rule = Rule::from(some_reversed_rule);
         assert_eq!(expected_parsing, some_parsed_rule);
         assert_eq!(expected_parsing, some_parsed_reversed_rule)
     }

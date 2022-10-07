@@ -1,55 +1,67 @@
 # Shapiro
 
-Shapiro is a reasoning framework geared towards Datalog.
+Shapiro is a datalog toolbox and zoo.
 
-This was created as a response to the fact that virtually **all** datalog reasoners in Rust are implemented as unwieldy pseudo
-DSLs.
+Here you can find:
 
-Which is a pity, macros are beautiful, but can be extremely unwieldy to use, and cannot be just "dropped in" a project.
+1. [x] A very fast in-memory parallel datalog and relational algebra engine - Simple Datalog
+2. [x] A ~~very expressive and~~ not-so-fast in-memory parallel datalog engine ~~(negation and existential quantification)~~ - ChibiDatalog
 
-Meanwhile, this library provides a usual sql-like interface querying interface to Datalog.
+With more to come.
 
-Here's an usage example with the classic ancestor example:
+Here's an example with the classic ancestor query:
 
 ```rust
-use std::collections::HashSet;
-use shapiro::models::datalog::BottomUpEvaluator;
+#[cfg(test)]
+mod tests {
+    use crate::models::datalog::{BottomUpEvaluator, Rule};
+    use std::collections::HashSet;
 
-#[test]
-fn test_chibi_datalog() {
-    use shapiro::{ChibiDatalog, parsers::datalog::{parse_rule, parse_atom}, models::datalog::Atom};
+    #[test]
+    fn test_chibi_datalog() {
+        use crate::ChibiDatalog;
 
-    let mut reasoner: ChibiDatalog<HashSet<Atom>> = Default::default();
+        // Chibi Datalog is a very simple reasoner, that supports only positive datalog queries
+        // with no negation, aggregates and else.
+        let mut reasoner: ChibiDatalog = Default::default();
+        // Atoms are of arbitrary arity
+        reasoner.fact_store.insert("edge", vec![Box::new(1), Box::new(2)]);
+        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(3)]);
+        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(4)]);
 
-    reasoner.fact_store.insert(parse_atom("edge(a, b)"));
-    reasoner.fact_store.insert(parse_atom("edge(b, c)"));
-    reasoner.fact_store.insert(parse_atom("edge(b, d)"));
+        let new_tuples: HashSet<(u32, u32)> = reasoner
+            .evaluate_program_bottom_up(vec![
+                Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+                Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+            ])
+            .view("reachable")
+            .into_iter()
+            .map(|boxed_slice| {
+                // The output is boxed, so there's some wrangling to do
+                let boxed_vec = boxed_slice.to_vec();
+                (boxed_vec[0].clone().try_into().unwrap(), boxed_vec[1].clone().try_into().unwrap())
+            })
+            .collect();
 
-    let mut new_tuples = reasoner.evaluate_program_bottom_up(
-        vec![
-            parse_rule("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-            parse_rule("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]")]
-    );
+        let expected_new_tuples: HashSet<(u32, u32)> = vec![
+            // Rule 1 output
+            (1, 2),
+            (2, 3),
+            (2, 4),
+            // Rule 2 output
+            (1, 3),
+            (1, 4)
+        ]
+            .into_iter()
+            .collect();
 
-    let expected_new_tuples: HashSet<Atom> = vec![
-        // Rule 1 output
-        parse_atom("reachable(a, b)"),
-        parse_atom("reachable(b, c)"),
-        parse_atom("reachable(b, d)"),
-        // Rule 2 output
-        parse_atom("reachable(a, c)"),
-        parse_atom("reachable(a, d)"),
-    ].into_iter().collect();
-
-    assert_eq!(new_tuples, expected_new_tuples)
+        assert_eq!(new_tuples, expected_new_tuples)
+    }
 }
+
 ```
 
-Atoms are typed, with four different types for terms:
+In case you are interested in performance, clone the repo and just `cargo run`.
 
-1. `String`
-2. `bool`
-3. `u32`
-4. `f64`
-
-And unbounded arity.
+It may not be very informative, later on I will include a proper benchmark here, but in order to answer six very not-trivial
+queries over hundreds of thousands of triples(the included benchmark), barely half a second passed on my M1 Pro.

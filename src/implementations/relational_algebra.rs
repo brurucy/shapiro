@@ -1,13 +1,10 @@
-use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
-use std::time::Instant;
+use std::collections::HashMap;
+
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{
-    Index, Relation, RelationalExpression, SelectionTypedValue, Term,
-};
+use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
 
 pub fn select_value(relation: &mut Relation, column_idx: usize, value: SelectionTypedValue) {
     relation.ward.clone().iter().for_each(|(k, _v)| {
@@ -18,7 +15,7 @@ pub fn select_value(relation: &mut Relation, column_idx: usize, value: Selection
 }
 
 pub fn select_equality(relation: &mut Relation, left_column_idx: usize, right_column_idx: usize) {
-    relation.ward.clone().iter().for_each(|(k, v)| {
+    relation.ward.clone().iter().for_each(|(k, _v)| {
         if k[left_column_idx] != k[right_column_idx] {
             relation.mark_deleted(&k);
         }
@@ -129,9 +126,7 @@ pub fn join(
     let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), true);
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
-    let mut cnt = 0;
     loop {
-        cnt+=1;
         if let Some(left_zip) = current_left.clone() {
             if let Some(right_zip) = current_right.clone() {
                 let left_index_value = left_zip.1;
@@ -142,9 +137,9 @@ pub fn join(
                         current_left = left_iterator.next();
                     }
                     Ordering::Equal => {
-                        let mut left_matches: Vec<(Box<[TypedValue]>)> = vec![];
+                        let mut left_matches: Vec<Box<[TypedValue]>> = vec![];
                         left_matches.push(left_zip.0);
-                        let mut right_matches: Vec<(Box<[TypedValue]>)> = vec![];
+                        let mut right_matches: Vec<Box<[TypedValue]>> = vec![];
                         right_matches.push(right_zip.0);
                         loop {
                             current_left = left_iterator.next();
@@ -260,10 +255,10 @@ pub fn evaluate(
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
-                if let Some(mut left_relation) = left_subtree_evaluation {
+                if let Some(left_relation) = left_subtree_evaluation {
                     //left_relation.compact();
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
-                    if let Some(mut right_relation) = right_subtree_evaluation {
+                    if let Some(right_relation) = right_subtree_evaluation {
                         //right_relation.compact();
                         let join_result = hash_join(
                             &left_relation,
@@ -325,10 +320,10 @@ mod tests {
     use crate::implementations::relational_algebra::{
         join, product, select_equality, select_value,
     };
-    use crate::models::datalog::{Rule, Ty, TypedValue};
+    use crate::models::datalog::Rule;
     use crate::models::instance::Instance;
     use crate::models::relational_algebra::{
-        Index, Relation, RelationalExpression,
+        Relation, RelationalExpression,
         SelectionTypedValue,
     };
 
@@ -475,7 +470,7 @@ mod tests {
 
         let expression = RelationalExpression::from(&Rule::from(rule));
 
-        let mut instance = Instance::new(true);
+        let mut instance = Instance::new(false);
         vec![
             ("adam", "jumala"),
             ("vanasarvik", "jumala"),
@@ -497,7 +492,7 @@ mod tests {
             instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
         });
 
-        let mut expected_relation = Relation::new(&"ancestor", 2, true);
+        let mut expected_relation = Relation::new(&"ancestor", 2, false);
         let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];
         expected_relation_data
             .clone()
