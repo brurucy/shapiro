@@ -3,11 +3,11 @@ use ordered_float::OrderedFloat;
 
 #[derive(Logos, Debug, PartialEq, Hash, Eq, Clone)]
 pub enum DatalogToken<'a> {
-    #[regex(r"\?[A-Za-z]+")]
+    #[regex(r"\?[A-Za-z0-9]+")]
     Variable(&'a str),
     #[regex(r"[0-9]+", |lex| lex.slice().parse())]
     UIntConst(u32),
-    #[regex(r"[A-Za-z]+")]
+    #[regex(r"[A-Za-z:]+")]
     Str(&'a str),
     #[regex(r"(true|false)", |lex| lex.slice().parse())]
     BoolConst(bool),
@@ -32,7 +32,8 @@ pub enum DatalogToken<'a> {
     Error,
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
     use crate::lexers::datalog::DatalogToken;
     use logos::Logos;
     use ordered_float::OrderedFloat;
@@ -41,7 +42,8 @@ mod test {
     fn test_lex_rule() {
         // [X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, 4, 5)
         // Z(?a, 4, 5) <- [X(?a, 5, true), !Y(?a, yeah, false)]
-        let mut lex = DatalogToken::lexer("[X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, -4.1, 5)");
+        let mut lex =
+            DatalogToken::lexer("[X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, -4.1, 5)");
 
         assert_eq!(lex.next(), Some(DatalogToken::LBracket));
 
@@ -102,7 +104,10 @@ mod test {
 
         assert_eq!(lex.next(), Some(DatalogToken::Comma));
 
-        assert_eq!(lex.next(), Some(DatalogToken::FloatConst(OrderedFloat(-4.1))));
+        assert_eq!(
+            lex.next(),
+            Some(DatalogToken::FloatConst(OrderedFloat(-4.1)))
+        );
         assert_eq!(lex.slice(), "-4.1");
 
         assert_eq!(lex.next(), Some(DatalogToken::Comma));
