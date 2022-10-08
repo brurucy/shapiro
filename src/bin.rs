@@ -4,7 +4,6 @@ use shapiro::ChibiDatalog;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use lasso::{Key, Rodeo};
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
@@ -78,10 +77,9 @@ fn main() {
                 Box::new(o.clone()),
             ],
         );
-        infer_reasoner.fact_store.insert(
-            "T",
-            vec![Box::new(s), Box::new(p), Box::new(o)],
-        )
+        infer_reasoner
+            .fact_store
+            .insert("T", vec![Box::new(s), Box::new(p), Box::new(o)])
     });
 
     println!("starting bench");
@@ -101,7 +99,6 @@ fn main() {
     println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
     println!(
         "triples - infer: {}",
-        infer_triples.database.get("T").unwrap().ward
-            .len()
+        infer_triples.database.get("T").unwrap().ward.len()
     );
 }
