@@ -11,6 +11,9 @@ path = "src/lib.rs"
 name = "shapiro_bench"
 path = "src/bin.rs"
 
+[dev-dependencies]
+rand = "0.8.5"
+
 [dependencies]
 petgraph = { version = "0.6.2" }
 logos = "0.12.1"

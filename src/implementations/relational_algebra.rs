@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
@@ -101,29 +100,21 @@ pub fn join(
         .index
         .clone()
         .into_iter()
-        .filter_map(|idx| {
+        .map(|idx| {
             let row = left_relation.get_row(idx.1);
-            let sign = left_relation.ward.get(&row).unwrap();
-            if *sign == true {
-                return Some((row, idx));
-            }
-            return None;
+            return (row, idx);
         });
 
     let mut right_iterator = right_relation.indexes[right_index]
         .index
         .clone()
         .into_iter()
-        .filter_map(|idx| {
+        .map(|idx| {
             let row = right_relation.get_row(idx.1);
-            let sign = right_relation.ward.get(&row).unwrap();
-            if *sign == true {
-                return Some((row, idx));
-            }
-            return None;
+            return (row, idx)
         });
 
-    let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), true);
+    let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), false);
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
     loop {
@@ -255,18 +246,19 @@ pub fn evaluate(
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());
 
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
-                if let Some(left_relation) = left_subtree_evaluation {
-                    //left_relation.compact();
+                if let Some(mut left_relation) = left_subtree_evaluation {
+                    left_relation.use_indexes = true;
+                    left_relation.compact();
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
-                    if let Some(right_relation) = right_subtree_evaluation {
-                        //right_relation.compact();
-                        let join_result = hash_join(
+                    if let Some(mut right_relation) = right_subtree_evaluation {
+                        right_relation.use_indexes = true;
+                        right_relation.compact();
+                        let join_result = join(
                             &left_relation,
                             &right_relation,
                             left_column_idx,
                             right_column_idx,
                         );
-                        //println!("Join duration: {}", now.elapsed().as_millis());
                         return Some(join_result);
                     }
                 }
