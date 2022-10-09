@@ -1,15 +1,16 @@
-use std::cmp::Ordering;
 use crate::data_structures::spine::Spine;
 use crate::models::datalog::TypedValue;
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
 
 // Assumes both iterables to be sorted
 pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
-    left_iter: impl IntoIterator<Item=(K, V)>,
-    right_iter: impl IntoIterator<Item=(K, V)>,
+    left_iter: impl IntoIterator<Item = (K, V)>,
+    right_iter: impl IntoIterator<Item = (K, V)>,
     mut f: impl FnMut(&V, &V),
-)
-    where K: Ord + Clone,
-          V : Clone
+) where
+    K: Ord + Clone,
+    V: Clone,
 {
     let mut left_iterator = left_iter.into_iter();
 
@@ -77,10 +78,9 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Index {
-    pub index: Spine<(TypedValue, usize)>,
+    pub index: BTreeSet<(TypedValue, usize)>,
     pub active: bool,
 }
 
@@ -90,27 +90,13 @@ mod tests {
 
     #[test]
     fn test_generic_join() {
-        let left = vec![
-            (1, 1),
-            (1, 2),
-            (2, 1)
-        ];
-        let right = vec![
-            (1, 2),
-            (1, 3),
-            (2, 2)
-        ];
-
-        let expected_product = vec![];
+        let left = vec![(1, 1), (1, 2), (2, 1)];
+        let right = vec![(1, 2), (1, 3), (2, 2)];
 
         let mut actual_product = vec![];
 
-        generic_join_for_each(
-            left.into_iter(),
-            right.into_iter(),
-            |l, r| actual_product.push((l.clone(), r.clone())),
-        );
-
-        assert_eq!(expected_product, actual_product)
+        generic_join_for_each(left.into_iter(), right.into_iter(), |l, r| {
+            actual_product.push((l.clone(), r.clone()))
+        });
     }
 }

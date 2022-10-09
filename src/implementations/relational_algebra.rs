@@ -1,6 +1,6 @@
+use petgraph::visit::Walker;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use petgraph::visit::Walker;
 
 use crate::models::datalog::TypedValue;
 use crate::models::index::generic_join_for_each;
@@ -108,21 +108,15 @@ pub fn join(
     left_index: usize,
     right_index: usize,
 ) -> Relation {
-    let mut left_iterator = left_relation.indexes[left_index]
-        .index
-        .iter()
-        .map(|idx| {
-            let row = left_relation.get_row(idx.1);
-            return (idx.0.clone(), row);
-        });
+    let mut left_iterator = left_relation.indexes[left_index].index.iter().map(|idx| {
+        let row = left_relation.get_row(idx.1);
+        return (idx.0.clone(), row);
+    });
 
-    let mut right_iterator = right_relation.indexes[right_index]
-        .index
-        .iter()
-        .map(|idx| {
-            let row = right_relation.get_row(idx.1);
-            return (idx.0.clone(), row);
-        });
+    let mut right_iterator = right_relation.indexes[right_index].index.iter().map(|idx| {
+        let row = right_relation.get_row(idx.1);
+        return (idx.0.clone(), row);
+    });
 
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
@@ -131,12 +125,7 @@ pub fn join(
     );
 
     generic_join_for_each(left_iterator, right_iterator, |l, r| {
-        relation.insert_typed(l
-                                  .clone()
-                                  .iter()
-                                  .chain(r.into_iter())
-                                  .cloned()
-                                  .collect())
+        relation.insert_typed(l.clone().iter().chain(r.into_iter()).cloned().collect())
     });
 
     return relation;
