@@ -15,7 +15,7 @@ where
 impl<T: Clone + Ord> Vertebra<T> {
     pub fn new() -> Self {
         return Self {
-            inner: ArrayVec::new(),
+            inner: ArrayVec::<T, INNER_SIZE>::new(),
             max: None,
         };
     }
@@ -34,7 +34,9 @@ impl<T: Clone + Ord> Vertebra<T> {
                 added = true;
             }
         } else {
-            self.inner.push(value.clone());
+            if let Err(err) = self.inner.try_push(value.clone()) {
+                return Err(err)
+            }
             added = true;
         }
         if let Some(max) = &self.max {

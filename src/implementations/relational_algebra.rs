@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use petgraph::visit::Walker;
 
 use crate::models::datalog::TypedValue;
+use crate::models::index::generic_join_for_each;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{
     Relation, RelationalExpression, SelectionTypedValue, Term,
@@ -108,18 +110,18 @@ pub fn join(
 ) -> Relation {
     let mut left_iterator = left_relation.indexes[left_index]
         .index
-        .into_iter()
+        .iter()
         .map(|idx| {
             let row = left_relation.get_row(idx.1);
-            return (row, idx);
+            return (idx.0.clone(), row);
         });
 
     let mut right_iterator = right_relation.indexes[right_index]
         .index
-        .into_iter()
+        .iter()
         .map(|idx| {
             let row = right_relation.get_row(idx.1);
-            return (row, idx);
+            return (idx.0.clone(), row);
         });
 
     let mut relation = Relation::new(
@@ -128,75 +130,14 @@ pub fn join(
         false,
     );
 
-    let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
-    loop {
-        if let Some(left_zip) = current_left.clone() {
-            if let Some(right_zip) = current_right.clone() {
-                let left_index_value = left_zip.1;
-                let right_index_value = right_zip.1;
-
-                match left_index_value.0.cmp(&right_index_value.0) {
-                    Ordering::Less => {
-                        current_left = left_iterator.next();
-                    }
-                    Ordering::Equal => {
-                        let mut left_matches: Vec<Box<[TypedValue]>> = vec![];
-                        left_matches.push(left_zip.0);
-                        let mut right_matches: Vec<Box<[TypedValue]>> = vec![];
-                        right_matches.push(right_zip.0);
-                        loop {
-                            current_left = left_iterator.next();
-                            if let Some(left) = current_left.as_ref() {
-                                if left.1 .0.cmp(&left_index_value.0) == Ordering::Equal {
-                                    left_matches.push(left.clone().0);
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-
-                        loop {
-                            current_right = right_iterator.next();
-                            if let Some(right) = current_right.as_ref() {
-                                if right.1 .0.cmp(&right_index_value.0) == Ordering::Equal {
-                                    right_matches.push(right.clone().0);
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-
-                        let mut matches = 0;
-                        if left_matches.len() * right_matches.len() != 0 {
-                            left_matches.iter().for_each(|left_value| {
-                                right_matches.iter().for_each(|right_value| {
-                                    matches += 1;
-                                    let row = left_value
-                                        .clone()
-                                        .iter()
-                                        .chain(right_value.into_iter())
-                                        .cloned()
-                                        .collect();
-                                    relation.insert_typed(row);
-                                })
-                            });
-                        }
-                    }
-                    Ordering::Greater => {
-                        current_right = right_iterator.next();
-                    }
-                }
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
+    generic_join_for_each(left_iterator, right_iterator, |l, r| {
+        relation.insert_typed(l
+                                  .clone()
+                                  .iter()
+                                  .chain(r.into_iter())
+                                  .cloned()
+                                  .collect())
+    });
 
     return relation;
 }

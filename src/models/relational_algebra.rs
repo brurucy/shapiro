@@ -9,14 +9,9 @@ use ordered_float::OrderedFloat;
 use super::datalog::{self, Atom, Rule, TypedValue};
 use crate::data_structures;
 use data_structures::tree::Tree;
+use crate::models::index::Index;
 
 pub type Row = Box<[TypedValue]>;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Index {
-    pub index: Spine<(TypedValue, usize)>,
-    pub active: bool,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {

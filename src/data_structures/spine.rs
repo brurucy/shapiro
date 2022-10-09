@@ -1,4 +1,4 @@
-use super::vertebra::{Vertebra, INNER_SIZE};
+use super::vertebra::{Vertebra};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spine<T>
@@ -54,6 +54,9 @@ impl<T: Clone + Ord> Spine<T> {
             }
         }
     }
+    pub fn iter(&self) -> SpineIterator<T> {
+        return self.into_iter()
+    }
     pub fn len(&self) -> usize {
         return self.len;
     }
@@ -104,8 +107,8 @@ where
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(value) = self.current_iterator.next() {
-            return Some(value);
+        return if let Some(value) = self.current_iterator.next() {
+            Some(value)
         } else {
             let current_vertebra_idx = self.current_idx.clone();
             if (current_vertebra_idx + 1) >= self.spine.inner.len() {
@@ -116,7 +119,7 @@ where
             if let Some(value) = self.current_iterator.next() {
                 return Some(value);
             }
-            return None;
+            None
         }
     }
 }
