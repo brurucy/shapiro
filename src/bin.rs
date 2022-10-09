@@ -85,10 +85,7 @@ fn main() {
     println!("starting bench");
     let mut now = Instant::now();
     let simple_triples = simple_reasoner.evaluate_program_bottom_up(program.clone());
-    println!(
-        "reasoning time - lazy simple: {} ms",
-        now.elapsed().as_millis()
-    );
+    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
     println!(
         "triples - simple: {}",
         simple_triples.database.get("T").unwrap().ward.len()

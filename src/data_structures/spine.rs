@@ -29,11 +29,21 @@ impl<T: Clone + Ord> Spine<T> {
         if let None = self.inner.get(idx) {
             idx = idx - 1
         }
+
         match self.inner[idx].insert(value.clone()) {
+            // The err only occurs if the arrayvec's capacity is full
             Err(_) => {
+                // We do the halving
                 let new_vertebra = self.inner[idx].halve();
+                // Get the minimum
+                let new_vertebra_min = new_vertebra.inner[0].clone();
+                // Insert the new vertebra
                 self.inner.insert(idx + 1, new_vertebra);
-                self.inner[idx + 1].insert(value).unwrap();
+                if value < new_vertebra_min {
+                    self.inner[idx].insert(value).unwrap();
+                } else {
+                    self.inner[idx + 1].insert(value).unwrap();
+                }
                 self.len += 1;
                 return;
             }
@@ -49,7 +59,18 @@ impl<T: Clone + Ord> Spine<T> {
     }
 }
 
-// It took me so long to figure this out :)
+impl<T> Default for Spine<T>
+where
+    T: Clone + Ord,
+{
+    fn default() -> Self {
+        return Self {
+            inner: vec![Vertebra::new()],
+            len: 0,
+        };
+    }
+}
+
 impl<'a, T> IntoIterator for &'a Spine<T>
 where
     T: Clone + Ord,
@@ -124,10 +145,10 @@ mod tests {
     #[test]
     fn test_insert_with_balancing() {
         let mut rng = thread_rng();
-        let mut input: Vec<isize> = (1..10_000).collect();
+        let mut input: Vec<isize> = (1..100_000).collect();
         input.shuffle(&mut rng);
 
-        let expected_output: Vec<isize> = (1..10_000).collect();
+        let expected_output: Vec<isize> = (1..100_000).collect();
 
         let spine: Spine<isize> = input.iter().fold(Spine::new(), |mut acc, curr| {
             acc.insert(curr.clone());

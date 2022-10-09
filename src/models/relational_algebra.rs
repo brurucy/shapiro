@@ -1,19 +1,20 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
+use crate::data_structures::hashmap::IndexedHashMap;
+use crate::data_structures::spine::Spine;
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
-use crate::data_structures::hashmap::IndexedHashMap;
 
 use super::datalog::{self, Atom, Rule, TypedValue};
-use data_structures::tree::Tree;
 use crate::data_structures;
+use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Index {
-    pub index: BTreeSet<(TypedValue, usize)>,
+    pub index: Spine<(TypedValue, usize)>,
     pub active: bool,
 }
 
@@ -39,10 +40,9 @@ impl Relation {
             row.iter()
                 .enumerate()
                 .for_each(|(column_idx, column_value)| {
-                    self.indexes[column_idx].index.insert((
-                        column_value.clone(),
-                        self.ward.len() - 1,
-                    ));
+                    self.indexes[column_idx]
+                        .index
+                        .insert((column_value.clone(), self.ward.len() - 1));
                 });
         }
     }
@@ -60,8 +60,8 @@ impl Relation {
             .map(|(_index_idx, _index)| {
                 return Index {
                     index: Default::default(),
-                    active: true
-                }
+                    active: true,
+                };
             })
             .collect();
 
@@ -69,12 +69,11 @@ impl Relation {
         self.ward.retain(|k, v| {
             if *v {
                 if self.use_indexes {
-                    k
-                        .iter()
-                        .enumerate()
-                        .for_each(|(column_idx, column_value)| {
-                            indexes[column_idx].index.insert((column_value.clone(), idx));
-                        });
+                    k.iter().enumerate().for_each(|(column_idx, column_value)| {
+                        indexes[column_idx]
+                            .index
+                            .insert((column_value.clone(), idx));
+                    });
                     idx += 1;
                 }
             }
@@ -91,10 +90,16 @@ impl Relation {
         self.insert_typed(typed_row.into_boxed_slice())
     }
     pub fn get_row(&self, idx: usize) -> Row {
-        return self.ward.get_index(idx).unwrap().0.clone()
+        return self.ward.get_index(idx).unwrap().0.clone();
     }
     pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
-        let indexes = vec![Index { index: BTreeSet::new(), active: true}; arity];
+        let indexes = vec![
+            Index {
+                index: Spine::new(),
+                active: true
+            };
+            arity
+        ];
 
         let backing: IndexedHashMap<Box<[TypedValue]>, bool> = Default::default();
 
@@ -102,7 +107,7 @@ impl Relation {
             symbol: symbol.to_string(),
             indexes,
             ward: backing,
-            use_indexes
+            use_indexes,
         }
     }
 }

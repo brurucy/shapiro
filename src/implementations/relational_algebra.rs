@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use crate::models::datalog::TypedValue;
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
+use crate::models::relational_algebra::{
+    Relation, RelationalExpression, SelectionTypedValue, Term,
+};
 
 pub fn select_value(relation: &mut Relation, column_idx: usize, value: SelectionTypedValue) {
     relation.ward.clone().iter().for_each(|(k, _v)| {
@@ -22,7 +24,11 @@ pub fn select_equality(relation: &mut Relation, left_column_idx: usize, right_co
 }
 
 pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation {
-    let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), false);
+    let mut relation = Relation::new(
+        &(left_relation.symbol.to_string() + &right_relation.symbol),
+        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        false,
+    );
 
     left_relation.ward.iter().for_each(|(left_k, left_v)| {
         if *left_v {
@@ -34,7 +40,7 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
                             .iter()
                             .chain(right_k.iter())
                             .cloned()
-                            .collect()
+                            .collect(),
                     )
                 }
             })
@@ -50,7 +56,11 @@ pub fn hash_join(
     left_index: usize,
     right_index: usize,
 ) -> Relation {
-    let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), false);
+    let mut relation = Relation::new(
+        &(left_relation.symbol.to_string() + &right_relation.symbol),
+        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        false,
+    );
 
     let builder = left_relation
         .ward
@@ -80,14 +90,14 @@ pub fn hash_join(
                                 .iter()
                                 .chain(right_row.iter())
                                 .cloned()
-                                .collect()
+                                .collect(),
                         )
                     })
                 }
             }
-    });
+        });
 
-    return relation
+    return relation;
 }
 
 pub fn join(
@@ -98,7 +108,6 @@ pub fn join(
 ) -> Relation {
     let mut left_iterator = left_relation.indexes[left_index]
         .index
-        .clone()
         .into_iter()
         .map(|idx| {
             let row = left_relation.get_row(idx.1);
@@ -107,14 +116,17 @@ pub fn join(
 
     let mut right_iterator = right_relation.indexes[right_index]
         .index
-        .clone()
         .into_iter()
         .map(|idx| {
             let row = right_relation.get_row(idx.1);
-            return (row, idx)
+            return (row, idx);
         });
 
-    let mut relation = Relation::new(&(left_relation.symbol.to_string() + &right_relation.symbol), left_relation.get_row(0).len() + right_relation.get_row(0).len(), false);
+    let mut relation = Relation::new(
+        &(left_relation.symbol.to_string() + &right_relation.symbol),
+        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        false,
+    );
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
     loop {
@@ -196,24 +208,21 @@ pub fn project(
 ) -> Relation {
     let mut new_relation = Relation::new(new_symbol, column_indexes.len(), false);
 
-    relation
-        .ward
-        .iter()
-        .for_each(|(row, sign)| {
-            if *sign {
-                let row = column_indexes
-                    .clone()
-                    .into_iter()
-                    .map(|column_idx| match column_idx {
-                        SelectionTypedValue::Column(idx) => row[idx].clone(),
-                        _ => column_idx.try_into().unwrap(),
-                    })
-                    .collect();
-                new_relation.insert_typed(row)
-            }
-        });
+    relation.ward.iter().for_each(|(row, sign)| {
+        if *sign {
+            let row = column_indexes
+                .clone()
+                .into_iter()
+                .map(|column_idx| match column_idx {
+                    SelectionTypedValue::Column(idx) => row[idx].clone(),
+                    _ => column_idx.try_into().unwrap(),
+                })
+                .collect();
+            new_relation.insert_typed(row)
+        }
+    });
 
-    return new_relation
+    return new_relation;
 }
 
 pub fn evaluate(
@@ -314,10 +323,7 @@ mod tests {
     };
     use crate::models::datalog::Rule;
     use crate::models::instance::Instance;
-    use crate::models::relational_algebra::{
-        Relation, RelationalExpression,
-        SelectionTypedValue,
-    };
+    use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue};
 
     #[test]
     fn select_value_test() {
@@ -423,6 +429,7 @@ mod tests {
         left_data.clone().into_iter().for_each(|tuple| {
             left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
+        left_relation.compact();
 
         let mut right_relation = Relation::new(&"Y", 2, true);
         let right_data = vec![
@@ -434,7 +441,7 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
-
+        right_relation.compact();
 
         let mut expected_join = Relation::new(&"XY", 4, true);
         let expected_join_data = vec![
