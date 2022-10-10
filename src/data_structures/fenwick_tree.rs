@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, PartialEq)]
 pub struct FenwickTree {
     inner: Vec<usize>,
 }
@@ -47,20 +48,22 @@ impl FenwickTree {
             current_idx |= current_idx + 1
         }
     }
-    // I just copy pasted from my javascript code :) please dont' look.
+
     pub fn index_of(&self, prefix_sum: usize) -> usize {
         let length = self.inner.len() as isize;
         let mut prefix_sum = prefix_sum;
         let mut idx = 0 as isize;
         let mut x = most_significant_bit(length) * 2;
-        while x >= 0 {
-            // least_signifiant_bit
+        while x > 0 {
             let lsb = least_significant_bit(x);
             if x <= length && self.inner[(x - 1) as usize] <= prefix_sum {
                 idx = x;
                 prefix_sum -= self.inner[(x - 1) as usize];
                 x += lsb / 2;
             } else {
+                if lsb % 2 > 0 {
+                    break;
+                }
                 x += lsb / 2 - lsb;
             }
         }
@@ -128,13 +131,13 @@ mod tests {
 
     #[test]
     fn test_index_of() {
-        let lengths = [1, 6, 3, 9, 2];
+        let lengths: Vec<usize> = vec![1, 6, 3, 9, 2];
         let fenwick_array = FenwickTree::new(lengths, |item| item.clone());
 
-        let cases: Vec<(usize, usize)> = vec![(0, 0), (1, 6), (2, 9), (3, 18), (4, 20)];
+        let cases: Vec<(usize, usize)> = vec![(0, 0), (6, 1), (9, 2), (18, 3), (20, 4)];
 
-        cases.into_iter().for_each(|(idx, expected_prefix_sum)| {
-            assert_eq!(fenwick_array.prefix_sum(idx), expected_prefix_sum)
+        cases.into_iter().for_each(|(prefix_sum, idx)| {
+            assert_eq!(fenwick_array.index_of(prefix_sum), idx)
         })
     }
 }

@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::models::datalog::TypedValue;
-use crate::models::index::generic_join_for_each;
+use crate::implementations::join::generic_join_for_each;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{
     Relation, RelationalExpression, SelectionTypedValue, Term,

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use crate::data_structures::fenwick_tree::FenwickTree;
 use super::vertebra::{Vertebra};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6,15 +8,15 @@ where
     T: Clone + Ord,
 {
     inner: Vec<Vertebra<T>>,
+    index: FenwickTree,
     len: usize,
 }
 
 impl<T: Clone + Ord> Spine<T> {
     pub fn new() -> Self {
         return Self {
-            inner: vec![Vertebra::new()],
-            len: 0,
-        };
+            ..Default::default()
+        }
     }
     pub fn insert(&mut self, value: T) {
         let vertebrae = self.len;
@@ -45,14 +47,112 @@ impl<T: Clone + Ord> Spine<T> {
                     self.inner[idx + 1].insert(value).unwrap();
                 }
                 self.len += 1;
+                self.index = FenwickTree::new(&self.inner, |vertebra| vertebra.len());
                 return;
             }
             Ok(added) => {
                 if added {
                     self.len += 1;
+                    self.index.increase_length(idx)
                 }
             }
         }
+    }
+    pub fn get(&self, idx: usize) -> Option<&T> {
+        let vertebra_index = self.index.index_of(idx);
+        let offset = self.index.prefix_sum(vertebra_index);
+        return self.inner[vertebra_index].get(idx - offset)
+    }
+    pub fn binary_search(&self, target: &T, lower_bound: usize) -> usize {
+        let mut hi = self.len();
+        let mut lo = lower_bound;
+        while lo < hi {
+            let mid = (hi + lo) / 2;
+            let el: &T = self.get(mid).unwrap();
+            if target > el {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+    pub fn join(&self, other: &Spine<T>, mut f: impl FnMut(&T, &T)) {
+        let mut left_iter = 0;
+        let mut right_iter = 0;
+
+        let (mut current_left, mut current_right) = (self.get(0), other.get(0));
+        loop {
+            if let Some(left) = current_left.clone() {
+                if let Some(right) = current_right.clone() {
+                    match left.cmp(&right) {
+                        Ordering::Less => {
+                            left_iter = self.binary_search(&right, 0);
+                            current_left = self.get(left_iter);
+                        }
+                        Ordering::Equal => {
+                            let mut left_matches: Vec<&T> = vec![];
+                            left_matches.push(&left);
+                            let mut right_matches: Vec<&T> = vec![];
+                            right_matches.push(&right);
+
+                            loop {
+                                current_left = self.get(left_iter + 1);
+                                if let Some(left_next) = current_left.as_ref() {
+                                    if left_next.cmp(&left) == Ordering::Equal {
+                                        left_matches.push(&left);
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            loop {
+                                current_right = self.get(right_iter + 1);
+                                if let Some(right_next) = current_right.as_ref() {
+                                    if right_next.cmp(&right) == Ordering::Equal {
+                                        right_matches.push(&right);
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let mut matches = 0;
+                            if left_matches.len() * right_matches.len() != 0 {
+                                left_matches.into_iter().for_each(|left_value| {
+                                    right_matches.clone().into_iter().for_each(|right_value| {
+                                        matches += 1;
+                                        f(left_value, right_value);
+                                    })
+                                });
+                            }
+                        }
+                        Ordering::Greater => {
+                            right_iter = other.binary_search(&left, 0);
+                            current_right = other.get(right_iter);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pub fn seek(&self, target: &T) -> Option<&T> {
+        let mut vertebra_idx = self
+            .inner
+            .partition_point(|vertebra| vertebra.max.clone().unwrap() < *target);
+
+        if let None = self.inner.get(vertebra_idx) {
+            vertebra_idx = vertebra_idx - 1
+        }
+
+        let idx = self.inner[vertebra_idx].inner.partition_point(|item| item.clone() < *target);
+
+        return self.inner[vertebra_idx].get(idx)
     }
     pub fn iter(&self) -> SpineIterator<T> {
         return self.into_iter()
@@ -67,8 +167,10 @@ where
     T: Clone + Ord,
 {
     fn default() -> Self {
+        let v = vec![Vertebra::new()];
         return Self {
-            inner: vec![Vertebra::new()],
+            inner: v.clone(),
+            index: FenwickTree::new(v, |vertebra| vertebra.len()),
             len: 0,
         };
     }
@@ -146,7 +248,7 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     #[test]
-    fn test_insert_with_balancing() {
+    fn test_insert_with_balancing_fuzz() {
         let mut rng = thread_rng();
         let mut input: Vec<isize> = (1..100_000).collect();
         input.shuffle(&mut rng);
@@ -161,5 +263,49 @@ mod tests {
         let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
 
         assert_eq!(expected_output, actual_output);
+    }
+
+    #[test]
+    fn test_get_fuzz() {
+        let mut rng = thread_rng();
+        let mut input: Vec<isize> = (1..100_000).collect();
+        input.shuffle(&mut rng);
+
+        let expected_output: Vec<isize> = (1..100_000).collect();
+
+        let spine: Spine<isize> = input.iter().fold(Spine::new(), |mut acc, curr| {
+            acc.insert(curr.clone());
+            acc
+        });
+
+        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+
+        expected_output
+            .iter()
+            .for_each(|item| {
+                assert_eq!(spine.get((item - 1) as usize).unwrap(), item)
+            });
+    }
+
+    #[test]
+    fn test_binary_search_fuzz() {
+        let mut rng = thread_rng();
+        let mut input: Vec<isize> = (1..100_000).collect();
+        input.shuffle(&mut rng);
+
+        let expected_output: Vec<isize> = (1..100_000).collect();
+
+        let spine: Spine<isize> = input.iter().fold(Spine::new(), |mut acc, curr| {
+            acc.insert(curr.clone());
+            acc
+        });
+
+        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+
+        expected_output
+            .iter()
+            .for_each(|item| {
+                assert_eq!((item - 1) as usize, spine.binary_search(item, 0))
+            });
     }
 }
