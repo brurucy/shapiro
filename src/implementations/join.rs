@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::fmt::Display;
 
 pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
     left_iter: impl IntoIterator<Item = (K, V)>,
@@ -22,16 +21,16 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                         current_left = left_iterator.next();
                     }
                     Ordering::Equal => {
-                        let mut left_matches: Vec<&V> = vec![];
-                        left_matches.push(&left.1);
-                        let mut right_matches: Vec<&V> = vec![];
-                        right_matches.push(&right.1);
+                        let mut left_matches: Vec<V> = vec![];
+                        left_matches.push(left.1);
+                        let mut right_matches: Vec<V> = vec![];
+                        right_matches.push(right.1);
 
                         loop {
                             current_left = left_iterator.next();
                             if let Some(left_next) = current_left.as_ref() {
                                 if left_next.0.cmp(&left.0) == Ordering::Equal {
-                                    left_matches.push(&left_next.1);
+                                    left_matches.push(left_next.1.clone());
                                 } else {
                                     break;
                                 }
@@ -44,7 +43,7 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                             current_right = right_iterator.next();
                             if let Some(right_next) = current_right.as_ref() {
                                 if right_next.0.cmp(&right.0) == Ordering::Equal {
-                                    right_matches.push(&right_next.1);
+                                    right_matches.push(right_next.1.clone());
                                 } else {
                                     break;
                                 }
@@ -54,9 +53,9 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                         }
 
                         if left_matches.len() * right_matches.len() != 0 {
-                            left_matches.into_iter().for_each(|left_value| {
+                            left_matches.iter().for_each(|left_value| {
                                 right_matches.iter().for_each(|right_value| {
-                                    f(left_value, *right_value);
+                                    f(left_value, right_value);
                                 })
                             });
                         }
@@ -76,7 +75,7 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::implementations::join::generic_join_for_each;
+    use crate::implementations::join::{generic_join_for_each};
 
     #[test]
     fn test_generic_join() {

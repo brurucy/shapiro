@@ -4,8 +4,9 @@ Shapiro is a datalog toolbox and zoo.
 
 Here you can find:
 
-1. [x] A very fast in-memory parallel datalog and relational algebra engine - Simple Datalog
-2. [x] A ~~very expressive and~~ not-so-fast in-memory parallel datalog engine ~~(negation and existential quantification)~~ - ChibiDatalog
+1. [x] A very fast in-memory parallel datalog and relational algebra engine that relies on an ordered(not necessarily sorted) 
+   container for storage and sorted sets as indexes - Simple Datalog
+2. [x] A not-so-fast in-memory parallel datalog engine that uses no indexes and does not rely on order - ChibiDatalog
 
 With more to come.
 
@@ -21,8 +22,6 @@ mod tests {
     fn test_chibi_datalog() {
         use crate::ChibiDatalog;
 
-        // Chibi Datalog is a very simple reasoner, that supports only positive datalog queries
-        // with no negation, aggregates and else.
         let mut reasoner: ChibiDatalog = Default::default();
         // Atoms are of arbitrary arity
         reasoner.fact_store.insert("edge", vec![Box::new(1), Box::new(2)]);

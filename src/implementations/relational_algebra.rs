@@ -1,41 +1,41 @@
-use petgraph::visit::Walker;
-use std::cmp::Ordering;
+use std::borrow::Borrow;
 use std::collections::HashMap;
+use ahash::AHashMap;
 
-use crate::models::datalog::TypedValue;
 use crate::implementations::join::generic_join_for_each;
+use crate::models::datalog::TypedValue;
+use crate::models::index::{IndexBacking, ValueRowId};
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{
-    Relation, RelationalExpression, SelectionTypedValue, Term,
-};
+use crate::models::relational_algebra::{Map, Relation, RelationalExpression, Row, SelectionTypedValue, Term};
 
-pub fn select_value(relation: &mut Relation, column_idx: usize, value: SelectionTypedValue) {
-    relation.ward.clone().iter().for_each(|(k, _v)| {
+pub fn select_value<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, column_idx: usize, value: SelectionTypedValue) {
+    relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[column_idx] != value.clone().try_into().unwrap() {
             relation.mark_deleted(&k);
         }
     });
 }
 
-pub fn select_equality(relation: &mut Relation, left_column_idx: usize, right_column_idx: usize) {
-    relation.ward.clone().iter().for_each(|(k, _v)| {
+pub fn select_equality<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, left_column_idx: usize, right_column_idx: usize) {
+    relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[left_column_idx] != k[right_column_idx] {
             relation.mark_deleted(&k);
         }
     });
 }
 
-pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation {
+pub fn product<T: IndexBacking, K : Map>(left_relation: &Relation<T, K>, right_relation: &Relation<T, K>) -> Relation<T, K>
+    where T : IndexBacking {
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
-        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        left_relation.indexes.len() + right_relation.indexes.len(),
         false,
     );
 
-    left_relation.ward.iter().for_each(|(left_k, left_v)| {
-        if *left_v {
-            right_relation.ward.iter().for_each(|(right_k, right_v)| {
-                if *right_v {
+    left_relation.ward.clone().into_iter().for_each(|(left_k, left_v)| {
+        if left_v {
+            right_relation.ward.clone().into_iter().for_each(|(right_k, right_v)| {
+                if right_v {
                     relation.insert_typed(
                         left_k
                             .clone()
@@ -52,23 +52,26 @@ pub fn product(left_relation: &Relation, right_relation: &Relation) -> Relation 
     return relation;
 }
 
-pub fn hash_join(
-    left_relation: &Relation,
-    right_relation: &Relation,
+pub fn hash_join<T: IndexBacking, K : Map>(
+    left_relation: &Relation<T, K>,
+    right_relation: &Relation<T, K>,
     left_index: usize,
     right_index: usize,
-) -> Relation {
+) -> Relation<T, K> {
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
-        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        left_relation.indexes.len() + right_relation.indexes.len(),
         false,
     );
 
+    let mut builder_backing: AHashMap<TypedValue, Vec<Row>> = Default::default();
+
     let builder = left_relation
         .ward
-        .iter()
-        .fold(HashMap::new(), |mut acc, (row, notdeleted)| {
-            if *notdeleted {
+        .clone()
+        .into_iter()
+        .fold(builder_backing, |mut acc, (row, notdeleted)| {
+            if notdeleted {
                 if !acc.contains_key(&row[left_index]) {
                     acc.insert(row[left_index].clone(), vec![row]);
                 } else {
@@ -81,15 +84,16 @@ pub fn hash_join(
 
     right_relation
         .ward
-        .iter()
+        .clone()
+        .into_iter()
         .for_each(|(right_row, notdeleted)| {
-            if *notdeleted {
+            if notdeleted {
                 if let Some(row_set) = builder.get(&right_row[right_index]) {
                     row_set.into_iter().for_each(|left_row| {
                         relation.insert_typed(
                             left_row
                                 .clone()
-                                .iter()
+                                .into_iter()
                                 .chain(right_row.iter())
                                 .cloned()
                                 .collect(),
@@ -102,44 +106,37 @@ pub fn hash_join(
     return relation;
 }
 
-pub fn join(
-    left_relation: &Relation,
-    right_relation: &Relation,
+pub fn join<T: IndexBacking, K : Map>(
+    left_relation: &Relation<T, K>,
+    right_relation: &Relation<T, K>,
     left_index: usize,
     right_index: usize,
-) -> Relation {
-    let mut left_iterator = left_relation.indexes[left_index].index.iter().map(|idx| {
-        let row = left_relation.get_row(idx.1);
-        return (idx.0.clone(), row);
-    });
-
-    let mut right_iterator = right_relation.indexes[right_index].index.iter().map(|idx| {
-        let row = right_relation.get_row(idx.1);
-        return (idx.0.clone(), row);
-    });
+) -> Relation<T, K> {
 
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
-        left_relation.get_row(0).len() + right_relation.get_row(0).len(),
+        left_relation.indexes.len() + right_relation.indexes.len(),
         false,
     );
 
-    generic_join_for_each(left_iterator, right_iterator, |l, r| {
-        relation.insert_typed(l.clone().iter().chain(r.into_iter()).cloned().collect())
+    generic_join_for_each(
+        left_relation.indexes[left_index].index.clone(),
+        right_relation.indexes[right_index].index.clone(), |l, r| {
+        relation.insert_typed(l.into_iter().chain(r.into_iter()).cloned().collect())
     });
 
     return relation;
 }
 
-pub fn project(
-    relation: &Relation,
+pub fn project<T: IndexBacking, K : Map>(
+    relation: &Relation<T, K>,
     column_indexes: &Vec<SelectionTypedValue>,
     new_symbol: &str,
-) -> Relation {
+) -> Relation<T, K> {
     let mut new_relation = Relation::new(new_symbol, column_indexes.len(), false);
 
-    relation.ward.iter().for_each(|(row, sign)| {
-        if *sign {
+    relation.ward.clone().into_iter().for_each(|(row, sign)| {
+        if sign {
             let row = column_indexes
                 .clone()
                 .into_iter()
@@ -155,11 +152,12 @@ pub fn project(
     return new_relation;
 }
 
-pub fn evaluate(
+pub fn evaluate<T: IndexBacking, K : Map>(
     expr: &RelationalExpression,
-    database: &Database,
+    database: &Database<T, K>,
     new_symbol: &str,
-) -> Option<Relation> {
+) -> Option<Relation<T, K>>
+where T : IndexBacking {
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
 
@@ -186,11 +184,11 @@ pub fn evaluate(
 
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
                 if let Some(mut left_relation) = left_subtree_evaluation {
-                    left_relation.use_indexes = true;
-                    left_relation.compact();
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
                     if let Some(mut right_relation) = right_subtree_evaluation {
+                        left_relation.use_indexes = true;
                         right_relation.use_indexes = true;
+                        left_relation.compact();
                         right_relation.compact();
                         let join_result = join(
                             &left_relation,
@@ -248,6 +246,7 @@ pub fn evaluate(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use crate::implementations::relational_algebra::{
         join, product, select_equality, select_value,
     };
@@ -257,7 +256,7 @@ mod tests {
 
     #[test]
     fn select_value_test() {
-        let mut relation = Relation::new(&"X", 2, false);
+        let mut relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, false);
         let relation_data = vec![(true, 1), (true, 4), (false, 4)];
         relation_data.into_iter().for_each(|tuple| {
             relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
@@ -276,7 +275,7 @@ mod tests {
 
     #[test]
     fn select_equality_test() {
-        let mut relation = Relation::new(&"four", 3, false);
+        let mut relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"four", 3, false);
         let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
         rel_data.into_iter().for_each(|tuple| {
             relation.insert(vec![
@@ -302,10 +301,11 @@ mod tests {
     }
 
     use itertools::Itertools;
+    use crate::models::index::ValueRowId;
 
     #[test]
     fn product_test() {
-        let mut left_relation = Relation::new(&"X", 2, false);
+        let mut left_relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, false);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn join_test() {
-        let mut left_relation = Relation::new(&"X", 2, true);
+        let mut left_relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, true);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -373,7 +373,7 @@ mod tests {
             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
         right_relation.compact();
 
-        let mut expected_join = Relation::new(&"XY", 4, true);
+        let mut expected_join = Relation::new(&"XY", 4, false);
         let expected_join_data = vec![
             (1001, "Arlis", 1001, "Bulbasaur"),
             (1002, "Robert", 1002, "Charmander"),
@@ -399,7 +399,7 @@ mod tests {
 
         let expression = RelationalExpression::from(&Rule::from(rule));
 
-        let mut instance = Instance::new(false);
+        let mut instance: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
         vec![
             ("adam", "jumala"),
             ("vanasarvik", "jumala"),

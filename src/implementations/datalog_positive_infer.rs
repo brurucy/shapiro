@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::rule_graph::sort_program;
+use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::relational_algebra::Map;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = HashMap::new();
@@ -56,10 +58,12 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
     };
 }
 
-pub fn generate_all_substitutions(
-    knowledge_base: &Instance,
+pub fn generate_all_substitutions<T, K>(
+    knowledge_base: &Instance<T, K>,
     target_atom: &Atom,
-) -> Vec<Substitutions> {
+) -> Vec<Substitutions>
+where T : IndexBacking,
+      K : Map {
     let relation = knowledge_base.view(&target_atom.symbol);
 
     return relation
@@ -94,11 +98,13 @@ pub fn is_ground(atom: &Atom) -> bool {
     return true;
 }
 
-pub fn accumulate_substitutions(
-    knowledge_base: &Instance,
+pub fn accumulate_substitutions<T, K>(
+    knowledge_base: &Instance<T, K>,
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
-) -> Vec<Substitutions> {
+) -> Vec<Substitutions>
+where T : IndexBacking,
+      K : Map {
     return input_substitutions
         .iter()
         .fold(vec![], |mut acc, substitution| {
@@ -120,7 +126,9 @@ pub fn accumulate_substitutions(
         });
 }
 
-pub fn accumulate_body_substitutions(knowledge_base: &Instance, body: Body) -> Vec<Substitutions> {
+pub fn accumulate_body_substitutions<T, K>(knowledge_base: &Instance<T, K>, body: Body) -> Vec<Substitutions>
+    where T : IndexBacking,
+          K : Map {
     return body
         .into_iter()
         .fold(vec![HashMap::default()], |acc, item| {
@@ -128,7 +136,9 @@ pub fn accumulate_body_substitutions(knowledge_base: &Instance, body: Body) -> V
         });
 }
 
-pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation> {
+pub fn ground_head<T, K>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T, K>>
+    where T : IndexBacking,
+          K : Map {
     let mut output_instance = Instance::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
@@ -142,7 +152,9 @@ pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Rel
     return None;
 }
 
-pub fn evaluate_rule(knowledge_base: &Instance, rule: &Rule) -> Option<Relation> {
+pub fn evaluate_rule<T, K>(knowledge_base: &Instance<T, K>, rule: &Rule) -> Option<Relation<T, K>>
+    where T : IndexBacking,
+          K : Map {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, rule.clone().body),
@@ -161,8 +173,10 @@ impl Rewriting {
     }
 }
 
-impl InstanceEvaluator for Rewriting {
-    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+impl<T, K> InstanceEvaluator<T, K> for Rewriting
+    where T : IndexBacking,
+          K : Map{
+    fn evaluate(&self, instance: &Instance<T, K>) -> Vec<Relation<T, K>> {
         return self.program
             .clone()
             .into_iter()
@@ -186,8 +200,10 @@ impl ParallelRewriting {
     }
 }
 
-impl InstanceEvaluator for ParallelRewriting {
-    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+impl<T, K> InstanceEvaluator<T, K> for ParallelRewriting
+where T : IndexBacking,
+      K : Map {
+    fn evaluate(&self, instance: &Instance<T, K>) -> Vec<Relation<T, K>> {
         return self.program
             .clone()
             .into_par_iter()
@@ -200,12 +216,14 @@ impl InstanceEvaluator for ParallelRewriting {
 }
 
 
-pub struct ChibiDatalog {
-    pub fact_store: Instance,
+pub struct ChibiDatalog<K>
+where K : Map {
+    pub fact_store: Instance<Vec<ValueRowId>, K>,
     parallel: bool,
 }
 
-impl Default for ChibiDatalog {
+impl<K> Default for ChibiDatalog<K>
+where K : Map {
     fn default() -> Self {
         ChibiDatalog {
             fact_store: Instance::new(false),
@@ -214,7 +232,8 @@ impl Default for ChibiDatalog {
     }
 }
 
-impl ChibiDatalog {
+impl<K> ChibiDatalog<K>
+where K : Map {
     pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
@@ -223,8 +242,9 @@ impl ChibiDatalog {
     }
 }
 
-impl BottomUpEvaluator for ChibiDatalog {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+impl<K> BottomUpEvaluator<Vec<ValueRowId>, K> for ChibiDatalog<K>
+where K : Map {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>, K> {
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRewriting::new(&program));
@@ -242,7 +262,8 @@ mod tests {
     };
     use crate::models::datalog::{Atom, Substitutions, TypedValue};
     use crate::models::instance::Instance;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
+    use crate::models::index::ValueRowId;
 
     use super::generate_all_substitutions;
 
@@ -278,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_ground_atom() {
-        let mut fact_store = Instance::new(false);
+        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
         fact_store.insert_typed(
             "edge",
@@ -327,7 +348,7 @@ mod tests {
     #[test]
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store = Instance::new(false);
+        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
         fact_store.insert_typed(
             "T",
             Box::new([
@@ -380,7 +401,7 @@ mod tests {
         let rule_atom_1 = Atom::from("ancestor(?Y, ?Z)");
         let rule_body = vec![rule_atom_0, rule_atom_1];
 
-        let mut fact_store = Instance::new(false);
+        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
         fact_store.insert_typed(
             "ancestor",
             Box::new([

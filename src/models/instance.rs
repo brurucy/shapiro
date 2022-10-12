@@ -2,21 +2,25 @@ use std::collections::HashMap;
 
 use crate::implementations::relational_algebra::evaluate;
 use crate::models::datalog::{Atom, Ty};
+use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::relational_algebra::Map;
 
 use super::{
     datalog::TypedValue,
     relational_algebra::{Relation, RelationalExpression},
 };
 
-pub type Database = HashMap<String, Relation>;
+pub type Database<T, K> = HashMap<String, Relation<T, K>>;
 
 #[derive(Clone, PartialEq)]
-pub struct Instance {
-    pub database: Database,
+pub struct Instance<T, K>
+where T : IndexBacking,
+      K : Map {
+    pub database: Database<T, K>,
     pub use_indexes: bool,
 }
 
-impl Instance {
+impl<T: IndexBacking, K : Map> Instance<T, K> {
     pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         if let Some(relation) = self.database.get_mut(table) {
             relation.insert(row)
@@ -37,9 +41,9 @@ impl Instance {
                 .insert(new_relation.symbol.clone(), new_relation);
         }
     }
-    pub fn insert_relation(&mut self, relation: &Relation) {
+    pub fn insert_relation(&mut self, relation: Relation<T, K>) {
         self.database
-            .insert(relation.symbol.to_string(), relation.clone());
+            .insert(relation.symbol.to_string(), relation);
     }
     pub fn insert_atom(&mut self, atom: &Atom) {
         let row = (&atom.terms)
@@ -50,7 +54,7 @@ impl Instance {
     }
     pub fn view(&self, table: &str) -> Vec<Box<[TypedValue]>> {
         return if let Some(relation) = self.database.get(table) {
-            relation.ward.keys().cloned().collect()
+            relation.ward.clone().into_iter().map(|(k, v)| k).collect()
         } else {
             vec![]
         };
@@ -61,7 +65,7 @@ impl Instance {
             use_indexes,
         };
     }
-    pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation> {
+    pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation<T, K>> {
         return evaluate(expression, &self.database, view_name);
     }
 }

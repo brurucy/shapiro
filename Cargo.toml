@@ -13,6 +13,7 @@ path = "src/bin.rs"
 
 [dev-dependencies]
 rand = "0.8.5"
+crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git" }
 
 [dependencies]
 petgraph = { version = "0.6.2" }

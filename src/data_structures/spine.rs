@@ -1,5 +1,8 @@
 use std::cmp::Ordering;
+use arrayvec::ArrayVec;
 use crate::data_structures::fenwick_tree::FenwickTree;
+use crate::data_structures::vertebra;
+use crate::data_structures::vertebra::INNER_SIZE;
 use super::vertebra::{Vertebra};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,12 +21,13 @@ impl<T: Clone + Ord> Spine<T> {
             ..Default::default()
         }
     }
-    pub fn insert(&mut self, value: T) {
+    pub fn insert(&mut self, value: T) -> bool {
+        let added = false;
         let vertebrae = self.len;
         if vertebrae == 0 {
             self.inner[0].insert(value).unwrap();
             self.len += 1;
-            return;
+            return true;
         }
         let mut idx = self
             .inner
@@ -48,98 +52,40 @@ impl<T: Clone + Ord> Spine<T> {
                 }
                 self.len += 1;
                 self.index = FenwickTree::new(&self.inner, |vertebra| vertebra.len());
-                return;
+                return added;
             }
             Ok(added) => {
                 if added {
                     self.len += 1;
                     self.index.increase_length(idx)
                 }
+                return added
             }
         }
     }
     pub fn get(&self, idx: usize) -> Option<&T> {
         let vertebra_index = self.index.index_of(idx);
         let offset = self.index.prefix_sum(vertebra_index);
-        return self.inner[vertebra_index].get(idx - offset)
+        if let Some(vertebra) = self.inner.get(vertebra_index) {
+            if let Some(value) = vertebra.get(idx - offset) {
+                return Some(value)
+            }
+        }
+        return None
     }
-    pub fn binary_search(&self, target: &T, lower_bound: usize) -> usize {
+    pub fn binary_search_by(&self, lower_bound: usize, mut cmp: impl FnMut(&T) -> bool) -> usize {
         let mut hi = self.len();
         let mut lo = lower_bound;
         while lo < hi {
             let mid = (hi + lo) / 2;
             let el: &T = self.get(mid).unwrap();
-            if target > el {
+            if cmp(el) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
         lo
-    }
-    pub fn join(&self, other: &Spine<T>, mut f: impl FnMut(&T, &T)) {
-        let mut left_iter = 0;
-        let mut right_iter = 0;
-
-        let (mut current_left, mut current_right) = (self.get(0), other.get(0));
-        loop {
-            if let Some(left) = current_left.clone() {
-                if let Some(right) = current_right.clone() {
-                    match left.cmp(&right) {
-                        Ordering::Less => {
-                            left_iter = self.binary_search(&right, 0);
-                            current_left = self.get(left_iter);
-                        }
-                        Ordering::Equal => {
-                            let mut left_matches: Vec<&T> = vec![];
-                            left_matches.push(&left);
-                            let mut right_matches: Vec<&T> = vec![];
-                            right_matches.push(&right);
-
-                            loop {
-                                current_left = self.get(left_iter + 1);
-                                if let Some(left_next) = current_left.as_ref() {
-                                    if left_next.cmp(&left) == Ordering::Equal {
-                                        left_matches.push(&left);
-                                    } else {
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            loop {
-                                current_right = self.get(right_iter + 1);
-                                if let Some(right_next) = current_right.as_ref() {
-                                    if right_next.cmp(&right) == Ordering::Equal {
-                                        right_matches.push(&right);
-                                    } else {
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            let mut matches = 0;
-                            if left_matches.len() * right_matches.len() != 0 {
-                                left_matches.into_iter().for_each(|left_value| {
-                                    right_matches.clone().into_iter().for_each(|right_value| {
-                                        matches += 1;
-                                        f(left_value, right_value);
-                                    })
-                                });
-                            }
-                        }
-                        Ordering::Greater => {
-                            right_iter = other.binary_search(&left, 0);
-                            current_right = other.get(right_iter);
-                        }
-                    }
-                }
-            }
-        }
     }
     pub fn seek(&self, target: &T) -> Option<&T> {
         let mut vertebra_idx = self
@@ -154,11 +100,22 @@ impl<T: Clone + Ord> Spine<T> {
 
         return self.inner[vertebra_idx].get(idx)
     }
-    pub fn iter(&self) -> SpineIterator<T> {
-        return self.into_iter()
-    }
     pub fn len(&self) -> usize {
         return self.len;
+    }
+}
+
+impl<T> FromIterator<T> for Spine<T>
+where T : Ord + Clone
+{
+    fn from_iter<K: IntoIterator<Item=T>>(iter: K) -> Self {
+        let mut spine = Spine::new();
+        iter
+            .into_iter()
+            .for_each(|item | {
+                spine.insert(item);
+            });
+        return spine
     }
 }
 
@@ -176,37 +133,37 @@ where
     }
 }
 
-impl<'a, T> IntoIterator for &'a Spine<T>
-where
-    T: Clone + Ord,
+impl<T> IntoIterator for Spine<T>
+    where
+        T: Clone + Ord,
 {
-    type Item = &'a T;
+    type Item = T;
 
-    type IntoIter = SpineIterator<'a, T>;
+    type IntoIter = SpineIterator<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         return SpineIterator {
-            spine: &self,
+            spine: self.clone(),
             current_idx: 0,
-            current_iterator: self.inner[0].inner.iter(),
+            current_iterator: self.inner[0].clone().inner.into_iter(),
         };
     }
 }
 
-pub struct SpineIterator<'a, T>
-where
-    T: Clone + Ord,
+pub struct SpineIterator<T>
+    where
+        T: Clone + Ord,
 {
-    spine: &'a Spine<T>,
+    spine: Spine<T>,
     current_idx: usize,
-    current_iterator: std::slice::Iter<'a, T>,
+    current_iterator: arrayvec::IntoIter<T, {INNER_SIZE}>,
 }
 
-impl<'a, T> Iterator for SpineIterator<'a, T>
-where
-    T: Clone + Ord,
+impl<T> Iterator for SpineIterator<T>
+    where
+        T: Clone + Ord,
 {
-    type Item = &'a T;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         return if let Some(value) = self.current_iterator.next() {
@@ -217,7 +174,7 @@ where
                 return None;
             }
             self.current_idx += 1;
-            self.current_iterator = self.spine.inner[self.current_idx].inner.iter();
+            self.current_iterator = self.spine.inner[self.current_idx].clone().inner.into_iter();
             if let Some(value) = self.current_iterator.next() {
                 return Some(value);
             }
@@ -240,7 +197,7 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+        let actual_output: Vec<isize> = spine.into_iter().collect();
 
         assert_eq!(expected_output, actual_output);
     }
@@ -260,7 +217,7 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+        let actual_output: Vec<isize> = spine.into_iter().collect();
 
         assert_eq!(expected_output, actual_output);
     }
@@ -268,44 +225,44 @@ mod tests {
     #[test]
     fn test_get_fuzz() {
         let mut rng = thread_rng();
-        let mut input: Vec<isize> = (1..100_000).collect();
+        let mut input: Vec<usize> = (1..100_000).collect();
         input.shuffle(&mut rng);
 
-        let expected_output: Vec<isize> = (1..100_000).collect();
+        let expected_output: Vec<usize> = (1..100_000).collect();
 
-        let spine: Spine<isize> = input.iter().fold(Spine::new(), |mut acc, curr| {
+        let spine: Spine<usize> = input.iter().fold(Spine::new(), |mut acc, curr| {
             acc.insert(curr.clone());
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+        let actual_output: Vec<usize> = spine.clone().into_iter().collect();
 
         expected_output
-            .iter()
+            .into_iter()
             .for_each(|item| {
-                assert_eq!(spine.get((item - 1) as usize).unwrap(), item)
+                assert_eq!(*&spine.get(item - 1).cloned().unwrap(), item)
             });
     }
 
     #[test]
     fn test_binary_search_fuzz() {
         let mut rng = thread_rng();
-        let mut input: Vec<isize> = (1..100_000).collect();
+        let mut input: Vec<usize> = (1..100_000).collect();
         input.shuffle(&mut rng);
 
-        let expected_output: Vec<isize> = (1..100_000).collect();
+        let expected_output: Vec<usize> = (1..100_000).collect();
 
-        let spine: Spine<isize> = input.iter().fold(Spine::new(), |mut acc, curr| {
+        let spine: Spine<usize> = input.iter().fold(Spine::new(), |mut acc, curr| {
             acc.insert(curr.clone());
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
+        let actual_output: Vec<usize> = spine.clone().into_iter().collect();
 
         expected_output
-            .iter()
+            .into_iter()
             .for_each(|item| {
-                assert_eq!((item - 1) as usize, spine.binary_search(item, 0))
+                assert_eq!(item - 1, spine.binary_search_by(0, |el| item > *el))
             });
     }
 }

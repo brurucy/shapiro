@@ -1,20 +1,27 @@
+use crate::models::index::{IndexBacking, ValueRowId};
 use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
+use crate::models::relational_algebra::{Map, Relation};
 
-pub trait InstanceEvaluator {
-    fn evaluate(&self, _: &Instance) -> Vec<Relation>;
+pub trait InstanceEvaluator<T, K>
+    where T : IndexBacking,
+          K : Map {
+    fn evaluate(&self, _: &Instance<T, K>) -> Vec<Relation<T, K>>;
 }
 
-pub struct Evaluation<'a> {
-    pub input: &'a Instance,
-    pub evaluator: Box<dyn InstanceEvaluator>,
-    pub previous_delta: Instance,
-    pub current_delta: Instance,
-    pub output: Instance,
+pub struct Evaluation<'a, T, K>
+    where T : IndexBacking,
+          K : Map {
+    pub input: &'a Instance<T, K>,
+    pub evaluator: Box<dyn InstanceEvaluator<T, K>>,
+    pub previous_delta: Instance<T, K>,
+    pub current_delta: Instance<T, K>,
+    pub output: Instance<T, K>,
 }
 
-impl<'a> Evaluation<'a> {
-    pub(crate) fn new(instance: &'a Instance, evaluator: Box<dyn InstanceEvaluator>) -> Self {
+impl<'a, T, K> Evaluation<'a, T, K>
+    where T : IndexBacking,
+          K : Map {
+    pub(crate) fn new(instance: &'a Instance<T, K>, evaluator: Box<dyn InstanceEvaluator<T, K>>) -> Self {
         return Self {
             input: instance,
             evaluator,
@@ -33,9 +40,10 @@ impl<'a> Evaluation<'a> {
                 relation
                     .1
                     .ward
-                    .iter()
+                    .clone()
+                    .into_iter()
                     .for_each(|(row, notdeleted)| {
-                        if *notdeleted {
+                        if notdeleted {
                             input_plus_previous_delta.insert_typed(&relation.0, row.clone())
                         }
                     })
@@ -50,9 +58,10 @@ impl<'a> Evaluation<'a> {
             .for_each(|relation| {
                 relation
                     .ward
-                    .iter()
+                    .clone()
+                    .into_iter()
                     .for_each(|(row, notdeleted)| {
-                        if *notdeleted {
+                        if notdeleted {
                             self.current_delta.insert_typed(&relation.symbol, row.clone());
                             self.output.insert_typed(&relation.symbol, row.clone());
                         }

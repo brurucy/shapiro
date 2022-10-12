@@ -1,5 +1,6 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
+use ahash::AHashMap;
 
 use crate::data_structures::hashmap::IndexedHashMap;
 use crate::data_structures::spine::Spine;
@@ -8,20 +9,81 @@ use ordered_float::OrderedFloat;
 
 use super::datalog::{self, Atom, Rule, TypedValue};
 use crate::data_structures;
-use crate::models::index::Index;
+use crate::models::index::{Index, IndexBacking, ValueRowId};
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
+pub trait Map : IntoIterator<Item = (Row, bool)> + Default + Clone + Sync + Send + PartialEq {
+    fn insert(&mut self, _: Row, _: bool) -> Option<bool>;
+    fn get_mut(&mut self, _: &Row) -> Option<&mut bool>;
+    fn contains_key(&self, _: &Row) -> bool;
+    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool);
+}
+
+impl Map for AHashMap<Row, bool> {
+    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
+        self.insert(key, value)
+    }
+
+    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
+        self.get_mut(key)
+    }
+
+    fn contains_key(&self, key: &Row) -> bool {
+        self.contains_key(key)
+    }
+
+    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
+        self.retain(f)
+    }
+}
+
+impl Map for IndexedHashMap<Row, bool> {
+    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
+        self.insert(key, value)
+    }
+
+    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
+        self.get_mut(key)
+    }
+
+    fn contains_key(&self, key: &Row) -> bool {
+        self.contains_key(key)
+    }
+
+    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
+        self.retain(f)
+    }
+}
+
+impl Map for BTreeMap<Row, bool> {
+    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
+        self.insert(key, value)
+    }
+
+    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
+        self.get_mut(key)
+    }
+
+    fn contains_key(&self, key: &Row) -> bool {
+        self.contains_key(key)
+    }
+
+    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
+        self.retain(f)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct Relation {
+pub struct Relation<T : IndexBacking, K : Map> {
     pub symbol: String,
-    pub indexes: Vec<Index>,
-    pub ward: IndexedHashMap<Row, bool>,
+    pub indexes: Vec<Index<T>>,
+    pub ward: K,
     pub use_indexes: bool,
 }
 
-impl Relation {
+impl<T: IndexBacking, K : Map> Relation<T, K> {
     pub(crate) fn insert_typed(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
@@ -32,12 +94,12 @@ impl Relation {
             }
         }
         if self.use_indexes {
-            row.iter()
+            row.into_iter()
                 .enumerate()
                 .for_each(|(column_idx, column_value)| {
                     self.indexes[column_idx]
                         .index
-                        .insert((column_value.clone(), self.ward.len() - 1));
+                        .insert((column_value.clone(), row.clone()));
                 });
         }
     }
@@ -48,7 +110,7 @@ impl Relation {
     }
 
     pub fn compact(&mut self) {
-        let mut indexes: Vec<Index> = self
+        let mut indexes: Vec<Index<T>> = self
             .indexes
             .iter()
             .enumerate()
@@ -67,7 +129,7 @@ impl Relation {
                     k.iter().enumerate().for_each(|(column_idx, column_value)| {
                         indexes[column_idx]
                             .index
-                            .insert((column_value.clone(), idx));
+                            .insert((column_value.clone(), k.clone()));
                     });
                     idx += 1;
                 }
@@ -84,24 +146,19 @@ impl Relation {
             .collect();
         self.insert_typed(typed_row.into_boxed_slice())
     }
-    pub fn get_row(&self, idx: usize) -> Row {
-        return self.ward.get_index(idx).unwrap().0.clone();
-    }
     pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
         let indexes = vec![
             Index {
-                index: BTreeSet::new(),
-                active: true
+                index: T::default(),
+                active: false
             };
             arity
         ];
 
-        let backing: IndexedHashMap<Box<[TypedValue]>, bool> = Default::default();
-
         Relation {
             symbol: symbol.to_string(),
             indexes,
-            ward: backing,
+            ward: K::default(),
             use_indexes,
         }
     }

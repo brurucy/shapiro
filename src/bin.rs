@@ -1,9 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
 use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
-use shapiro::models::datalog::{BottomUpEvaluator, Rule};
+use shapiro::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
 use shapiro::ChibiDatalog;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use shapiro::data_structures::hashmap::IndexedHashMap;
+use shapiro::data_structures::spine::Spine;
+use shapiro::models::index::ValueRowId;
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
@@ -48,8 +52,8 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    let mut simple_reasoner = SimpleDatalog::new(true);
-    let mut infer_reasoner = ChibiDatalog::new(true);
+    let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>, BTreeMap<Box<[TypedValue]>, bool>> = SimpleDatalog::new(true);
+    let mut infer_reasoner: ChibiDatalog<BTreeMap<Box<[TypedValue]>, bool>> = ChibiDatalog::new(true);
 
     abox.chain(tbox).for_each(|row| {
         let mut predicate = row.1.clone();
