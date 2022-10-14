@@ -3,24 +3,22 @@ use std::collections::HashMap;
 use crate::implementations::relational_algebra::evaluate;
 use crate::models::datalog::{Atom, Ty};
 use crate::models::index::{IndexBacking, ValueRowId};
-use crate::models::relational_algebra::Map;
 
 use super::{
     datalog::TypedValue,
     relational_algebra::{Relation, RelationalExpression},
 };
 
-pub type Database<T, K> = HashMap<String, Relation<T, K>>;
+pub type Database<T> = HashMap<String, Relation<T>>;
 
 #[derive(Clone, PartialEq)]
-pub struct Instance<T, K>
-where T : IndexBacking,
-      K : Map {
-    pub database: Database<T, K>,
+pub struct Instance<T>
+where T : IndexBacking{
+    pub database: Database<T>,
     pub use_indexes: bool,
 }
 
-impl<T: IndexBacking, K : Map> Instance<T, K> {
+impl<T: IndexBacking> Instance<T> {
     pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         if let Some(relation) = self.database.get_mut(table) {
             relation.insert(row)
@@ -41,7 +39,7 @@ impl<T: IndexBacking, K : Map> Instance<T, K> {
                 .insert(new_relation.symbol.clone(), new_relation);
         }
     }
-    pub fn insert_relation(&mut self, relation: Relation<T, K>) {
+    pub fn insert_relation(&mut self, relation: Relation<T>) {
         self.database
             .insert(relation.symbol.to_string(), relation);
     }
@@ -65,7 +63,7 @@ impl<T: IndexBacking, K : Map> Instance<T, K> {
             use_indexes,
         };
     }
-    pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation<T, K>> {
+    pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation<T>> {
         return evaluate(expression, &self.database, view_name);
     }
 }

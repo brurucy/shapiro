@@ -1,27 +1,24 @@
 use crate::models::index::{IndexBacking, ValueRowId};
 use crate::models::instance::Instance;
-use crate::models::relational_algebra::{Map, Relation};
+use crate::models::relational_algebra::{Relation};
 
-pub trait InstanceEvaluator<T, K>
-    where T : IndexBacking,
-          K : Map {
-    fn evaluate(&self, _: &Instance<T, K>) -> Vec<Relation<T, K>>;
+pub trait InstanceEvaluator<T>
+    where T : IndexBacking {
+    fn evaluate(&self, _: &Instance<T>) -> Vec<Relation<T>>;
 }
 
-pub struct Evaluation<'a, T, K>
-    where T : IndexBacking,
-          K : Map {
-    pub input: &'a Instance<T, K>,
-    pub evaluator: Box<dyn InstanceEvaluator<T, K>>,
-    pub previous_delta: Instance<T, K>,
-    pub current_delta: Instance<T, K>,
-    pub output: Instance<T, K>,
+pub struct Evaluation<'a, T>
+    where T : IndexBacking {
+    pub input: &'a Instance<T>,
+    pub evaluator: Box<dyn InstanceEvaluator<T>>,
+    pub previous_delta: Instance<T>,
+    pub current_delta: Instance<T>,
+    pub output: Instance<T>,
 }
 
-impl<'a, T, K> Evaluation<'a, T, K>
-    where T : IndexBacking,
-          K : Map {
-    pub(crate) fn new(instance: &'a Instance<T, K>, evaluator: Box<dyn InstanceEvaluator<T, K>>) -> Self {
+impl<'a, T> Evaluation<'a, T>
+    where T : IndexBacking {
+    pub(crate) fn new(instance: &'a Instance<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
             input: instance,
             evaluator,
@@ -40,10 +37,9 @@ impl<'a, T, K> Evaluation<'a, T, K>
                 relation
                     .1
                     .ward
-                    .clone()
-                    .into_iter()
-                    .for_each(|(row, notdeleted)| {
-                        if notdeleted {
+                    .iter()
+                    .for_each(|(row, active)| {
+                        if *active {
                             input_plus_previous_delta.insert_typed(&relation.0, row.clone())
                         }
                     })
@@ -58,10 +54,9 @@ impl<'a, T, K> Evaluation<'a, T, K>
             .for_each(|relation| {
                 relation
                     .ward
-                    .clone()
-                    .into_iter()
-                    .for_each(|(row, notdeleted)| {
-                        if notdeleted {
+                    .iter()
+                    .for_each(|(row, active)| {
+                        if *active {
                             self.current_delta.insert_typed(&relation.symbol, row.clone());
                             self.output.insert_typed(&relation.symbol, row.clone());
                         }

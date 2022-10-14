@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 
-pub const INNER_SIZE: usize = 1000;
-const CUTOFF: usize = (INNER_SIZE / 2) - 1;
+pub const INNER_SIZE: usize = 1024;
+const CUTOFF: usize = INNER_SIZE / 2;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Vertebra<T>

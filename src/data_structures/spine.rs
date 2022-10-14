@@ -1,8 +1,4 @@
-use std::cmp::Ordering;
-use arrayvec::ArrayVec;
 use crate::data_structures::fenwick_tree::FenwickTree;
-use crate::data_structures::vertebra;
-use crate::data_structures::vertebra::INNER_SIZE;
 use super::vertebra::{Vertebra};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,13 +61,33 @@ impl<T: Clone + Ord> Spine<T> {
     }
     pub fn get(&self, idx: usize) -> Option<&T> {
         let vertebra_index = self.index.index_of(idx);
-        let offset = self.index.prefix_sum(vertebra_index);
-        if let Some(vertebra) = self.inner.get(vertebra_index) {
-            if let Some(value) = vertebra.get(idx - offset) {
-                return Some(value)
-            }
+        let mut offset = 0;
+
+        if vertebra_index != 0 {
+            offset = self.index.prefix_sum(vertebra_index);
         }
-        return None
+
+        let mut position_within_vertebra = idx - offset;
+
+        let mut vertebra = self.inner.get(vertebra_index);
+        if let Some(candidate_vertebra) = self.inner.get(vertebra_index) {
+            if position_within_vertebra >= candidate_vertebra.len() {
+                if let Some(candidate_two_vertebra) = self.inner.get(vertebra_index + 1) {
+                    vertebra = Some(candidate_two_vertebra);
+                    position_within_vertebra = 0;
+                } else {
+                    return None
+                }
+            }
+        } else {
+            return None
+        }
+
+        if let Some(value) = vertebra.unwrap().get(position_within_vertebra) {
+            return Some(value)
+        }
+
+        return None;
     }
     pub fn binary_search_by(&self, lower_bound: usize, mut cmp: impl FnMut(&T) -> bool) -> usize {
         let mut hi = self.len();
@@ -133,48 +149,48 @@ where
     }
 }
 
-impl<T> IntoIterator for Spine<T>
+impl<'a, T> IntoIterator for &'a Spine<T>
     where
         T: Clone + Ord,
 {
-    type Item = T;
+    type Item = &'a T;
 
-    type IntoIter = SpineIterator<T>;
+    type IntoIter = SpineIterator<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         return SpineIterator {
-            spine: self.clone(),
+            spine: &self,
             current_idx: 0,
-            current_iterator: self.inner[0].clone().inner.into_iter(),
+            current_iterator: self.inner[0].inner.iter(),
         };
     }
 }
 
-pub struct SpineIterator<T>
+pub struct SpineIterator<'a, T>
     where
         T: Clone + Ord,
 {
-    spine: Spine<T>,
+    spine: &'a Spine<T>,
     current_idx: usize,
-    current_iterator: arrayvec::IntoIter<T, {INNER_SIZE}>,
+    current_iterator: std::slice::Iter<'a, T>,
 }
 
-impl<T> Iterator for SpineIterator<T>
+impl<'a, T> Iterator for SpineIterator<'a, T>
     where
         T: Clone + Ord,
 {
-    type Item = T;
+    type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         return if let Some(value) = self.current_iterator.next() {
             Some(value)
         } else {
-            let current_vertebra_idx = self.current_idx.clone();
+            let current_vertebra_idx = self.current_idx;
             if (current_vertebra_idx + 1) >= self.spine.inner.len() {
                 return None;
             }
             self.current_idx += 1;
-            self.current_iterator = self.spine.inner[self.current_idx].clone().inner.into_iter();
+            self.current_iterator = self.spine.inner[self.current_idx].inner.iter();
             if let Some(value) = self.current_iterator.next() {
                 return Some(value);
             }
@@ -197,7 +213,7 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().collect();
+        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
 
         assert_eq!(expected_output, actual_output);
     }
@@ -217,7 +233,7 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<isize> = spine.into_iter().collect();
+        let actual_output: Vec<isize> = spine.into_iter().cloned().collect();
 
         assert_eq!(expected_output, actual_output);
     }
@@ -234,8 +250,6 @@ mod tests {
             acc.insert(curr.clone());
             acc
         });
-
-        let actual_output: Vec<usize> = spine.clone().into_iter().collect();
 
         expected_output
             .into_iter()
@@ -257,7 +271,7 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<usize> = spine.clone().into_iter().collect();
+        let actual_output: Vec<usize> = spine.into_iter().cloned().collect();
 
         expected_output
             .into_iter()

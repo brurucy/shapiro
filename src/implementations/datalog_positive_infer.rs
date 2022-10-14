@@ -8,7 +8,6 @@ use rayon::prelude::*;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::rule_graph::sort_program;
 use crate::models::index::{IndexBacking, ValueRowId};
-use crate::models::relational_algebra::Map;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = HashMap::new();
@@ -58,12 +57,11 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
     };
 }
 
-pub fn generate_all_substitutions<T, K>(
-    knowledge_base: &Instance<T, K>,
+pub fn generate_all_substitutions<T>(
+    knowledge_base: &Instance<T>,
     target_atom: &Atom,
 ) -> Vec<Substitutions>
-where T : IndexBacking,
-      K : Map {
+where T : IndexBacking {
     let relation = knowledge_base.view(&target_atom.symbol);
 
     return relation
@@ -98,13 +96,12 @@ pub fn is_ground(atom: &Atom) -> bool {
     return true;
 }
 
-pub fn accumulate_substitutions<T, K>(
-    knowledge_base: &Instance<T, K>,
+pub fn accumulate_substitutions<T>(
+    knowledge_base: &Instance<T>,
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
 ) -> Vec<Substitutions>
-where T : IndexBacking,
-      K : Map {
+where T : IndexBacking {
     return input_substitutions
         .iter()
         .fold(vec![], |mut acc, substitution| {
@@ -126,9 +123,8 @@ where T : IndexBacking,
         });
 }
 
-pub fn accumulate_body_substitutions<T, K>(knowledge_base: &Instance<T, K>, body: Body) -> Vec<Substitutions>
-    where T : IndexBacking,
-          K : Map {
+pub fn accumulate_body_substitutions<T>(knowledge_base: &Instance<T>, body: Body) -> Vec<Substitutions>
+    where T : IndexBacking {
     return body
         .into_iter()
         .fold(vec![HashMap::default()], |acc, item| {
@@ -136,9 +132,8 @@ pub fn accumulate_body_substitutions<T, K>(knowledge_base: &Instance<T, K>, body
         });
 }
 
-pub fn ground_head<T, K>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T, K>>
-    where T : IndexBacking,
-          K : Map {
+pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T>>
+    where T : IndexBacking {
     let mut output_instance = Instance::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
@@ -152,9 +147,8 @@ pub fn ground_head<T, K>(head: &Atom, substitutions: Vec<Substitutions>) -> Opti
     return None;
 }
 
-pub fn evaluate_rule<T, K>(knowledge_base: &Instance<T, K>, rule: &Rule) -> Option<Relation<T, K>>
-    where T : IndexBacking,
-          K : Map {
+pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Relation<T>>
+    where T : IndexBacking {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, rule.clone().body),
@@ -173,10 +167,9 @@ impl Rewriting {
     }
 }
 
-impl<T, K> InstanceEvaluator<T, K> for Rewriting
-    where T : IndexBacking,
-          K : Map{
-    fn evaluate(&self, instance: &Instance<T, K>) -> Vec<Relation<T, K>> {
+impl<T> InstanceEvaluator<T> for Rewriting
+    where T : IndexBacking{
+    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_iter()
@@ -200,10 +193,9 @@ impl ParallelRewriting {
     }
 }
 
-impl<T, K> InstanceEvaluator<T, K> for ParallelRewriting
-where T : IndexBacking,
-      K : Map {
-    fn evaluate(&self, instance: &Instance<T, K>) -> Vec<Relation<T, K>> {
+impl<T> InstanceEvaluator<T> for ParallelRewriting
+where T : IndexBacking {
+    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_par_iter()
@@ -216,14 +208,12 @@ where T : IndexBacking,
 }
 
 
-pub struct ChibiDatalog<K>
-where K : Map {
-    pub fact_store: Instance<Vec<ValueRowId>, K>,
+pub struct ChibiDatalog {
+    pub fact_store: Instance<Vec<ValueRowId>>,
     parallel: bool,
 }
 
-impl<K> Default for ChibiDatalog<K>
-where K : Map {
+impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
             fact_store: Instance::new(false),
@@ -232,8 +222,7 @@ where K : Map {
     }
 }
 
-impl<K> ChibiDatalog<K>
-where K : Map {
+impl ChibiDatalog {
     pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
@@ -242,9 +231,8 @@ where K : Map {
     }
 }
 
-impl<K> BottomUpEvaluator<Vec<ValueRowId>, K> for ChibiDatalog<K>
-where K : Map {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>, K> {
+impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>> {
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRewriting::new(&program));

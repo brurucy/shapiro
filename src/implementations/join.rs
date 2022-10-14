@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 
-pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
-    left_iter: impl IntoIterator<Item = (K, V)>,
-    right_iter: impl IntoIterator<Item = (K, V)>,
-    mut f: impl FnMut(&V, &V),
+pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left : 'a, Right : 'a>(
+    left_iter: &'a Left,
+    right_iter: &'a Right,
+    mut f: impl FnMut(V, V),
 ) where
+    &'a Left : 'a + IntoIterator<Item=&'a (K, V)>,
+    &'a Right : 'a + IntoIterator<Item=&'a (K, V)>,
     K: Ord + Clone,
     V: Clone,
 {
@@ -21,16 +23,16 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                         current_left = left_iterator.next();
                     }
                     Ordering::Equal => {
-                        let mut left_matches: Vec<V> = vec![];
-                        left_matches.push(left.1);
-                        let mut right_matches: Vec<V> = vec![];
-                        right_matches.push(right.1);
+                        let mut left_matches: Vec<&'a V> = vec![];
+                        left_matches.push(&left.1);
+                        let mut right_matches: Vec<&'a V> = vec![];
+                        right_matches.push(&right.1);
 
                         loop {
                             current_left = left_iterator.next();
                             if let Some(left_next) = current_left.as_ref() {
                                 if left_next.0.cmp(&left.0) == Ordering::Equal {
-                                    left_matches.push(left_next.1.clone());
+                                    left_matches.push(&left_next.1);
                                 } else {
                                     break;
                                 }
@@ -43,7 +45,7 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                             current_right = right_iterator.next();
                             if let Some(right_next) = current_right.as_ref() {
                                 if right_next.0.cmp(&right.0) == Ordering::Equal {
-                                    right_matches.push(right_next.1.clone());
+                                    right_matches.push(&right_next.1);
                                 } else {
                                     break;
                                 }
@@ -53,9 +55,9 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a>(
                         }
 
                         if left_matches.len() * right_matches.len() != 0 {
-                            left_matches.iter().for_each(|left_value| {
+                            left_matches.into_iter().for_each(|left_value| {
                                 right_matches.iter().for_each(|right_value| {
-                                    f(left_value, right_value);
+                                    f(left_value.clone(), right_value.clone().clone());
                                 })
                             });
                         }
@@ -84,7 +86,7 @@ mod tests {
 
         let mut actual_product = vec![];
 
-        generic_join_for_each(left.into_iter(), right.into_iter(), |l, r| {
+        generic_join_for_each(&left, &right, |l, r| {
             actual_product.push((l.clone(), r.clone()))
         });
 

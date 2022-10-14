@@ -1,27 +1,82 @@
 use crate::data_structures::spine::Spine;
 use crate::models::datalog::TypedValue;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet};
+use rayon::prelude::*;
+use crate::data_structures::hashmap::IndexedHashMap;
+use crate::implementations::join::generic_join_for_each;
 
-pub type ValueRowId = (TypedValue, Box<[TypedValue]>);
+pub type ValueRowId = (TypedValue, usize);
 
-pub trait IndexBacking: IntoIterator<Item=ValueRowId> + Default + Clone + Sync + Send + PartialEq {
-    fn insert(&mut self, _: ValueRowId) -> bool;
+pub trait IndexBacking: Default + Clone + Sync + Send + PartialEq {
+    fn insert_row(&mut self, _: ValueRowId) -> bool;
+    fn join(&self, other: &Self, f: impl FnMut(usize, usize));
 }
 
 impl IndexBacking for BTreeSet<ValueRowId> {
-    fn insert(&mut self, value: ValueRowId) -> bool {
-        return self.insert(value)
+    fn insert_row(&mut self, value: ValueRowId) -> bool { return self.insert(value) }
+    fn join(&self, other: &BTreeSet<ValueRowId>, f: impl FnMut(usize, usize)) {
+        generic_join_for_each(
+            self,
+            other,
+            f
+        );
     }
 }
 
 impl IndexBacking for Spine<ValueRowId> {
-    fn insert(&mut self, value: ValueRowId) -> bool { return self.insert(value) }
+    fn insert_row(&mut self, value: ValueRowId) -> bool { return self.insert(value) }
+    fn join(&self, other: &Spine<ValueRowId>, f: impl FnMut(usize, usize)) {
+        generic_join_for_each(
+            self,
+            other,
+            f
+        );
+    }
 }
 
-// Do not use this.
-// This is a dummy implementation for scenarios where an index is not needed.
 impl IndexBacking for Vec<ValueRowId> {
-    fn insert(&mut self, _: ValueRowId) -> bool { unreachable!() }
+    fn insert_row(&mut self, value: ValueRowId) -> bool {
+        self.push(value);
+        return true
+    }
+    fn join(&self, other: &Vec<ValueRowId>, f: impl FnMut(usize, usize)) {
+        let mut left = self.clone();
+        let mut right = other.clone();
+        rayon::join(|| {left.par_sort_unstable()}, || {right.par_sort_unstable();});
+        generic_join_for_each(
+            &left,
+            &right,
+            f);
+    }
+}
+
+impl IndexBacking for IndexedHashMap<TypedValue, Vec<usize>> {
+    fn insert_row(&mut self, value: ValueRowId) -> bool {
+        if !self.contains_key(&value.0) {
+            self.insert(value.0, vec![value.1]);
+        } else {
+            let idxs = self.get_mut(&value.0).unwrap();
+            idxs.push(value.1);
+        }
+        return true;
+    }
+    fn join(&self, other: &IndexedHashMap<TypedValue, Vec<usize>>, mut f: impl FnMut(usize, usize)) {
+        self
+            .into_iter()
+            .for_each(|(value, left_row_set)| {
+                if let Some(right_row_set) = other.get(value) {
+                    left_row_set
+                        .iter()
+                        .for_each(|left_row_idx| {
+                            right_row_set
+                                .iter()
+                                .for_each(|right_row_idx| {
+                                    f(*left_row_idx, *right_row_idx);
+                                })
+                        })
+                }
+            })
+    }
 }
 
 // Assumes both iterables to be sorted

@@ -1,106 +1,43 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
-use ahash::AHashMap;
 
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::data_structures::spine::Spine;
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
 
 use super::datalog::{self, Atom, Rule, TypedValue};
 use crate::data_structures;
-use crate::models::index::{Index, IndexBacking, ValueRowId};
+use crate::models::index::{Index, IndexBacking};
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
-pub trait Map : IntoIterator<Item = (Row, bool)> + Default + Clone + Sync + Send + PartialEq {
-    fn insert(&mut self, _: Row, _: bool) -> Option<bool>;
-    fn get_mut(&mut self, _: &Row) -> Option<&mut bool>;
-    fn contains_key(&self, _: &Row) -> bool;
-    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool);
-}
-
-impl Map for AHashMap<Row, bool> {
-    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
-        self.insert(key, value)
-    }
-
-    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
-        self.get_mut(key)
-    }
-
-    fn contains_key(&self, key: &Row) -> bool {
-        self.contains_key(key)
-    }
-
-    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
-        self.retain(f)
-    }
-}
-
-impl Map for IndexedHashMap<Row, bool> {
-    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
-        self.insert(key, value)
-    }
-
-    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
-        self.get_mut(key)
-    }
-
-    fn contains_key(&self, key: &Row) -> bool {
-        self.contains_key(key)
-    }
-
-    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
-        self.retain(f)
-    }
-}
-
-impl Map for BTreeMap<Row, bool> {
-    fn insert(&mut self, key: Row, value: bool) -> Option<bool> {
-        self.insert(key, value)
-    }
-
-    fn get_mut(&mut self, key: &Row) -> Option<&mut bool> {
-        self.get_mut(key)
-    }
-
-    fn contains_key(&self, key: &Row) -> bool {
-        self.contains_key(key)
-    }
-
-    fn retain(&mut self, f: impl FnMut(&Row, &mut bool) -> bool) {
-        self.retain(f)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
-pub struct Relation<T : IndexBacking, K : Map> {
+pub struct Relation<T : IndexBacking> {
     pub symbol: String,
     pub indexes: Vec<Index<T>>,
-    pub ward: K,
+    pub ward: IndexedHashMap<Row, bool>,
     pub use_indexes: bool,
 }
 
-impl<T: IndexBacking, K : Map> Relation<T, K> {
+impl<T: IndexBacking> Relation<T> {
     pub(crate) fn insert_typed(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
+            if self.use_indexes {
+                row.into_iter()
+                    .enumerate()
+                    .for_each(|(column_idx, column_value)| {
+                        self.indexes[column_idx]
+                            .index
+                            .insert_row((column_value.clone(), self.ward.len() - 1));
+                    });
+            }
         } else {
             let sign = self.ward.get_mut(&row).unwrap();
             if !*sign {
                 *sign = true
             }
-        }
-        if self.use_indexes {
-            row.into_iter()
-                .enumerate()
-                .for_each(|(column_idx, column_value)| {
-                    self.indexes[column_idx]
-                        .index
-                        .insert((column_value.clone(), row.clone()));
-                });
         }
     }
     pub fn mark_deleted(&mut self, row: &Row) {
@@ -109,7 +46,7 @@ impl<T: IndexBacking, K : Map> Relation<T, K> {
         }
     }
 
-    pub fn compact(&mut self) {
+    pub fn compact_logical(&mut self, index_idx: usize) {
         let mut indexes: Vec<Index<T>> = self
             .indexes
             .iter()
@@ -122,23 +59,54 @@ impl<T: IndexBacking, K : Map> Relation<T, K> {
             })
             .collect();
 
-        let mut idx = 0usize;
-        self.ward.retain(|k, v| {
-            if *v {
-                if self.use_indexes {
-                    k.iter().enumerate().for_each(|(column_idx, column_value)| {
-                        indexes[column_idx]
-                            .index
-                            .insert((column_value.clone(), k.clone()));
-                    });
-                    idx += 1;
+        let mut new_row_id = 0usize;
+        self.ward
+            .iter()
+            .for_each(|(k, v)| {
+                if *v {
+                    indexes[index_idx]
+                        .index
+                        .insert_row((k[index_idx].clone(), new_row_id));
                 }
-            }
-            *v
-        });
+                new_row_id += 1;
+            });
 
         self.indexes = indexes;
     }
+
+    pub fn compact_physical(&mut self, index_idx: usize) {
+        let mut indexes: Vec<Index<T>> = self
+            .indexes
+            .iter()
+            .enumerate()
+            .map(|(_index_idx, _index)| {
+                return Index {
+                    index: Default::default(),
+                    active: true,
+                };
+            })
+            .collect();
+
+        let mut new_row_id = 0usize;
+        self.ward
+            .retain(|k, v| {
+                if *v {
+                    indexes[index_idx]
+                        .index
+                        .insert_row((k[index_idx].clone(), new_row_id));
+                    new_row_id += 1;
+                }
+                *v
+            });
+
+        self.indexes = indexes;
+    }
+
+    pub fn compact(&mut self) {
+        self.ward
+            .retain(|_k, v| *v);
+    }
+
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
         let typed_row: Vec<TypedValue> = row
             .into_iter()
@@ -150,7 +118,7 @@ impl<T: IndexBacking, K : Map> Relation<T, K> {
         let indexes = vec![
             Index {
                 index: T::default(),
-                active: false
+                active: true
             };
             arity
         ];
@@ -158,7 +126,7 @@ impl<T: IndexBacking, K : Map> Relation<T, K> {
         Relation {
             symbol: symbol.to_string(),
             indexes,
-            ward: K::default(),
+            ward: Default::default(),
             use_indexes,
         }
     }
@@ -245,7 +213,7 @@ impl Display for Term {
             Term::Relation(atom) => write!(f, "{}", atom),
             Term::Product => write!(f, "{}", "×"),
             Term::Join(left_column_idx, right_column_idx) => {
-                write!(f, "{}_{}={}", "⋈", left_column_idx, right_column_idx)
+                write!(f, "{}_{}={}","⋈", left_column_idx, right_column_idx)
             }
         }
     }
@@ -256,6 +224,8 @@ pub type RelationalExpression = Tree<Term>;
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
+    // this is the only "physical" plan "optimization" that occurs
+    let mut join_occurred = false;
 
     let mut term_idx = 0;
     let terms = pre_order

@@ -1,14 +1,13 @@
-use std::borrow::Borrow;
-use std::collections::HashMap;
 use ahash::AHashMap;
 
 use crate::implementations::join::generic_join_for_each;
 use crate::models::datalog::TypedValue;
-use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::index::{IndexBacking};
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{Map, Relation, RelationalExpression, Row, SelectionTypedValue, Term};
+use crate::models::relational_algebra::{Relation, RelationalExpression, Row, SelectionTypedValue, Term};
+use crossbeam_channel::*;
 
-pub fn select_value<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, column_idx: usize, value: SelectionTypedValue) {
+pub fn select_value<T: IndexBacking>(relation: &mut Relation<T>, column_idx: usize, value: SelectionTypedValue) {
     relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[column_idx] != value.clone().try_into().unwrap() {
             relation.mark_deleted(&k);
@@ -16,7 +15,7 @@ pub fn select_value<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, col
     });
 }
 
-pub fn select_equality<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, left_column_idx: usize, right_column_idx: usize) {
+pub fn select_equality<T: IndexBacking>(relation: &mut Relation<T>, left_column_idx: usize, right_column_idx: usize) {
     relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[left_column_idx] != k[right_column_idx] {
             relation.mark_deleted(&k);
@@ -24,7 +23,7 @@ pub fn select_equality<T: IndexBacking, K : Map>(relation: &mut Relation<T, K>, 
     });
 }
 
-pub fn product<T: IndexBacking, K : Map>(left_relation: &Relation<T, K>, right_relation: &Relation<T, K>) -> Relation<T, K>
+pub fn product<T: IndexBacking>(left_relation: &Relation<T>, right_relation: &Relation<T>) -> Relation<T>
     where T : IndexBacking {
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
@@ -52,66 +51,12 @@ pub fn product<T: IndexBacking, K : Map>(left_relation: &Relation<T, K>, right_r
     return relation;
 }
 
-pub fn hash_join<T: IndexBacking, K : Map>(
-    left_relation: &Relation<T, K>,
-    right_relation: &Relation<T, K>,
+pub fn join<T: IndexBacking>(
+    left_relation: Relation<T>,
+    right_relation: Relation<T>,
     left_index: usize,
     right_index: usize,
-) -> Relation<T, K> {
-    let mut relation = Relation::new(
-        &(left_relation.symbol.to_string() + &right_relation.symbol),
-        left_relation.indexes.len() + right_relation.indexes.len(),
-        false,
-    );
-
-    let mut builder_backing: AHashMap<TypedValue, Vec<Row>> = Default::default();
-
-    let builder = left_relation
-        .ward
-        .clone()
-        .into_iter()
-        .fold(builder_backing, |mut acc, (row, notdeleted)| {
-            if notdeleted {
-                if !acc.contains_key(&row[left_index]) {
-                    acc.insert(row[left_index].clone(), vec![row]);
-                } else {
-                    let rows = acc.get_mut(&row[left_index]).unwrap();
-                    rows.push(row);
-                }
-            }
-            acc
-        });
-
-    right_relation
-        .ward
-        .clone()
-        .into_iter()
-        .for_each(|(right_row, notdeleted)| {
-            if notdeleted {
-                if let Some(row_set) = builder.get(&right_row[right_index]) {
-                    row_set.into_iter().for_each(|left_row| {
-                        relation.insert_typed(
-                            left_row
-                                .clone()
-                                .into_iter()
-                                .chain(right_row.iter())
-                                .cloned()
-                                .collect(),
-                        )
-                    })
-                }
-            }
-        });
-
-    return relation;
-}
-
-pub fn join<T: IndexBacking, K : Map>(
-    left_relation: &Relation<T, K>,
-    right_relation: &Relation<T, K>,
-    left_index: usize,
-    right_index: usize,
-) -> Relation<T, K> {
+) -> Relation<T> {
 
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
@@ -119,20 +64,29 @@ pub fn join<T: IndexBacking, K : Map>(
         false,
     );
 
-    generic_join_for_each(
-        left_relation.indexes[left_index].index.clone(),
-        right_relation.indexes[right_index].index.clone(), |l, r| {
-        relation.insert_typed(l.into_iter().chain(r.into_iter()).cloned().collect())
-    });
+    left_relation
+        .indexes[left_index]
+        .index
+        .join(&right_relation.indexes[right_index].index,  |l, r| {
+            if let Some(left_row) = left_relation.ward.get_index(l) {
+                if *left_row.1 {
+                    if let Some(right_row) = right_relation.ward.get_index(r) {
+                        if *right_row.1 {
+                            relation.insert_typed(left_row.0.into_iter().chain(right_row.0.into_iter()).cloned().collect())
+                        }
+                    }
+                }
+            }
+        });
 
     return relation;
 }
 
-pub fn project<T: IndexBacking, K : Map>(
-    relation: &Relation<T, K>,
+pub fn project<T: IndexBacking>(
+    relation: &Relation<T>,
     column_indexes: &Vec<SelectionTypedValue>,
     new_symbol: &str,
-) -> Relation<T, K> {
+) -> Relation<T> {
     let mut new_relation = Relation::new(new_symbol, column_indexes.len(), false);
 
     relation.ward.clone().into_iter().for_each(|(row, sign)| {
@@ -152,11 +106,11 @@ pub fn project<T: IndexBacking, K : Map>(
     return new_relation;
 }
 
-pub fn evaluate<T: IndexBacking, K : Map>(
+pub fn evaluate<T: IndexBacking>(
     expr: &RelationalExpression,
-    database: &Database<T, K>,
+    database: &Database<T>,
     new_symbol: &str,
-) -> Option<Relation<T, K>>
+) -> Option<Relation<T>>
 where T : IndexBacking {
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
@@ -185,14 +139,12 @@ where T : IndexBacking {
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
                 if let Some(mut left_relation) = left_subtree_evaluation {
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
+                    left_relation.compact_logical(left_column_idx);
                     if let Some(mut right_relation) = right_subtree_evaluation {
-                        left_relation.use_indexes = true;
-                        right_relation.use_indexes = true;
-                        left_relation.compact();
-                        right_relation.compact();
+                        right_relation.compact_logical(right_column_idx);
                         let join_result = join(
-                            &left_relation,
-                            &right_relation,
+                            left_relation,
+                            right_relation,
                             left_column_idx,
                             right_column_idx,
                         );
@@ -388,7 +340,7 @@ mod tests {
             ])
         });
 
-        let actual_join = join(&left_relation, &right_relation, 0, 0);
+        let actual_join = join(left_relation, right_relation, 0, 0);
         assert_eq!(expected_join, actual_join);
     }
 

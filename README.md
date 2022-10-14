@@ -64,3 +64,14 @@ In case you are interested in performance, clone the repo and just `cargo run`.
 
 It may not be very informative, later on I will include a proper benchmark here, but in order to answer six very not-trivial
 queries over hundreds of thousands of triples(the included benchmark), barely half a second passed on my M1 Pro.
+
+### Roadmap
+
+0. [] Using `DashMap` instead of `indexmap`
+1. [] Streaming implementation with `timely`
+2. [] Negation(stratification is already implemented)
+3. [] Head Aggregations
+4. [] Body functions
+5. [] Head Skolemization
+6. [] Program Linearization
+7. [] Multiple heads for one body
