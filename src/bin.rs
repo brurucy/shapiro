@@ -1,10 +1,15 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
-use shapiro::models::datalog::{BottomUpEvaluator, Rule};
+use shapiro::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
 use shapiro::ChibiDatalog;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use lasso::{Key, Rodeo};
+use ahash::AHashMap;
+use shapiro::data_structures::hashmap::IndexedHashMap;
+use shapiro::data_structures::spine::Spine;
+use shapiro::models::index::ValueRowId;
+use shapiro::models::relational_algebra::Row;
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
@@ -49,8 +54,11 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    let mut simple_reasoner = SimpleDatalog::new(true);
-    let mut infer_reasoner = ChibiDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::new(true);
+    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::new(true);
+    let mut infer_reasoner: ChibiDatalog = ChibiDatalog::new(true);
 
     abox.chain(tbox).for_each(|row| {
         let mut predicate = row.1.clone();
@@ -78,19 +86,15 @@ fn main() {
                 Box::new(o.clone()),
             ],
         );
-        infer_reasoner.fact_store.insert(
-            "T",
-            vec![Box::new(s), Box::new(p), Box::new(o)],
-        )
+        infer_reasoner
+            .fact_store
+            .insert("T", vec![Box::new(s), Box::new(p), Box::new(o)])
     });
 
     println!("starting bench");
     let mut now = Instant::now();
     let simple_triples = simple_reasoner.evaluate_program_bottom_up(program.clone());
-    println!(
-        "reasoning time - lazy simple: {} ms",
-        now.elapsed().as_millis()
-    );
+    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
     println!(
         "triples - simple: {}",
         simple_triples.database.get("T").unwrap().ward.len()
@@ -101,7 +105,6 @@ fn main() {
     println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
     println!(
         "triples - infer: {}",
-        infer_triples.database.get("T").unwrap().ward
-            .len()
+        infer_triples.database.get("T").unwrap().ward.len()
     );
 }

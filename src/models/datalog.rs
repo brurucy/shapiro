@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use itertools::Itertools;
+use crate::models::index::IndexBacking;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -202,12 +203,14 @@ impl Display for Rule {
     }
 }
 
-pub trait BottomUpEvaluator {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance;
+pub trait BottomUpEvaluator<T>
+    where T : IndexBacking{
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<T>;
 }
 
-pub trait TopDownEvaluator {
-    fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> Instance;
+pub trait TopDownEvaluator<T>
+    where T : IndexBacking {
+    fn evaluate_program_top_down(&self, query: &Rule, program: Vec<Rule>) -> Instance<T>;
 }
 
 pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {

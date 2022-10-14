@@ -11,7 +11,7 @@ pub use implementations::datalog_positive_infer::ChibiDatalog;
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::{BottomUpEvaluator, Rule};
-    use std::collections::HashSet;
+    use std::collections::{HashSet};
 
     #[test]
     fn test_chibi_datalog() {

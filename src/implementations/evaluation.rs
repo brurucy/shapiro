@@ -1,20 +1,24 @@
+use crate::models::index::{IndexBacking, ValueRowId};
 use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
+use crate::models::relational_algebra::{Relation};
 
-pub trait InstanceEvaluator {
-    fn evaluate(&self, _: &Instance) -> Vec<Relation>;
+pub trait InstanceEvaluator<T>
+    where T : IndexBacking {
+    fn evaluate(&self, _: &Instance<T>) -> Vec<Relation<T>>;
 }
 
-pub struct Evaluation<'a> {
-    pub input: &'a Instance,
-    pub evaluator: Box<dyn InstanceEvaluator>,
-    pub previous_delta: Instance,
-    pub current_delta: Instance,
-    pub output: Instance,
+pub struct Evaluation<'a, T>
+    where T : IndexBacking {
+    pub input: &'a Instance<T>,
+    pub evaluator: Box<dyn InstanceEvaluator<T>>,
+    pub previous_delta: Instance<T>,
+    pub current_delta: Instance<T>,
+    pub output: Instance<T>,
 }
 
-impl<'a> Evaluation<'a> {
-    pub(crate) fn new(instance: &'a Instance, evaluator: Box<dyn InstanceEvaluator>) -> Self {
+impl<'a, T> Evaluation<'a, T>
+    where T : IndexBacking {
+    pub(crate) fn new(instance: &'a Instance<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
             input: instance,
             evaluator,
@@ -34,8 +38,8 @@ impl<'a> Evaluation<'a> {
                     .1
                     .ward
                     .iter()
-                    .for_each(|(row, notdeleted)| {
-                        if *notdeleted {
+                    .for_each(|(row, active)| {
+                        if *active {
                             input_plus_previous_delta.insert_typed(&relation.0, row.clone())
                         }
                     })
@@ -51,8 +55,8 @@ impl<'a> Evaluation<'a> {
                 relation
                     .ward
                     .iter()
-                    .for_each(|(row, notdeleted)| {
-                        if *notdeleted {
+                    .for_each(|(row, active)| {
+                        if *active {
                             self.current_delta.insert_typed(&relation.symbol, row.clone());
                             self.output.insert_typed(&relation.symbol, row.clone());
                         }

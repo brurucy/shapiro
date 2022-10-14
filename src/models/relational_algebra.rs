@@ -1,49 +1,43 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
+use crate::data_structures::hashmap::IndexedHashMap;
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
-use crate::data_structures::hashmap::IndexedHashMap;
 
 use super::datalog::{self, Atom, Rule, TypedValue};
-use data_structures::tree::Tree;
 use crate::data_structures;
+use crate::models::index::{Index, IndexBacking};
+use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Index {
-    pub index: BTreeSet<(TypedValue, usize)>,
-    pub active: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Relation {
+pub struct Relation<T : IndexBacking> {
     pub symbol: String,
-    pub indexes: Vec<Index>,
+    pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
     pub use_indexes: bool,
 }
 
-impl Relation {
+impl<T: IndexBacking> Relation<T> {
     pub(crate) fn insert_typed(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
+            if self.use_indexes {
+                row.into_iter()
+                    .enumerate()
+                    .for_each(|(column_idx, column_value)| {
+                        self.indexes[column_idx]
+                            .index
+                            .insert_row((column_value.clone(), self.ward.len() - 1));
+                    });
+            }
         } else {
             let sign = self.ward.get_mut(&row).unwrap();
             if !*sign {
                 *sign = true
             }
-        }
-        if self.use_indexes {
-            row.iter()
-                .enumerate()
-                .for_each(|(column_idx, column_value)| {
-                    self.indexes[column_idx].index.insert((
-                        column_value.clone(),
-                        self.ward.len() - 1,
-                    ));
-                });
         }
     }
     pub fn mark_deleted(&mut self, row: &Row) {
@@ -52,37 +46,67 @@ impl Relation {
         }
     }
 
-    pub fn compact(&mut self) {
-        let mut indexes: Vec<Index> = self
+    pub fn compact_logical(&mut self, index_idx: usize) {
+        let mut indexes: Vec<Index<T>> = self
             .indexes
             .iter()
             .enumerate()
             .map(|(_index_idx, _index)| {
                 return Index {
                     index: Default::default(),
-                    active: true
-                }
+                    active: true,
+                };
             })
             .collect();
 
-        let mut idx = 0usize;
-        self.ward.retain(|k, v| {
-            if *v {
-                if self.use_indexes {
-                    k
-                        .iter()
-                        .enumerate()
-                        .for_each(|(column_idx, column_value)| {
-                            indexes[column_idx].index.insert((column_value.clone(), idx));
-                        });
-                    idx += 1;
+        let mut new_row_id = 0usize;
+        self.ward
+            .iter()
+            .for_each(|(k, v)| {
+                if *v {
+                    indexes[index_idx]
+                        .index
+                        .insert_row((k[index_idx].clone(), new_row_id));
                 }
-            }
-            *v
-        });
+                new_row_id += 1;
+            });
 
         self.indexes = indexes;
     }
+
+    pub fn compact_physical(&mut self, index_idx: usize) {
+        let mut indexes: Vec<Index<T>> = self
+            .indexes
+            .iter()
+            .enumerate()
+            .map(|(_index_idx, _index)| {
+                return Index {
+                    index: Default::default(),
+                    active: true,
+                };
+            })
+            .collect();
+
+        let mut new_row_id = 0usize;
+        self.ward
+            .retain(|k, v| {
+                if *v {
+                    indexes[index_idx]
+                        .index
+                        .insert_row((k[index_idx].clone(), new_row_id));
+                    new_row_id += 1;
+                }
+                *v
+            });
+
+        self.indexes = indexes;
+    }
+
+    pub fn compact(&mut self) {
+        self.ward
+            .retain(|_k, v| *v);
+    }
+
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
         let typed_row: Vec<TypedValue> = row
             .into_iter()
@@ -90,19 +114,20 @@ impl Relation {
             .collect();
         self.insert_typed(typed_row.into_boxed_slice())
     }
-    pub fn get_row(&self, idx: usize) -> Row {
-        return self.ward.get_index(idx).unwrap().0.clone()
-    }
     pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
-        let indexes = vec![Index { index: BTreeSet::new(), active: true}; arity];
-
-        let backing: IndexedHashMap<Box<[TypedValue]>, bool> = Default::default();
+        let indexes = vec![
+            Index {
+                index: T::default(),
+                active: true
+            };
+            arity
+        ];
 
         Relation {
             symbol: symbol.to_string(),
             indexes,
-            ward: backing,
-            use_indexes
+            ward: Default::default(),
+            use_indexes,
         }
     }
 }
@@ -188,7 +213,7 @@ impl Display for Term {
             Term::Relation(atom) => write!(f, "{}", atom),
             Term::Product => write!(f, "{}", "×"),
             Term::Join(left_column_idx, right_column_idx) => {
-                write!(f, "{}_{}={}", "⋈", left_column_idx, right_column_idx)
+                write!(f, "{}_{}={}","⋈", left_column_idx, right_column_idx)
             }
         }
     }
@@ -199,6 +224,8 @@ pub type RelationalExpression = Tree<Term>;
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
+    // this is the only "physical" plan "optimization" that occurs
+    let mut join_occurred = false;
 
     let mut term_idx = 0;
     let terms = pre_order

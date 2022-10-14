@@ -4,6 +4,7 @@ use crate::models::relational_algebra::{Relation, RelationalExpression};
 use rayon::prelude::*;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::rule_graph::{sort_program};
+use crate::models::index::{IndexBacking};
 
 pub struct RelationalAlgebra {
     pub program: Vec<(String, RelationalExpression)>
@@ -17,15 +18,31 @@ impl RelationalAlgebra {
     }
 }
 
-impl InstanceEvaluator for RelationalAlgebra {
-    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+impl<T> InstanceEvaluator<T> for RelationalAlgebra
+where T : IndexBacking,
+{
+    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_iter()
-            .filter_map(|(symbol, expression)| {
+            .fold(Instance::new(false), |mut acc, (symbol, expression)| {
                 println!("evaluating: {}", expression.to_string());
-                return instance.evaluate(&expression, &symbol)
+                let output = instance.evaluate(&expression, &symbol);
+                if let Some(relation) = output {
+                    relation
+                        .ward
+                        .iter()
+                        .for_each(|(row, active)| {
+                            if *active {
+                                acc.insert_typed(&relation.symbol, row.clone());
+                            }
+                        })
+                }
+                acc
             })
+            .database
+            .values()
+            .cloned()
             .collect();
     }
 }
@@ -42,8 +59,9 @@ impl ParallelRelationalAlgebra {
     }
 }
 
-impl InstanceEvaluator for ParallelRelationalAlgebra {
-    fn evaluate(&self, instance: &Instance) -> Vec<Relation> {
+impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
+where T : IndexBacking {
+    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_par_iter()
@@ -55,12 +73,14 @@ impl InstanceEvaluator for ParallelRelationalAlgebra {
     }
 }
 
-pub struct SimpleDatalog {
-    pub fact_store: Instance,
+pub struct SimpleDatalog<T>
+    where T : IndexBacking {
+    pub fact_store: Instance<T>,
     parallel: bool
 }
 
-impl Default for SimpleDatalog {
+impl<T> Default for SimpleDatalog<T>
+    where T : IndexBacking {
     fn default() -> Self {
         SimpleDatalog {
             fact_store: Instance::new(false),
@@ -69,7 +89,8 @@ impl Default for SimpleDatalog {
     }
 }
 
-impl SimpleDatalog {
+impl<T> SimpleDatalog<T>
+where T : IndexBacking {
     pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
@@ -78,8 +99,9 @@ impl SimpleDatalog {
     }
 }
 
-impl BottomUpEvaluator for SimpleDatalog {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance {
+impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
+    where T : IndexBacking {
+    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<T> {
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RelationalAlgebra::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&program));
@@ -93,13 +115,14 @@ impl BottomUpEvaluator for SimpleDatalog {
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::ops::Deref;
     use crate::implementations::datalog_positive_relalg::SimpleDatalog;
+    use crate::models::index::ValueRowId;
 
     #[test]
     fn test_simple_datalog() {
-        let mut reasoner: SimpleDatalog = Default::default();
+        let mut reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = Default::default();
         reasoner.fact_store.insert(
             "edge",
             vec![

@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "shapiro_bench"
 path = "src/bin.rs"
 
+[dev-dependencies]
+rand = "0.8.5"
+crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git" }
+
 [dependencies]
 petgraph = { version = "0.6.2" }
 logos = "0.12.1"
@@ -19,4 +23,5 @@ itertools = "0.10.5"
 indexmap = "1.9.1"
 ahash = "0.8.0"
 rayon = "1.5.3"
-lasso = "0.6.0"
+arrayvec = "0.7.2"
+crossbeam-channel = "0.5.6"
