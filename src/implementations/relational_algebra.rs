@@ -1,11 +1,7 @@
-use ahash::AHashMap;
-
-use crate::implementations::join::generic_join_for_each;
-use crate::models::datalog::TypedValue;
+use std::time::Instant;
 use crate::models::index::{IndexBacking};
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{Relation, RelationalExpression, Row, SelectionTypedValue, Term};
-use crossbeam_channel::*;
+use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
 
 pub fn select_value<T: IndexBacking>(relation: &mut Relation<T>, column_idx: usize, value: SelectionTypedValue) {
     relation.ward.clone().into_iter().for_each(|(k, _v)| {
@@ -57,7 +53,6 @@ pub fn join<T: IndexBacking>(
     left_index: usize,
     right_index: usize,
 ) -> Relation<T> {
-
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
         left_relation.indexes.len() + right_relation.indexes.len(),
@@ -139,9 +134,15 @@ where T : IndexBacking {
                 let left_subtree_evaluation = evaluate(&left_subtree, database, new_symbol);
                 if let Some(mut left_relation) = left_subtree_evaluation {
                     let right_subtree_evaluation = evaluate(&right_subtree, database, new_symbol);
-                    left_relation.compact_logical(left_column_idx);
                     if let Some(mut right_relation) = right_subtree_evaluation {
-                        right_relation.compact_logical(right_column_idx);
+                        rayon::join(
+                            || {
+                                left_relation.compact_physical(left_column_idx);
+                            }, ||
+                            {
+                                right_relation.compact_physical(right_column_idx)
+                            }
+                        );
                         let join_result = join(
                             left_relation,
                             right_relation,

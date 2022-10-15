@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
+use std::rc::Rc;
+use std::sync::Arc;
 
-use crate::data_structures::hashmap::IndexedHashMap;
+use crate::data_structures::hashmap::{ConcurrentHashMap, IndexedHashMap};
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
 

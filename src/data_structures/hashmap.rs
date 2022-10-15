@@ -1,6 +1,5 @@
-use std::collections::BTreeMap;
+use dashmap::DashMap;
 use indexmap::map::IndexMap;
-use ahash::RandomState;
 
-pub type IndexedHashMap<K, V> =  IndexMap<K, V, RandomState>;
-//pub type IndexedHashMap<K, V> =  BTreeMap<K, V>;
+pub type IndexedHashMap<K, V> = IndexMap<K, V, ahash::RandomState>;
+pub type ConcurrentHashMap<K, V> = DashMap<K, V, ahash::RandomState>;
