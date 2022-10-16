@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
 use shapiro::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
 use shapiro::ChibiDatalog;
@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use ahash::AHashMap;
+use im::{Vector, HashMap};
 use shapiro::data_structures::hashmap::IndexedHashMap;
 use shapiro::data_structures::spine::Spine;
 use shapiro::models::index::ValueRowId;
@@ -56,8 +57,10 @@ fn main() {
 
     //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::new(true);
     //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::new(true);
-    //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::new(true);
-    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::new(true);
+    let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::new(true);
     let mut infer_reasoner: ChibiDatalog = ChibiDatalog::new(true);
 
     abox.chain(tbox).for_each(|row| {
