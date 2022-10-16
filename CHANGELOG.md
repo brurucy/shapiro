@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 
+## [0.3.1] - 2022-10-16
+### Changed
+- `Cargo.toml` version corrected
+
 ## [0.3.0] - 2022-10-15
 ### Changed
 - `SimpleDatalog` is generic over `Index`
