@@ -3,7 +3,7 @@ use ordered_float::OrderedFloat;
 
 #[derive(Logos, Debug, PartialEq, Hash, Eq, Clone)]
 pub enum DatalogToken<'a> {
-    #[regex(r"\?[A-Za-z0-9]+")]
+    #[regex(r"\?[A-Za-z0-9:]+")]
     Variable(&'a str),
     #[regex(r"[0-9]+", |lex| lex.slice().parse())]
     UIntConst(u32),

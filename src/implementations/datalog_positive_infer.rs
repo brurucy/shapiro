@@ -37,26 +37,6 @@ pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     return Some(substitution);
 }
 
-pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
-    return Atom {
-        terms: atom
-            .terms
-            .clone()
-            .into_iter()
-            .map(|term| {
-                if let Term::Variable(identifier) = term.clone() {
-                    if let Some(constant) = rewrite.get(&identifier) {
-                        return Term::Constant(constant.clone());
-                    }
-                }
-                return term;
-            })
-            .collect(),
-        symbol: atom.clone().symbol,
-        sign: atom.clone().sign,
-    };
-}
-
 pub fn generate_all_substitutions<T>(
     knowledge_base: &Instance<T>,
     target_atom: &Atom,
@@ -94,6 +74,26 @@ pub fn is_ground(atom: &Atom) -> bool {
         };
     }
     return true;
+}
+
+pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
+    return Atom {
+        terms: atom
+            .terms
+            .clone()
+            .into_iter()
+            .map(|term| {
+                if let Term::Variable(identifier) = term.clone() {
+                    if let Some(constant) = rewrite.get(&identifier) {
+                        return Term::Constant(constant.clone());
+                    }
+                }
+                return term;
+            })
+            .collect(),
+        symbol: atom.clone().symbol,
+        sign: atom.clone().sign,
+    };
 }
 
 pub fn accumulate_substitutions<T>(

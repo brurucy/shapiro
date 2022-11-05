@@ -1,4 +1,3 @@
-use std::time::Instant;
 use crate::models::index::{IndexBacking};
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
