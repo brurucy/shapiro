@@ -1,16 +1,19 @@
 use crate::models::{
-    datalog::{Atom, Body, BottomUpEvaluator, Rule, Sign, Substitutions, Term},
+    datalog::{Atom, Body, BottomUpEvaluator, Rule, Sign, Term},
     instance::Instance,
     relational_algebra::Relation,
 };
-use std::collections::HashMap;
 use rayon::prelude::*;
+use crate::data_structures::substitutions::Substitutions;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
+use crate::implementations::interning::Interner;
 use crate::implementations::rule_graph::sort_program;
+use crate::models::datalog::Sign::Positive;
+use crate::models::datalog::Ty;
 use crate::models::index::{IndexBacking, ValueRowId};
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
-    let mut substitution: Substitutions = HashMap::new();
+    let mut substitution: Substitutions = Default::default();
 
     let left_and_right = left.terms.iter().zip(right.terms.iter());
 
@@ -22,12 +25,12 @@ pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
                 }
             }
             (Term::Variable(left_variable), Term::Constant(right_constant)) => {
-                if let Some(constant) = substitution.get(left_variable.as_str()) {
+                if let Some(constant) = substitution.get(*left_variable) {
                     if constant.clone() != *right_constant {
                         return None;
                     }
                 } else {
-                    substitution.insert(left_variable.clone(), right_constant.clone());
+                    substitution.insert((left_variable.clone(), right_constant.clone()));
                 }
             }
             _ => {}
@@ -45,7 +48,7 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
             .into_iter()
             .map(|term| {
                 if let Term::Variable(identifier) = term.clone() {
-                    if let Some(constant) = rewrite.get(&identifier) {
+                    if let Some(constant) = rewrite.get(identifier) {
                         return Term::Constant(constant.clone());
                     }
                 }
@@ -61,7 +64,7 @@ pub fn generate_all_substitutions<T>(
     knowledge_base: &Instance<T>,
     target_atom: &Atom,
 ) -> Vec<Substitutions>
-where T : IndexBacking {
+    where T: IndexBacking {
     let relation = knowledge_base.view(&target_atom.symbol);
 
     return relation
@@ -101,7 +104,7 @@ pub fn accumulate_substitutions<T>(
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
 ) -> Vec<Substitutions>
-where T : IndexBacking {
+    where T: IndexBacking {
     return input_substitutions
         .iter()
         .fold(vec![], |mut acc, substitution| {
@@ -112,7 +115,7 @@ where T : IndexBacking {
                         .iter()
                         .map(|inner_sub| {
                             let mut outer_sub = substitution.clone();
-                            let inner_sub_cl = inner_sub.clone();
+                            let inner_sub_cl = inner_sub;
                             outer_sub.extend(inner_sub_cl);
                             return outer_sub;
                         })
@@ -124,16 +127,16 @@ where T : IndexBacking {
 }
 
 pub fn accumulate_body_substitutions<T>(knowledge_base: &Instance<T>, body: Body) -> Vec<Substitutions>
-    where T : IndexBacking {
+    where T: IndexBacking {
     return body
         .into_iter()
-        .fold(vec![HashMap::default()], |acc, item| {
+        .fold(vec![Default::default()], |acc, item| {
             accumulate_substitutions(knowledge_base, &item, acc)
         });
 }
 
 pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T>>
-    where T : IndexBacking {
+    where T: IndexBacking {
     let mut output_instance = Instance::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
@@ -148,7 +151,7 @@ pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<
 }
 
 pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Relation<T>>
-    where T : IndexBacking {
+    where T: IndexBacking {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, rule.clone().body),
@@ -163,83 +166,108 @@ impl Rewriting {
     fn new(program: &Vec<Rule>) -> Self {
         return Rewriting {
             program: program.clone()
-        }
+        };
     }
 }
 
 impl<T> InstanceEvaluator<T> for Rewriting
-    where T : IndexBacking{
+    where T: IndexBacking {
     fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_iter()
             .filter_map(|rule| {
                 println!("evaluating: {}", rule);
-                return evaluate_rule(&instance, &rule)
+                return evaluate_rule(&instance, &rule);
             })
             .collect();
     }
 }
 
 pub struct ParallelRewriting {
-    pub program: Vec<Rule>
+    pub program: Vec<Rule>,
 }
 
 impl ParallelRewriting {
     fn new(program: &Vec<Rule>) -> Self {
         return ParallelRewriting {
             program: program.clone()
-        }
+        };
     }
 }
 
 impl<T> InstanceEvaluator<T> for ParallelRewriting
-where T : IndexBacking {
+    where T: IndexBacking {
     fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
             .into_par_iter()
             .filter_map(|rule| {
                 println!("evaluating: {}", rule);
-                return evaluate_rule(&instance, &rule)
+                return evaluate_rule(&instance, &rule);
             })
             .collect();
     }
 }
 
-
 pub struct ChibiDatalog {
     pub fact_store: Instance<Vec<ValueRowId>>,
+    interner: Interner,
     parallel: bool,
+    intern: bool,
 }
 
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
             fact_store: Instance::new(false),
-            parallel: true
+            interner: Interner::default(),
+            parallel: true,
+            intern: true,
         }
     }
 }
 
 impl ChibiDatalog {
-    pub fn new(parallel: bool) -> Self {
+    pub fn new(parallel: bool, intern: bool) -> Self {
         return Self {
             parallel,
+            intern,
             ..Default::default()
+        };
+    }
+    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+        let mut atom = Atom {
+            symbol: table.to_string(),
+            terms: row
+                .iter()
+                .map(|ty| Term::Constant(ty.to_typed_value()))
+                .collect(),
+            sign: Positive
+        };
+        if self.intern {
+            atom = self.interner.intern_atom(&atom)
         }
+        self.fact_store.insert_atom(&atom)
     }
 }
 
 impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>> {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>> {
+        let mut program = program;
+        if self.intern {
+            program = program
+                .iter()
+                .map(|rule| self.interner.intern_rule(rule))
+                .collect();
+        }
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRewriting::new(&program));
         }
         evaluation.semi_naive();
 
-        return evaluation.output
+        return evaluation.output;
     }
 }
 
@@ -248,9 +276,10 @@ mod tests {
     use crate::implementations::datalog_positive_infer::{
         accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions,
     };
-    use crate::models::datalog::{Atom, Substitutions, TypedValue};
+    use crate::models::datalog::{Atom, TypedValue};
     use crate::models::instance::Instance;
     use std::collections::{BTreeSet, HashMap};
+    use crate::data_structures::substitutions::{Substitution, Substitutions};
     use crate::models::index::ValueRowId;
 
     use super::generate_all_substitutions;
@@ -261,12 +290,12 @@ mod tests {
         let data_0 = Atom::from("edge(a,b)");
 
         if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
-            let expected_sub: Substitutions = vec![
-                ("?X".to_string(), TypedValue::Str("a".to_string())),
-                ("?Y".to_string(), TypedValue::Str("b".to_string())),
-            ]
-            .into_iter()
-            .collect();
+            let expected_sub: Substitutions = Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("a".to_string())),
+                    (1, TypedValue::Str("b".to_string())),
+                ]
+            };
             assert_eq!(sub, expected_sub);
         } else {
             panic!()
@@ -308,18 +337,20 @@ mod tests {
         assert_eq!(
             subs,
             vec![
-                vec![
-                    ("?X".to_string(), TypedValue::Str("a".to_string())),
-                    ("?Y".to_string(), TypedValue::Str("b".to_string()))
-                ]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
-                vec![
-                    ("?X".to_string(), TypedValue::Str("b".to_string())),
-                    ("?Y".to_string(), TypedValue::Str("c".to_string()))
-                ]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
+                Substitutions {
+                    inner:
+                    vec![
+                        (0, TypedValue::Str("a".to_string())),
+                        (1, TypedValue::Str("b".to_string())),
+                    ]
+                },
+                Substitutions {
+                    inner:
+                    vec![
+                        (0, TypedValue::Str("b".to_string())),
+                        (1, TypedValue::Str("c".to_string())),
+                    ]
+                },
             ]
         )
     }
@@ -355,30 +386,30 @@ mod tests {
         );
 
         let partial_subs = vec![
-            vec![("?X".to_string(), TypedValue::Str("student".to_string()))]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
-            vec![("?X".to_string(), TypedValue::Str("professor".to_string()))]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
+            Substitutions {
+                inner: vec![(0, TypedValue::Str("student".to_string()))]
+            },
+            Substitutions {
+                inner: vec![(0, TypedValue::Str("professor".to_string()))]
+            },
         ];
 
         let subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
         assert_eq!(
             subs,
             vec![
-                vec![
-                    ("?X".to_string(), TypedValue::Str("student".to_string())),
-                    ("?Y".to_string(), TypedValue::Str("takesClassesFrom".to_string())),
-                ]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
-                vec![
-                    ("?X".to_string(), TypedValue::Str("professor".to_string())),
-                    ("?Y".to_string(), TypedValue::Str("worksAt".to_string())),
-                ]
-                .into_iter()
-                .collect::<HashMap<String, TypedValue>>(),
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("student".to_string())),
+                        (1, TypedValue::Str("takesClassesFrom".to_string())),
+                    ]
+                },
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("professor".to_string())),
+                        (1, TypedValue::Str("worksAt".to_string())),
+                    ]
+                },
             ]
         )
     }
@@ -420,27 +451,27 @@ mod tests {
         );
 
         let fitting_substitutions = vec![
-            vec![
-                ("?X".to_string(), TypedValue::Str("adam".to_string())),
-                ("?Y".to_string(), TypedValue::Str("jumala".to_string())),
-                ("?Z".to_string(), TypedValue::Str("cthulu".to_string())),
-            ]
-            .into_iter()
-            .collect::<HashMap<String, TypedValue>>(),
-            vec![
-                ("?X".to_string(), TypedValue::Str("vanasarvik".to_string())),
-                ("?Y".to_string(), TypedValue::Str("jumala".to_string())),
-                ("?Z".to_string(), TypedValue::Str("cthulu".to_string())),
-            ]
-            .into_iter()
-            .collect::<HashMap<String, TypedValue>>(),
-            vec![
-                ("?X".to_string(), TypedValue::Str("eve".to_string())),
-                ("?Y".to_string(), TypedValue::Str("adam".to_string())),
-                ("?Z".to_string(), TypedValue::Str("jumala".to_string())),
-            ]
-            .into_iter()
-            .collect::<HashMap<String, TypedValue>>(),
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("adam".to_string())),
+                    (1, TypedValue::Str("jumala".to_string())),
+                    (2, TypedValue::Str("cthulu".to_string())),
+                ]
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("vanasarvik".to_string())),
+                    (1, TypedValue::Str("jumala".to_string())),
+                    (2, TypedValue::Str("cthulu".to_string())),
+                ]
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("eve".to_string())),
+                    (1, TypedValue::Str("adam".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
+                ]
+            },
         ];
         let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);
         assert_eq!(all_substitutions, fitting_substitutions);

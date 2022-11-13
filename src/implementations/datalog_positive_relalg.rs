@@ -1,9 +1,11 @@
-use crate::models::datalog::{BottomUpEvaluator, Rule};
+use crate::models::datalog::{Atom, BottomUpEvaluator, Rule, Term, Ty};
 use crate::models::instance::Instance;
 use crate::models::relational_algebra::{Relation, RelationalExpression};
 use rayon::prelude::*;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
+use crate::implementations::interning::Interner;
 use crate::implementations::rule_graph::{sort_program};
+use crate::models::datalog::Sign::Positive;
 use crate::models::index::{IndexBacking};
 
 pub struct RelationalAlgebra {
@@ -76,7 +78,9 @@ where T : IndexBacking {
 pub struct SimpleDatalog<T>
     where T : IndexBacking {
     pub fact_store: Instance<T>,
-    parallel: bool
+    interner: Interner,
+    parallel: bool,
+    intern: bool
 }
 
 impl<T> Default for SimpleDatalog<T>
@@ -84,24 +88,48 @@ impl<T> Default for SimpleDatalog<T>
     fn default() -> Self {
         SimpleDatalog {
             fact_store: Instance::new(false),
-            parallel: true
+            interner: Interner::default(),
+            parallel: true,
+            intern: true,
         }
     }
 }
 
 impl<T> SimpleDatalog<T>
 where T : IndexBacking {
-    pub fn new(parallel: bool) -> Self {
+    pub fn new(parallel: bool, intern: bool) -> Self {
         return Self {
             parallel,
+            intern,
             ..Default::default()
         }
+    }
+    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+        let mut atom = Atom {
+            symbol: table.to_string(),
+            terms: row
+                .iter()
+                .map(|ty| Term::Constant(ty.to_typed_value()))
+                .collect(),
+            sign: Positive
+        };
+        if self.intern {
+            atom = self.interner.intern_atom(&atom)
+        }
+        self.fact_store.insert_atom(&atom)
     }
 }
 
 impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
     where T : IndexBacking {
-    fn evaluate_program_bottom_up(&self, program: Vec<Rule>) -> Instance<T> {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T> {
+        let mut program = program;
+        if self.intern {
+            program = program
+                .iter()
+                .map(|rule| self.interner.intern_rule(rule))
+                .collect();
+        }
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RelationalAlgebra::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&program));
