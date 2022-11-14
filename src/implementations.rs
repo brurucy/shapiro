@@ -5,3 +5,4 @@ pub mod datalog_positive_relalg;
 pub mod evaluation;
 pub mod join;
 pub mod interning;
+pub mod delete_rederive;
