@@ -55,13 +55,13 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::new(true);
-    //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::new(true);
-    let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::new(true);
-    //let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::new(true);
-    //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::new(true);
-    //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::new(true);
-    let mut infer_reasoner: ChibiDatalog = ChibiDatalog::new(true);
+    //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::default();
+    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::default();
+    let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
 
     abox.chain(tbox).for_each(|row| {
         let mut predicate = row.1.clone();
@@ -81,17 +81,19 @@ fn main() {
         let p = predicate;
         let o = row.2;
 
-        simple_reasoner.fact_store.insert(
+        simple_reasoner.insert(
             "T",
             vec![
                 Box::new(s.clone()),
                 Box::new(p.clone()),
                 Box::new(o.clone()),
-            ],
-        );
+            ]);
         infer_reasoner
-            .fact_store
-            .insert("T", vec![Box::new(s), Box::new(p), Box::new(o)])
+            .insert("T", vec![
+                Box::new(s),
+                Box::new(p),
+                Box::new(o)
+            ])
     });
 
     println!("starting bench");

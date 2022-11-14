@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::implementations::relational_algebra::evaluate;
 use crate::models::datalog::{Atom, Ty};
-use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::index::{IndexBacking};
 
 use super::{
     datalog::TypedValue,

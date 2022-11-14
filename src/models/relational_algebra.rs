@@ -1,9 +1,7 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
-use std::sync::Arc;
 
-use crate::data_structures::hashmap::{ConcurrentHashMap, IndexedHashMap};
+use crate::data_structures::hashmap::IndexedHashMap;
 use crate::models::datalog::Ty;
 use ordered_float::OrderedFloat;
 
@@ -140,6 +138,7 @@ pub enum SelectionTypedValue {
     Bool(bool),
     UInt(u32),
     Column(usize),
+    InternedStr(usize),
     Float(OrderedFloat<f64>),
 }
 
@@ -150,6 +149,7 @@ impl From<TypedValue> for SelectionTypedValue {
             TypedValue::Bool(inner) => SelectionTypedValue::Bool(inner),
             TypedValue::UInt(inner) => SelectionTypedValue::UInt(inner),
             TypedValue::Float(inner) => SelectionTypedValue::Float(inner),
+            TypedValue::InternedStr(inner) => SelectionTypedValue::InternedStr(inner),
         };
     }
 }
@@ -169,6 +169,7 @@ impl TryInto<TypedValue> for SelectionTypedValue {
             SelectionTypedValue::Bool(inner) => Ok(TypedValue::Bool(inner)),
             SelectionTypedValue::UInt(inner) => Ok(TypedValue::UInt(inner)),
             SelectionTypedValue::Float(inner) => Ok(TypedValue::Float(inner)),
+            SelectionTypedValue::InternedStr(inner) => Ok(TypedValue::InternedStr(inner)),
             SelectionTypedValue::Column(_inner) => Err(()),
         };
     }
@@ -181,6 +182,7 @@ impl Display for SelectionTypedValue {
             SelectionTypedValue::Bool(inner) => write!(f, "{}", inner),
             SelectionTypedValue::UInt(inner) => write!(f, "{}u32", inner),
             SelectionTypedValue::Column(inner) => write!(f, "{}usize", inner),
+            SelectionTypedValue::InternedStr(inner) => write!(f, "{}IStr", inner),
             SelectionTypedValue::Float(inner) => {
                 write!(f, "{}f64", inner)
             }
@@ -221,13 +223,12 @@ impl Display for Term {
     }
 }
 
+// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 pub type RelationalExpression = Tree<Term>;
 
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
-    // this is the only "physical" plan "optimization" that occurs
-    let mut join_occurred = false;
 
     let mut term_idx = 0;
     let terms = pre_order
@@ -353,7 +354,6 @@ pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpressi
     return expr_local;
 }
 
-// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
     let rule_body = rule.body.clone();
 
@@ -385,7 +385,7 @@ fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
     return expression;
 }
 
-fn constant_to_selection(expr: &RelationalExpression) -> RelationalExpression {
+fn constant_to_selection<'a>(expr: &RelationalExpression, next_id: &mut u8) -> RelationalExpression {
     let mut expression = expr.clone();
     expression.arena.clone().into_iter().for_each(|node| {
         if let Term::Relation(atom) = node.value {
@@ -404,13 +404,15 @@ fn constant_to_selection(expr: &RelationalExpression) -> RelationalExpression {
                             selection = Term::Selection(idx, SelectionTypedValue::UInt(uint_value))
                         }
                         TypedValue::Float(float_value) => {
-                            selection =
-                                Term::Selection(idx, SelectionTypedValue::Float(float_value))
+                            selection = Term::Selection(idx, SelectionTypedValue::Float(float_value))
+                        }
+                        TypedValue::InternedStr(usize_value) => {
+                            selection = Term::Selection(idx, SelectionTypedValue::InternedStr(usize_value))
                         }
                     }
 
-                    let newvarsymbol = format!("?{}", typed_value);
-                    let newvar = datalog::Term::Variable(newvarsymbol);
+                    let newvar = datalog::Term::Variable(*next_id);
+                    *next_id += 1;
 
                     new_atom.terms[idx] = newvar;
 
@@ -441,7 +443,7 @@ fn constant_to_selection(expr: &RelationalExpression) -> RelationalExpression {
     return expression;
 }
 
-fn equality_to_selection(expr: &RelationalExpression) -> RelationalExpression {
+fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> RelationalExpression {
     let mut expression = expr.clone();
     let relations = expression.arena.clone().into_iter().enumerate().fold(
         vec![],
@@ -464,8 +466,8 @@ fn equality_to_selection(expr: &RelationalExpression) -> RelationalExpression {
                     if idx_inner > idx_outer {
                         if let datalog::Term::Variable(symbol) = term_outer.clone() {
                             if term_outer == term_inner {
-                                let newvarsymbol = format!("{}{}", symbol.clone(), idx_inner);
-                                let newvar = datalog::Term::Variable(newvarsymbol.to_string());
+                                let newvar = datalog::Term::Variable(*next_id);
+                                *next_id += 1;
 
                                 if let Term::Relation(ref mut atom) =
                                     expression.arena[inner_node_idx].value
@@ -522,14 +524,19 @@ fn project_head(rule: &Rule) -> Term {
 
 impl From<&Rule> for RelationalExpression {
     fn from(rule: &Rule) -> Self {
-        // Shifting complexity from the head to the body
-        // let constant_pushing_application = constant_to_eq(rule);
-        // let duplicate_to_eq_application = duplicate_to_eq(&constant_pushing_application);
+        // This is necessary in order to create fresh relations.
+        let head_term_count = rule
+            .head
+            .terms
+            .len();
+        let body_term_count: usize = rule.body.iter().map(|body_atom| body_atom.terms.len()).sum();
+        // This could be a source of funny problems, but only if rules are hilariously long.
+        let mut expression_variable_start: u8 = (head_term_count + body_term_count + 1) as u8;
         // Turning the body into products
         let products = rule_body_to_expression(&rule);
         // Morphing relations with constants to selection equalities
-        let products_and_selections = constant_to_selection(&products);
-        let mut expression = equality_to_selection(&products_and_selections);
+        let products_and_selections = constant_to_selection(&products, &mut expression_variable_start);
+        let mut expression = equality_to_selection(&products_and_selections, &mut expression_variable_start);
         // Projecting the head
         let projection_idx = expression.allocate(&project_head(&rule));
         expression.set_left_child(projection_idx, expression.root.unwrap());

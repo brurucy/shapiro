@@ -1,16 +1,16 @@
+use std::collections::BTreeMap;
 use logos::{Lexer, Logos};
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
-use crate::lexers::datalog::DatalogToken::RParen;
 use crate::models::datalog::Sign::{Negative, Positive};
 use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
 
-fn parse_lexed_atom<'a>(lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>) -> Atom {
+fn parse_lexed_atom<'a>(lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>, interner: &mut BTreeMap<&'a str, u8>) -> Atom {
     let mut terms: Vec<Term> = vec![];
     while let Some(token) = lexer.next() {
         match token {
-            RParen => break,
+            DatalogToken::RParen => break,
             DatalogToken::Str(current_token_value) => terms.push(Term::Constant(TypedValue::Str(
                 current_token_value.to_string(),
             ))),
@@ -21,7 +21,13 @@ fn parse_lexed_atom<'a>(lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>) -> At
                 terms.push(Term::Constant(TypedValue::Bool(current_token_value)))
             }
             DatalogToken::Variable(current_token_value) => {
-                terms.push(Term::Variable(current_token_value.to_string()))
+                let mut current_idx = interner.len() as u8;
+                if let Some(idx) = interner.get(current_token_value) {
+                    current_idx = *idx
+                } else {
+                    interner.insert(current_token_value, current_idx);
+                }
+                terms.push(Term::Variable(current_idx))
             }
             _ => continue,
         }
@@ -38,14 +44,15 @@ pub fn parse_atom(atom: &str) -> Atom {
     let mut atom = Atom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Sign::Positive,
+        sign: Positive,
     };
+    let mut interner: BTreeMap<&str, u8> = BTreeMap::new();
 
     while let Some(token) = lexer.next() {
         match token {
             DatalogToken::Negation => atom.sign = Negative,
             DatalogToken::Str(predicate_symbol) => {
-                let parsed_atom = parse_lexed_atom(&mut lexer);
+                let parsed_atom = parse_lexed_atom(&mut lexer, &mut interner);
                 atom.symbol = predicate_symbol.to_string();
                 atom.terms = parsed_atom.terms;
             }
@@ -61,12 +68,13 @@ pub fn parse_rule(rule: &str) -> Rule {
     let mut head = Atom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Sign::Positive,
+        sign: Positive,
     };
     let mut body: Vec<Atom> = vec![];
     let mut look_behind: DatalogToken = DatalogToken::Error;
     let mut look_ahead: DatalogToken = DatalogToken::Error;
 
+    let mut interner = Default::default();
     while let Some(token) = lexer.next() {
         if let Some(peek) = lexer.peek() {
             look_ahead = peek.clone()
@@ -74,7 +82,7 @@ pub fn parse_rule(rule: &str) -> Rule {
         match token {
             DatalogToken::Str(symbol) => {
                 if look_ahead == DatalogToken::LParen {
-                    let mut parsed_atom = parse_lexed_atom(&mut lexer);
+                    let mut parsed_atom = parse_lexed_atom(&mut lexer, &mut interner);
                     parsed_atom.symbol = symbol.parse().unwrap();
                     if look_behind == DatalogToken::HeadDirection
                         || look_behind == DatalogToken::Error
@@ -111,7 +119,7 @@ mod tests {
 
         let expected_parsed_atom_1 = Atom {
             terms: vec![
-                Term::Variable("?a".to_string()),
+                Term::Variable(1),
                 Term::Constant(TypedValue::UInt(5)),
                 Term::Constant(TypedValue::Bool(true)),
             ],
@@ -120,7 +128,7 @@ mod tests {
         };
         let expected_parsed_atom_2 = Atom {
             terms: vec![
-                Term::Variable("?a".to_string()),
+                Term::Variable(1),
                 Term::Constant(TypedValue::Str("yeah".to_string())),
                 Term::Constant(TypedValue::Bool(false)),
             ],
@@ -129,7 +137,7 @@ mod tests {
         };
         let expected_parsed_atom_3 = Atom {
             terms: vec![
-                Term::Variable("?a".to_string()),
+                Term::Variable(1),
                 Term::Constant(TypedValue::UInt(4)),
                 Term::Constant(TypedValue::UInt(5)),
             ],
@@ -149,7 +157,7 @@ mod tests {
         let expected_parsing = Rule {
             head: Atom {
                 terms: vec![
-                    Term::Variable("?a".to_string()),
+                    Term::Variable(1),
                     Term::Constant(TypedValue::UInt(4)),
                     Term::Constant(TypedValue::UInt(5)),
                 ],
@@ -159,7 +167,7 @@ mod tests {
             body: vec![
                 Atom {
                     terms: vec![
-                        Term::Variable("?a".to_string()),
+                        Term::Variable(1),
                         Term::Constant(TypedValue::UInt(5)),
                         Term::Constant(TypedValue::Bool(true)),
                     ],
@@ -168,7 +176,7 @@ mod tests {
                 },
                 Atom {
                     terms: vec![
-                        Term::Variable("?a".to_string()),
+                        Term::Variable(1),
                         Term::Constant(TypedValue::Str("yeah".to_string())),
                         Term::Constant(TypedValue::Bool(false)),
                     ],
