@@ -223,13 +223,12 @@ impl Display for Term {
     }
 }
 
+// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 pub type RelationalExpression = Tree<Term>;
 
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
     let mut expr_local = expr.clone();
     let pre_order = expr.pre_order();
-    // this is the only "physical" plan "optimization" that occurs
-    let mut join_occurred = false;
 
     let mut term_idx = 0;
     let terms = pre_order
@@ -355,7 +354,6 @@ pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpressi
     return expr_local;
 }
 
-// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
     let rule_body = rule.body.clone();
 

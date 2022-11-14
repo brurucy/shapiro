@@ -58,7 +58,7 @@ fn main() {
     //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::default();
+    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::default();
     let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
