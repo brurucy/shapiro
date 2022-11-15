@@ -2,8 +2,10 @@ use ordered_float::{OrderedFloat};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::task::ready;
 use itertools::Itertools;
 use crate::models::index::IndexBacking;
+use crate::models::relational_algebra::Row;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -204,14 +206,21 @@ impl Display for Rule {
     }
 }
 
-pub trait BottomUpEvaluator<T>
-    where T : IndexBacking{
+pub trait Dynamic<T> {
+    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
+    fn get_instance(&self) -> Instance<T>;
+}
+
+pub trait TypedDynamic {
+    fn insert_typed(&mut self, table: &str, row: Row);
+}
+
+pub trait BottomUpEvaluator<T : IndexBacking> {
     fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T>;
 }
 
-pub trait TopDownEvaluator<T>
-    where T : IndexBacking {
-    fn evaluate_program_top_down(&mut self, query: &Rule, program: Vec<Rule>) -> Instance<T>;
+pub trait TopDownEvaluator<T : IndexBacking> {
+    fn evaluate_program_top_down(&mut self, program: Vec<Rule>, query: &Rule) -> Instance<T>;
 }
 
 pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {

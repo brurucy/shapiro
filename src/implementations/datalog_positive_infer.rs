@@ -9,7 +9,7 @@ use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::interning::Interner;
 use crate::implementations::rule_graph::sort_program;
 use crate::models::datalog::Sign::Positive;
-use crate::models::datalog::Ty;
+use crate::models::datalog::{Dynamic, Ty};
 use crate::models::index::{IndexBacking, ValueRowId};
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
@@ -236,7 +236,10 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+}
+
+impl Dynamic for ChibiDatalog {
+    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         let mut atom = Atom {
             symbol: table.to_string(),
             terms: row
