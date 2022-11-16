@@ -24,9 +24,9 @@ mod tests {
 
         let mut reasoner: ChibiDatalog = Default::default();
         // Atoms are of arbitrary arity
-        reasoner.fact_store.insert("edge", vec![Box::new(1), Box::new(2)]);
-        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(3)]);
-        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(4)]);
+        reasoner.insert("edge", vec![Box::new(1), Box::new(2)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(3)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(4)]);
 
         let new_tuples: HashSet<(u32, u32)> = reasoner
             .evaluate_program_bottom_up(vec![
@@ -68,7 +68,7 @@ queries over hundreds of thousands of triples(the included benchmark), barely ha
 ### Roadmap
 
 0. [] Using `DashMap` instead of `indexmap`
-1. [] Streaming implementation with `timely`
+1. [x] Streaming implementation with `timely`
 2. [] Negation(stratification is already implemented)
 3. [] Head Aggregations
 4. [] Body functions

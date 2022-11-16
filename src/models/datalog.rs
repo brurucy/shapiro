@@ -2,8 +2,6 @@ use ordered_float::{OrderedFloat};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use itertools::Itertools;
-use crate::models::index::IndexBacking;
-use crate::models::relational_algebra::Row;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 

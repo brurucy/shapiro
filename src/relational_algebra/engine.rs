@@ -1,4 +1,3 @@
-use std::time::Instant;
 use crate::models::index::{IndexBacking};
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
@@ -200,9 +199,6 @@ pub fn evaluate<T: IndexBacking>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
-    use crate::implementations::relational_algebra::{
-        join, product, select_equality, select_value,
-    };
     use crate::models::datalog::Rule;
     use crate::models::instance::Instance;
     use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue};
@@ -255,6 +251,7 @@ mod tests {
 
     use itertools::Itertools;
     use crate::models::index::ValueRowId;
+    use crate::relational_algebra::engine::{join, product, select_equality, select_value};
 
     #[test]
     fn product_test() {

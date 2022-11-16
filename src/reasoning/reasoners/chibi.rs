@@ -1,13 +1,13 @@
-use rayon::prelude::IntoParallelIterator;
-use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
-use crate::implementations::interning::Interner;
-use crate::implementations::rule_graph::sort_program;
+use rayon::prelude::*;
+use crate::misc::rule_graph::sort_program;
+use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Atom, Rule, Term, Ty};
 use crate::models::datalog::Sign::Positive;
 use crate::models::index::ValueRowId;
 use crate::models::instance::Instance;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher};
 use crate::models::relational_algebra::{Relation, Row};
+use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 
 pub struct Rewriting {

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use im::{HashMap, Vector};
 use rayon::prelude::*;
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::implementations::join::generic_join_for_each;
+use crate::misc::generic_binary_join::generic_join_for_each;
 
 pub type ValueRowId = (TypedValue, usize);
 

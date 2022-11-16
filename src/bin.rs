@@ -1,16 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
-use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
-use shapiro::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
-use shapiro::ChibiDatalog;
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use ahash::AHashMap;
-use im::{Vector, HashMap};
-use shapiro::data_structures::hashmap::IndexedHashMap;
-use shapiro::data_structures::spine::Spine;
+use shapiro::models::datalog::Rule;
 use shapiro::models::index::ValueRowId;
-use shapiro::models::relational_algebra::Row;
+use shapiro::models::reasoner::{BottomUpEvaluator, Dynamic};
+use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
+use shapiro::reasoning::reasoners::simple::SimpleDatalog;
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
     return if let Ok(file) = File::open(filename) {

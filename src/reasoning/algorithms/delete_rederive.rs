@@ -127,10 +127,9 @@ pub fn delete_rederive<K, T>
 #[cfg(test)]
 mod tests {
     use ahash::HashSet;
-    use crate::ChibiDatalog;
-    use crate::implementations::delete_rederive::{delete_rederive, make_alternative_derivation_program, make_overdeletion_program, OVERDELETION_PREFIX, REDERIVATION_PREFIX};
     use crate::models::datalog::Rule;
     use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped};
+    use crate::reasoning::algorithms::delete_rederive::{delete_rederive, make_alternative_derivation_program, make_overdeletion_program, OVERDELETION_PREFIX, REDERIVATION_PREFIX};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
 
     #[test]

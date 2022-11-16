@@ -1,13 +1,13 @@
-use rayon::prelude::IntoParallelIterator;
-use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
-use crate::implementations::interning::Interner;
-use crate::implementations::rule_graph::sort_program;
+use rayon::prelude::*;
+use crate::misc::rule_graph::sort_program;
+use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Atom, Rule, Ty, Term};
 use crate::models::datalog::Sign::Positive;
 use crate::models::index::IndexBacking;
 use crate::models::instance::Instance;
 use crate::models::reasoner::BottomUpEvaluator;
 use crate::models::relational_algebra::{Relation, RelationalExpression};
+use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 
 pub struct RuleToRelationalExpressionConverter {
     pub program: Vec<(String, RelationalExpression)>

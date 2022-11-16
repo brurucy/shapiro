@@ -1,4 +1,4 @@
-use rayon::prelude::IntoParallelIterator;
+use rayon::prelude::*;
 use crate::data_structures::substitutions::Substitutions;
 use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
 use crate::models::index::IndexBacking;

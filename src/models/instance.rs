@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::implementations::relational_algebra::evaluate;
 use crate::models::datalog::{Atom, Ty};
 use crate::models::index::{IndexBacking};
+use crate::relational_algebra::engine::evaluate;
 
 use super::{
     datalog::TypedValue,

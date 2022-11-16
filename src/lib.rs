@@ -1,16 +1,16 @@
 extern crate core;
 
-pub mod implementations;
 pub mod lexers;
 pub mod models;
 pub mod parsers;
 pub mod data_structures;
 pub mod reasoning;
 pub mod misc;
+mod relational_algebra;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::reasoner::BottomUpEvaluator;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
     use std::collections::{HashSet};
     use crate::models::datalog::Rule;
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
@@ -21,9 +21,9 @@ mod tests {
         // with no negation, aggregates and else.
         let mut reasoner: ChibiDatalog = Default::default();
         // Atoms are of arbitrary arity
-        reasoner.fact_store.insert("edge", vec![Box::new(1), Box::new(2)]);
-        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(3)]);
-        reasoner.fact_store.insert("edge", vec![Box::new(2), Box::new(4)]);
+        reasoner.insert("edge", vec![Box::new(1), Box::new(2)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(3)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(4)]);
 
         let new_tuples: HashSet<(u32, u32)> = reasoner
             .evaluate_program_bottom_up(vec![
