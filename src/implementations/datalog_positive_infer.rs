@@ -9,8 +9,9 @@ use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::interning::Interner;
 use crate::implementations::rule_graph::sort_program;
 use crate::models::datalog::Sign::Positive;
-use crate::models::datalog::{Dynamic, Ty};
+use crate::models::datalog::{Dynamic, Ty, DynamicTyped, TypedValue, Flusher};
 use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::relational_algebra::Row;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -253,6 +254,36 @@ impl Dynamic for ChibiDatalog {
         }
         self.fact_store.insert_atom(&atom)
     }
+
+    fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+        let mut atom = Atom {
+            symbol: table.to_string(),
+            terms: row
+                .iter()
+                .map(|ty| Term::Constant(ty.to_typed_value()))
+                .collect(),
+            sign: Positive
+        };
+        if self.intern {
+            atom = self.interner.intern_atom(&atom)
+        }
+        self.fact_store.delete_atom(&atom)
+    }
+}
+
+impl DynamicTyped for ChibiDatalog {
+    fn insert_typed(&mut self, table: &str, row: Row) {
+        self.fact_store.insert_typed(table, row)
+    }
+    fn delete_typed(&mut self, table: &str, row: Row) { self.fact_store.delete_typed(table, row) }
+}
+
+impl Flusher for ChibiDatalog {
+    fn flush(&mut self, table: &str) {
+        if let Some(relation) = self.fact_store.database.get_mut(table) {
+            relation.compact()
+        }
+    }
 }
 
 impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
@@ -281,8 +312,8 @@ mod tests {
     };
     use crate::models::datalog::{Atom, TypedValue};
     use crate::models::instance::Instance;
-    use std::collections::{BTreeSet, HashMap};
-    use crate::data_structures::substitutions::{Substitution, Substitutions};
+    use std::collections::BTreeSet;
+    use crate::data_structures::substitutions::Substitutions;
     use crate::models::index::ValueRowId;
 
     use super::generate_all_substitutions;

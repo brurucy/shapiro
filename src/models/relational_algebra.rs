@@ -464,7 +464,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
             relations.clone().into_iter().enumerate().for_each(
                 |(idx_inner, (term_inner, term_inner_inner_idx, inner_node_idx))| {
                     if idx_inner > idx_outer {
-                        if let datalog::Term::Variable(symbol) = term_outer.clone() {
+                        if let datalog::Term::Variable(_symbol) = term_outer.clone() {
                             if term_outer == term_inner {
                                 let newvar = datalog::Term::Variable(*next_id);
                                 *next_id += 1;

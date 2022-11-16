@@ -39,6 +39,11 @@ impl<T: IndexBacking> Instance<T> {
                 .insert(new_relation.symbol.clone(), new_relation);
         }
     }
+    pub(crate) fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
+        if let Some(relation) = self.database.get_mut(table) {
+            relation.mark_deleted(&row)
+        }
+    }
     pub fn insert_relation(&mut self, relation: Relation<T>) {
         self.database
             .insert(relation.symbol.to_string(), relation);
@@ -50,9 +55,16 @@ impl<T: IndexBacking> Instance<T> {
             .collect();
         self.insert_typed(&atom.symbol.to_string(), row)
     }
+    pub fn delete_atom(&mut self, atom: &Atom) {
+        let row = (&atom.terms)
+            .into_iter()
+            .map(|term| term.clone().into())
+            .collect();
+        self.delete_typed(&atom.symbol.to_string(), row)
+    }
     pub fn view(&self, table: &str) -> Vec<Box<[TypedValue]>> {
         return if let Some(relation) = self.database.get(table) {
-            relation.ward.clone().into_iter().map(|(k, v)| k).collect()
+            relation.ward.clone().into_iter().map(|(k, _v)| k).collect()
         } else {
             vec![]
         };

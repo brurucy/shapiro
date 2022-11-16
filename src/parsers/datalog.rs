@@ -4,7 +4,7 @@ use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
 use crate::models::datalog::Sign::{Negative, Positive};
-use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
+use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
 fn parse_lexed_atom<'a>(lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>, interner: &mut BTreeMap<&'a str, u8>) -> Atom {
     let mut terms: Vec<Term> = vec![];
