@@ -5,18 +5,18 @@ pub mod lexers;
 pub mod models;
 pub mod parsers;
 pub mod data_structures;
-
-pub use implementations::datalog_positive_infer::ChibiDatalog;
+pub mod reasoning;
+pub mod misc;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{BottomUpEvaluator, Rule};
+    use crate::models::reasoner::BottomUpEvaluator;
     use std::collections::{HashSet};
+    use crate::models::datalog::Rule;
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
 
     #[test]
     fn test_chibi_datalog() {
-        use crate::ChibiDatalog;
-
         // Chibi Datalog is a very simple reasoner, that supports only positive datalog queries
         // with no negation, aggregates and else.
         let mut reasoner: ChibiDatalog = Default::default();

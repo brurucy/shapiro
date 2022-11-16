@@ -1,6 +1,6 @@
 use crate::data_structures::spine::Spine;
 use crate::models::datalog::TypedValue;
-use std::collections::{BTreeSet};
+use std::collections::BTreeSet;
 use im::{HashMap, Vector};
 use rayon::prelude::*;
 use crate::data_structures::hashmap::IndexedHashMap;
@@ -8,6 +8,7 @@ use crate::implementations::join::generic_join_for_each;
 
 pub type ValueRowId = (TypedValue, usize);
 
+// IndexBacking allows the type that implements it to be used as an index
 pub trait IndexBacking: Default + Clone + Sync + Send + PartialEq {
     fn insert_row(&mut self, _: ValueRowId) -> bool;
     fn join(&self, other: &Self, f: impl FnMut(usize, usize));

@@ -7,8 +7,7 @@ use crate::models::relational_algebra::Row;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
-use super::instance::Instance;
-
+// TypedValue are the allowed types in the datalog model. Not canonical.
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum TypedValue {
     Str(String),
@@ -63,6 +62,8 @@ impl TryInto<f64> for TypedValue {
     }
 }
 
+// Ty is a short-lived type used only to allow for the convenience of being able to use regular vanilla
+// rust types.
 pub trait Ty {
     fn to_typed_value(&self) -> TypedValue;
 }
@@ -109,6 +110,7 @@ impl Display for TypedValue {
     }
 }
 
+// A Term is either a Variable or a Constant
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum Term {
     Constant(TypedValue),
@@ -135,12 +137,14 @@ impl Display for Term {
     }
 }
 
+// A Sign represents whether the Atom is a negation or not. At the moment it is not used.
 #[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash)]
 pub enum Sign {
     Positive,
     Negative,
 }
 
+// An Atom is a collection of Terms with a Symbol.
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Atom {
     pub terms: Vec<Term>,
@@ -202,33 +206,6 @@ impl Display for Rule {
             .join(", ");
         write!(f, "{} <- [{}]", self.head, body)
     }
-}
-
-pub trait Flusher {
-    // Deletes all marked as deleted
-    fn flush(&mut self, table: &str);
-}
-
-pub trait Dynamic {
-    // Inserts data
-    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
-    // Marks as deleted
-    fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
-}
-
-pub trait DynamicTyped {
-    // Inserts data
-    fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>);
-    // Marks as deleted
-    fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>);
-}
-
-pub trait BottomUpEvaluator<T : IndexBacking> {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T>;
-}
-
-pub trait TopDownEvaluator<T : IndexBacking> {
-    fn evaluate_program_top_down(&mut self, program: Vec<Rule>, query: &Rule) -> Instance<T>;
 }
 
 pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {

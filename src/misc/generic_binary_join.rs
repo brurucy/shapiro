@@ -77,7 +77,7 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left : 'a, Right : 'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::implementations::join::{generic_join_for_each};
+    use crate::misc::generic_binary_join::generic_join_for_each;
 
     #[test]
     fn test_generic_join() {

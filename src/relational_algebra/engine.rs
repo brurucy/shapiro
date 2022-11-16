@@ -106,7 +106,7 @@ pub fn evaluate<T: IndexBacking>(
     database: &Database<T>,
     new_symbol: &str,
 ) -> Option<Relation<T>>
-where T : IndexBacking {
+    where T : IndexBacking {
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
 
@@ -139,9 +139,9 @@ where T : IndexBacking {
                             || {
                                 left_relation.compact_physical(left_column_idx);
                             }, ||
-                            {
-                                right_relation.compact_physical(right_column_idx)
-                            }
+                                {
+                                    right_relation.compact_physical(right_column_idx)
+                                }
                         );
                         let join_result = join(
                             left_relation,
@@ -359,8 +359,8 @@ mod tests {
             ("eve", "adam"),
             ("jumala", "cthulu"),
         ]
-        .into_iter()
-        .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
+            .into_iter()
+            .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
         vec![
             ("adam", "human"),
@@ -369,10 +369,10 @@ mod tests {
             ("jumala", "demiGod"),
             ("cthulu", "demiGod"),
         ]
-        .into_iter()
-        .for_each(|tuple| {
-            instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
-        });
+            .into_iter()
+            .for_each(|tuple| {
+                instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
+            });
 
         let mut expected_relation = Relation::new(&"ancestor", 2, false);
         let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];

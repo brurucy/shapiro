@@ -1,27 +1,28 @@
-use crate::models::datalog::{Atom, BottomUpEvaluator, Rule, Term, Ty};
-use crate::models::instance::Instance;
-use crate::models::relational_algebra::{Relation, RelationalExpression};
-use rayon::prelude::*;
+use rayon::prelude::IntoParallelIterator;
 use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
 use crate::implementations::interning::Interner;
-use crate::implementations::rule_graph::{sort_program};
+use crate::implementations::rule_graph::sort_program;
+use crate::models::datalog::{Atom, Rule, Ty, Term};
 use crate::models::datalog::Sign::Positive;
-use crate::models::index::{IndexBacking};
+use crate::models::index::IndexBacking;
+use crate::models::instance::Instance;
+use crate::models::reasoner::BottomUpEvaluator;
+use crate::models::relational_algebra::{Relation, RelationalExpression};
 
-pub struct RelationalAlgebra {
+pub struct RuleToRelationalExpressionConverter {
     pub program: Vec<(String, RelationalExpression)>
 }
 
-impl RelationalAlgebra {
+impl RuleToRelationalExpressionConverter {
     fn new(program: &Vec<Rule>) -> Self {
-        return RelationalAlgebra {
+        return RuleToRelationalExpressionConverter {
             program: program.iter().map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule))).collect()
         }
     }
 }
 
-impl<T> InstanceEvaluator<T> for RelationalAlgebra
-where T : IndexBacking,
+impl<T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter
+    where T : IndexBacking,
 {
     fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
@@ -62,7 +63,7 @@ impl ParallelRelationalAlgebra {
 }
 
 impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
-where T : IndexBacking {
+    where T : IndexBacking {
     fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
         return self.program
             .clone()
@@ -96,7 +97,7 @@ impl<T> Default for SimpleDatalog<T>
 }
 
 impl<T> SimpleDatalog<T>
-where T : IndexBacking {
+    where T : IndexBacking {
     pub fn new(parallel: bool, intern: bool) -> Self {
         return Self {
             parallel,
@@ -130,7 +131,7 @@ impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
                 .map(|rule| self.interner.intern_rule(rule))
                 .collect();
         }
-        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RelationalAlgebra::new(&sort_program(&program))));
+        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RuleToRelationalExpressionConverter::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&program));
         }
@@ -142,11 +143,12 @@ impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
+    use crate::models::datalog::{Rule, TypedValue};
     use std::collections::{BTreeSet, HashSet};
     use std::ops::Deref;
-    use crate::implementations::datalog_positive_relalg::SimpleDatalog;
     use crate::models::index::ValueRowId;
+    use crate::models::reasoner::BottomUpEvaluator;
+    use crate::reasoning::reasoners::simple::SimpleDatalog;
 
     #[test]
     fn test_simple_datalog() {
@@ -213,5 +215,3 @@ mod tests {
         assert_eq!(expected_new_tuples, new_tuples)
     }
 }
-
-

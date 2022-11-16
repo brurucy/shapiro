@@ -1,9 +1,7 @@
-use std::fmt::format;
-use itertools::cloned;
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::datalog::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, Rule, Ty};
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher};
+use crate::models::datalog::{Rule, Ty};
 use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
@@ -28,7 +26,8 @@ pub fn make_overdeletion_program(program: &Vec<Rule>) -> Vec<Rule> {
                     new_rule.body[idx].symbol = format!("{}{}", OVERDELETION_PREFIX, body_atom.symbol);
                     overdeletion_program.push(new_rule);
                 })
-        });
+        },
+        );
 
     overdeletion_program
 }
@@ -130,7 +129,9 @@ mod tests {
     use ahash::HashSet;
     use crate::ChibiDatalog;
     use crate::implementations::delete_rederive::{delete_rederive, make_alternative_derivation_program, make_overdeletion_program, OVERDELETION_PREFIX, REDERIVATION_PREFIX};
-    use crate::models::datalog::{BottomUpEvaluator, Dynamic, DynamicTyped, Rule, TypedValue};
+    use crate::models::datalog::Rule;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped};
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
 
     #[test]
     fn test_make_overdeletion_program() {
