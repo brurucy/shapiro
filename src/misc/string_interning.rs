@@ -7,7 +7,7 @@ pub struct Interner {
 
 impl Interner {
     pub(crate) fn intern_atom(&mut self, atom: &Atom) -> Atom {
-        let mut new_terms = atom
+        let new_terms = atom
             .terms
             .iter()
             .map(|term| {
@@ -31,7 +31,7 @@ impl Interner {
     }
 
     fn unintern_atom(&self, atom: &Atom) -> Atom {
-        let mut new_terms = atom
+        let new_terms = atom
             .terms
             .iter()
             .map(|term| {
@@ -74,10 +74,6 @@ impl Interner {
             .collect();
 
         return new_rule
-    }
-
-    fn new() -> Self {
-        return Self::default()
     }
 }
 

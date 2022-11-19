@@ -557,7 +557,7 @@ mod tests {
         let rule =
             Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
 
-        let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
+        let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?0, ?2), ⋈_0=0(T(?10, ?1), σ_1=hardcore(U(?12, ?9))))))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)
@@ -567,7 +567,7 @@ mod tests {
     fn test_rule_to_expression_complex() {
         let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
-        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?a, ?Strrdfs:domain, ?x)), T(?y, ?a4, ?z)))";
+        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)

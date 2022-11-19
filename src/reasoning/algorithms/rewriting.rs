@@ -153,7 +153,7 @@ pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Rel
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, TypedValue};
+    use crate::models::datalog::{Atom, Rule, TypedValue};
     use crate::models::instance::Instance;
     use std::collections::BTreeSet;
     use crate::data_structures::substitutions::Substitutions;
@@ -196,20 +196,8 @@ mod tests {
     fn test_ground_atom() {
         let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-        fact_store.insert_typed(
-            "edge",
-            Box::new([
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("b".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "edge",
-            Box::new([
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("c".to_string()),
-            ]),
-        );
+        fact_store.insert_atom(&Atom::from("edge(a, b)"));
+        fact_store.insert_atom(&Atom::from("edge(b, c)"));
 
         let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
         assert_eq!(
@@ -246,22 +234,8 @@ mod tests {
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
         let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
-        fact_store.insert_typed(
-            "T",
-            Box::new([
-                TypedValue::Str("student".to_string()),
-                TypedValue::Str("takesClassesFrom".to_string()),
-                TypedValue::Str("PLlab".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "T",
-            Box::new([
-                TypedValue::Str("professor".to_string()),
-                TypedValue::Str("worksAt".to_string()),
-                TypedValue::Str("PLlab".to_string()),
-            ]),
-        );
+        fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
+        fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
 
         let partial_subs = vec![
             Substitutions {
@@ -294,60 +268,37 @@ mod tests {
 
     #[test]
     fn test_explode_body_substitutions() {
-        let rule_atom_0 = Atom::from("ancestor(?X, ?Y)");
-        let rule_atom_1 = Atom::from("ancestor(?Y, ?Z)");
-        let rule_body = vec![rule_atom_0, rule_atom_1];
+        let rule = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let rule_body = rule.body;
 
         let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("adam".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("vanasarvik".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("eve".to_string()),
-                TypedValue::Str("adam".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("jumala".to_string()),
-                TypedValue::Str("cthulu".to_string()),
-            ]),
-        );
+
+        fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
+        fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
+
 
         let fitting_substitutions = vec![
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("adam".to_string())),
-                    (1, TypedValue::Str("jumala".to_string())),
-                    (2, TypedValue::Str("cthulu".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
                 ]
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("vanasarvik".to_string())),
-                    (1, TypedValue::Str("jumala".to_string())),
-                    (2, TypedValue::Str("cthulu".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
                 ]
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("eve".to_string())),
-                    (1, TypedValue::Str("adam".to_string())),
-                    (2, TypedValue::Str("jumala".to_string())),
+                    (1, TypedValue::Str("jumala".to_string())),
+                    (2, TypedValue::Str("adam".to_string())),
                 ]
             },
         ];

@@ -183,9 +183,9 @@ pub fn evaluate<T: IndexBacking>(
                     Term::Projection(column_idxs) => {
                         let evaluation = &evaluate(&left_subtree, database, new_symbol);
                         return if let Some(relation) = evaluation {
-                            return Some(project(relation, &column_idxs, new_symbol));
+                            Some(project(relation, &column_idxs, new_symbol))
                         } else {
-                            return None;
+                            None
                         };
                     }
                     _ => {}

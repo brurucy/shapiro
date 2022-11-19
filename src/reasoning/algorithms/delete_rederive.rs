@@ -140,6 +140,7 @@ mod tests {
         ];
 
         let actual_overdeletion_program = make_overdeletion_program(&program);
+
         let exp_overdeletion_program = vec![
             Rule::from(&*format!("{}reach(?x, ?y) <- [{}edge(?x, ?y)]", OVERDELETION_PREFIX, OVERDELETION_PREFIX)),
             Rule::from(&*format!("{}reach(?x, ?z) <- [{}reach(?x, ?y), edge(?y, ?z)]", OVERDELETION_PREFIX, OVERDELETION_PREFIX)),

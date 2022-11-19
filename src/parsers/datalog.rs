@@ -119,7 +119,7 @@ mod tests {
 
         let expected_parsed_atom_1 = Atom {
             terms: vec![
-                Term::Variable(1),
+                Term::Variable(0),
                 Term::Constant(TypedValue::UInt(5)),
                 Term::Constant(TypedValue::Bool(true)),
             ],
@@ -128,7 +128,7 @@ mod tests {
         };
         let expected_parsed_atom_2 = Atom {
             terms: vec![
-                Term::Variable(1),
+                Term::Variable(0),
                 Term::Constant(TypedValue::Str("yeah".to_string())),
                 Term::Constant(TypedValue::Bool(false)),
             ],
@@ -137,7 +137,7 @@ mod tests {
         };
         let expected_parsed_atom_3 = Atom {
             terms: vec![
-                Term::Variable(1),
+                Term::Variable(0),
                 Term::Constant(TypedValue::UInt(4)),
                 Term::Constant(TypedValue::UInt(5)),
             ],
@@ -157,7 +157,7 @@ mod tests {
         let expected_parsing = Rule {
             head: Atom {
                 terms: vec![
-                    Term::Variable(1),
+                    Term::Variable(0),
                     Term::Constant(TypedValue::UInt(4)),
                     Term::Constant(TypedValue::UInt(5)),
                 ],
@@ -167,7 +167,7 @@ mod tests {
             body: vec![
                 Atom {
                     terms: vec![
-                        Term::Variable(1),
+                        Term::Variable(0),
                         Term::Constant(TypedValue::UInt(5)),
                         Term::Constant(TypedValue::Bool(true)),
                     ],
@@ -176,7 +176,7 @@ mod tests {
                 },
                 Atom {
                     terms: vec![
-                        Term::Variable(1),
+                        Term::Variable(0),
                         Term::Constant(TypedValue::Str("yeah".to_string())),
                         Term::Constant(TypedValue::Bool(false)),
                     ],
