@@ -1,12 +1,12 @@
 use rayon::prelude::*;
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Rule, Term, Ty};
-use crate::models::datalog::Sign::Positive;
+use crate::models::datalog::{Atom, Program, Rule, Ty, TypedValue};
 use crate::models::index::ValueRowId;
 use crate::models::instance::Instance;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable, RelationDropper};
 use crate::models::relational_algebra::{Relation, Row};
+use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 
@@ -28,7 +28,7 @@ impl InstanceEvaluator<Vec<ValueRowId>> for Rewriting {
             .clone()
             .into_iter()
             .filter_map(|rule| {
-                println!("evaluating: {}", rule);
+                //println!("evaluating: {}", rule);
                 return evaluate_rule(&instance, &rule);
             })
             .collect();
@@ -53,7 +53,7 @@ impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
             .clone()
             .into_par_iter()
             .filter_map(|rule| {
-                println!("evaluating: {}", rule);
+                //println!("evaluating: {}", rule);
                 return evaluate_rule(&instance, &rule);
             })
             .collect();
@@ -65,6 +65,8 @@ pub struct ChibiDatalog {
     interner: Interner,
     parallel: bool,
     intern: bool,
+    safe: bool,
+    materialization: Program,
 }
 
 impl Default for ChibiDatalog {
@@ -74,6 +76,8 @@ impl Default for ChibiDatalog {
             interner: Interner::default(),
             parallel: true,
             intern: true,
+            safe: true,
+            materialization: vec![],
         }
     }
 }
@@ -90,41 +94,65 @@ impl ChibiDatalog {
 
 impl Dynamic for ChibiDatalog {
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let mut atom = Atom {
-            symbol: table.to_string(),
-            terms: row
-                .iter()
-                .map(|ty| Term::Constant(ty.to_typed_value()))
-                .collect(),
-            sign: Positive
-        };
-        if self.intern {
-            atom = self.interner.intern_atom(&atom)
+        let mut typed_row: Box<[TypedValue]> = row
+            .iter()
+            .map(|ty| ty.to_typed_value())
+            .collect();
+
+        if self.materialization.len() > 0 {
+            self.safe = false
         }
-        self.fact_store.insert_atom(&atom)
+
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.insert_typed(table,typed_row)
     }
 
     fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let mut atom = Atom {
-            symbol: table.to_string(),
-            terms: row
-                .iter()
-                .map(|ty| Term::Constant(ty.to_typed_value()))
-                .collect(),
-            sign: Positive
-        };
-        if self.intern {
-            atom = self.interner.intern_atom(&atom)
+        let mut typed_row = row
+            .iter()
+            .map(|ty| ty.to_typed_value())
+            .collect();
+
+        if self.materialization.len() > 0 {
+            self.safe = false
         }
-        self.fact_store.delete_atom(&atom)
+
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.delete_typed(table,typed_row)
     }
 }
 
 impl DynamicTyped for ChibiDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        self.fact_store.insert_typed(table, row)
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.insert_typed(table, typed_row)
     }
-    fn delete_typed(&mut self, table: &str, row: Row) { self.fact_store.delete_typed(table, row) }
+    fn delete_typed(&mut self, table: &str, row: Row) {
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.delete_typed(table, typed_row)
+    }
 }
 
 impl Flusher for ChibiDatalog {
@@ -151,5 +179,132 @@ impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
         evaluation.semi_naive();
 
         return evaluation.output;
+    }
+}
+
+impl Materializer for ChibiDatalog {
+    fn materialize(&mut self, program: &Program) {
+        program
+            .iter()
+            .for_each(|rule| {
+                let mut possibly_interned_rule = rule.clone();
+                if self.intern {
+                    possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
+                }
+                self.materialization.push(possibly_interned_rule);
+            });
+
+        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&self.materialization))));
+        if self.parallel {
+            evaluation.evaluator = Box::new(ParallelRewriting::new(&self.materialization));
+        }
+
+        evaluation.semi_naive();
+
+        evaluation
+            .output
+            .database
+            .iter()
+            .for_each(|(symbol, relation)| {
+                relation
+                    .ward
+                    .iter()
+                    .for_each(|(row, _active)| {
+                        self.insert_typed(symbol, row.clone());
+                    });
+            });
+
+        self.safe = true;
+    }
+
+    // Update first processes deletions, then additions.
+    fn update(&mut self, changes: Vec<Diff>) {
+        let mut additions: Vec<(&str, Row)> = vec![];
+        let mut retractions: Vec<(&str, Row)> = vec![];
+
+        changes
+            .iter()
+            .for_each(|(sign, (sym, value))| {
+                let mut typed_row: Row = value
+                    .into_iter()
+                    .map(|untyped_value| {
+                        untyped_value.to_typed_value()
+                    })
+                    .collect();
+
+                if self.intern {
+                    typed_row = self.interner.intern_typed_values(typed_row);
+                }
+
+                if *sign {
+                    additions.push((sym, typed_row));
+                } else {
+                    retractions.push((sym, typed_row));
+                }
+            });
+
+        if retractions.len() > 0 {
+            delete_rederive(self, &self.materialization.clone(), retractions)
+        }
+
+        self
+            .fact_store
+            .database
+            .iter()
+            .for_each(|rel| {
+                println!("{}{:?}", rel.0, rel.1.ward)
+            });
+
+        if additions.len() > 0 {
+            additions
+                .iter()
+                .for_each(|(sym, row)| {
+                    self.insert_typed(sym, row.clone());
+                });
+            let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&self.materialization))));
+            if self.parallel {
+                evaluation.evaluator = Box::new(ParallelRewriting::new(&self.materialization));
+            }
+
+            evaluation.semi_naive();
+
+            evaluation
+                .output
+                .database
+                .iter()
+                .for_each(|(symbol, relation)| {
+                    relation
+                        .ward
+                        .iter()
+                        .for_each(|(row, _active)| {
+                            self.insert_typed(symbol, row.clone());
+                        });
+                });
+        }
+        self.safe = true;
+    }
+
+    fn safe(&self) -> bool {
+        return self.safe
+    }
+}
+
+impl Queryable for ChibiDatalog {
+    fn contains(&self, atom: &Atom) -> bool {
+        let rel = self.fact_store.view(&atom.symbol);
+        let boolean_query = atom
+            .terms
+            .iter()
+            .map(|term| term.clone().into())
+            .collect::<Vec<TypedValue>>()
+            .into_boxed_slice();
+
+        return rel.contains(&boolean_query);
+    }
+}
+
+impl RelationDropper for ChibiDatalog {
+    fn drop_relation(&mut self, table: &str) {
+        self.fact_store.database.remove(table);
     }
 }

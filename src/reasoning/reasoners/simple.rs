@@ -1,12 +1,13 @@
 use rayon::prelude::*;
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Rule, Ty, Term};
+use crate::models::datalog::{Atom, Rule, Ty, Term, TypedValue, Program};
 use crate::models::datalog::Sign::Positive;
 use crate::models::index::IndexBacking;
 use crate::models::instance::Instance;
-use crate::models::reasoner::BottomUpEvaluator;
-use crate::models::relational_algebra::{Relation, RelationalExpression};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable, RelationDropper};
+use crate::models::relational_algebra::{Relation, RelationalExpression, Row};
+use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 
 pub struct RuleToRelationalExpressionConverter {
@@ -29,7 +30,6 @@ impl<T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter
             .clone()
             .into_iter()
             .fold(Instance::new(false), |mut acc, (symbol, expression)| {
-                println!("evaluating: {}", expression.to_string());
                 let output = instance.evaluate(&expression, &symbol);
                 if let Some(relation) = output {
                     relation
@@ -69,7 +69,6 @@ impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
             .clone()
             .into_par_iter()
             .filter_map(|(symbol, expression)| {
-                println!("evaluating: {}", expression.to_string());
                 return instance.evaluate(&expression, &symbol)
             })
             .collect();
@@ -81,7 +80,9 @@ pub struct SimpleDatalog<T>
     pub fact_store: Instance<T>,
     interner: Interner,
     parallel: bool,
-    intern: bool
+    intern: bool,
+    safe: bool,
+    materialization: Program,
 }
 
 impl<T> Default for SimpleDatalog<T>
@@ -92,6 +93,8 @@ impl<T> Default for SimpleDatalog<T>
             interner: Interner::default(),
             parallel: true,
             intern: true,
+            safe: true,
+            materialization: vec![],
         }
     }
 }
@@ -121,6 +124,77 @@ impl<T> SimpleDatalog<T>
     }
 }
 
+impl<T : IndexBacking> Dynamic for SimpleDatalog<T> {
+    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+        let mut typed_row: Box<[TypedValue]> = row
+            .iter()
+            .map(|ty| ty.to_typed_value())
+            .collect();
+
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.insert_typed(table,typed_row)
+    }
+
+    fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+        let mut typed_row = row
+            .iter()
+            .map(|ty| ty.to_typed_value())
+            .collect();
+
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.delete_typed(table,typed_row)
+    }
+}
+
+impl<T : IndexBacking> DynamicTyped for SimpleDatalog<T> {
+    fn insert_typed(&mut self, table: &str, row: Row) {
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.insert_typed(table, typed_row)
+    }
+    fn delete_typed(&mut self, table: &str, row: Row) {
+        if self.materialization.len() > 0 {
+            self.safe = false
+        }
+
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+
+        self.fact_store.delete_typed(table, typed_row)
+    }
+}
+
+impl<T : IndexBacking> Flusher for SimpleDatalog<T> {
+    fn flush(&mut self, table: &str) {
+        if let Some(relation) = self.fact_store.database.get_mut(table) {
+            relation.compact();
+        }
+    }
+}
+
 impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
     where T : IndexBacking {
     fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T> {
@@ -141,9 +215,136 @@ impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
     }
 }
 
+impl<T : IndexBacking> Materializer for SimpleDatalog<T> {
+    fn materialize(&mut self, program: &Program) {
+        program
+            .iter()
+            .for_each(|rule| {
+                let mut possibly_interned_rule = rule.clone();
+                if self.intern {
+                    possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
+                }
+                self.materialization.push(possibly_interned_rule);
+            });
+
+        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RuleToRelationalExpressionConverter::new(&sort_program(&self.materialization))));
+        if self.parallel {
+            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&self.materialization));
+        }
+
+        evaluation.semi_naive();
+
+        evaluation
+            .output
+            .database
+            .iter()
+            .for_each(|(symbol, relation)| {
+                relation
+                    .ward
+                    .iter()
+                    .for_each(|(row, _active)| {
+                        self.insert_typed(symbol, row.clone());
+                    });
+            });
+
+        self.safe = true;
+    }
+
+    // Update first processes deletions, then additions.
+    fn update(&mut self, changes: Vec<Diff>) {
+        let mut additions: Vec<(&str, Row)> = vec![];
+        let mut retractions: Vec<(&str, Row)> = vec![];
+
+        changes
+            .iter()
+            .for_each(|(sign, (sym, value))| {
+                let mut typed_row: Row = value
+                    .into_iter()
+                    .map(|untyped_value| {
+                        untyped_value.to_typed_value()
+                    })
+                    .collect();
+
+                if self.intern {
+                    typed_row = self.interner.intern_typed_values(typed_row);
+                }
+
+                if *sign {
+                    additions.push((sym, typed_row));
+                } else {
+                    retractions.push((sym, typed_row));
+                }
+            });
+
+        if retractions.len() > 0 {
+            delete_rederive(self, &self.materialization.clone(), retractions)
+        }
+
+        self
+            .fact_store
+            .database
+            .iter()
+            .for_each(|rel| {
+                println!("{}{:?}", rel.0, rel.1.ward)
+            });
+
+        if additions.len() > 0 {
+            additions
+                .iter()
+                .for_each(|(sym, row)| {
+                    self.insert_typed(sym, row.clone());
+                });
+            let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RuleToRelationalExpressionConverter::new(&sort_program(&self.materialization))));
+            if self.parallel {
+                evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&self.materialization));
+            }
+
+            evaluation.semi_naive();
+
+            evaluation
+                .output
+                .database
+                .iter()
+                .for_each(|(symbol, relation)| {
+                    relation
+                        .ward
+                        .iter()
+                        .for_each(|(row, _active)| {
+                            self.insert_typed(symbol, row.clone());
+                        });
+                });
+        }
+        self.safe = true;
+    }
+
+    fn safe(&self) -> bool {
+        return self.safe
+    }
+}
+
+impl<T : IndexBacking> Queryable for SimpleDatalog<T> {
+    fn contains(&self, atom: &Atom) -> bool {
+        let rel = self.fact_store.view(&atom.symbol);
+        let boolean_query = atom
+            .terms
+            .iter()
+            .map(|term| term.clone().into())
+            .collect::<Vec<TypedValue>>()
+            .into_boxed_slice();
+
+        return rel.contains(&boolean_query);
+    }
+}
+
+impl<T : IndexBacking> RelationDropper for SimpleDatalog<T> {
+    fn drop_relation(&mut self, table: &str) {
+        self.fact_store.database.remove(table);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Rule, TypedValue};
+    use crate::models::datalog::{Rule, Ty, TypedValue};
     use std::collections::{BTreeSet, HashSet};
     use std::ops::Deref;
     use crate::models::index::ValueRowId;
@@ -153,26 +354,17 @@ mod tests {
     #[test]
     fn test_simple_datalog() {
         let mut reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = Default::default();
-        reasoner.fact_store.insert(
+        reasoner.fact_store.insert_typed(
             "edge",
-            vec![
-                Box::new("a".to_string()),
-                Box::new("b".to_string()),
-            ],
+            Box::new(["a".to_typed_value(), "b".to_typed_value()]),
         );
-        reasoner.fact_store.insert(
+        reasoner.fact_store.insert_typed(
             "edge",
-            vec![
-                Box::new("b".to_string()),
-                Box::new("c".to_string()),
-            ],
+            Box::new(["b".to_typed_value(), "c".to_typed_value()]),
         );
-        reasoner.fact_store.insert(
+        reasoner.fact_store.insert_typed(
             "edge",
-            vec![
-                Box::new("b".to_string()),
-                Box::new("d".to_string()),
-            ],
+            Box::new(["b".to_typed_value(), "d".to_typed_value()]),
         );
 
         let new_tuples: HashSet<Vec<TypedValue>> = reasoner

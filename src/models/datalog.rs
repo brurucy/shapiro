@@ -206,6 +206,4 @@ impl Display for Rule {
     }
 }
 
-pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {
-    todo!()
-}
+pub type Program = Vec<Rule>;

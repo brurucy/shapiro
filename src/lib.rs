@@ -6,51 +6,121 @@ pub mod parsers;
 pub mod data_structures;
 pub mod reasoning;
 pub mod misc;
-mod relational_algebra;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
-    use std::collections::{HashSet};
-    use crate::models::datalog::Rule;
+    use std::collections::BTreeSet;
+    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
+    use crate::models::datalog::{Atom, Rule};
+    use crate::models::index::ValueRowId;
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
+    use crate::reasoning::reasoners::simple::SimpleDatalog;
 
     #[test]
     fn test_chibi_datalog() {
-        // Chibi Datalog is a very simple reasoner, that supports only positive datalog queries
-        // with no negation, aggregates and else.
         let mut reasoner: ChibiDatalog = Default::default();
-        // Atoms are of arbitrary arity
         reasoner.insert("edge", vec![Box::new(1), Box::new(2)]);
         reasoner.insert("edge", vec![Box::new(2), Box::new(3)]);
         reasoner.insert("edge", vec![Box::new(2), Box::new(4)]);
+        reasoner.insert("edge", vec![Box::new(4), Box::new(5)]);
 
-        let new_tuples: HashSet<(u32, u32)> = reasoner
-            .evaluate_program_bottom_up(vec![
-                Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-                Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
-            ])
-            .view("reachable")
-            .into_iter()
-            .map(|boxed_slice| {
-                // The output is boxed, so there's some wrangling to do
-                let boxed_vec = boxed_slice.to_vec();
-                (boxed_vec[0].clone().try_into().unwrap(), boxed_vec[1].clone().try_into().unwrap())
-            })
-            .collect();
+        let query = vec![
+            Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+        ];
 
-        let expected_new_tuples: HashSet<(u32, u32)> = vec![
-            // Rule 1 output
-            (1, 2),
-            (2, 3),
-            (2, 4),
-            // Rule 2 output
-            (1, 3),
-            (1, 4)
+        reasoner.materialize(&query);
+
+        vec![
+            Atom::from("reachable(1, 2)"),
+            Atom::from("reachable(1, 3)"),
+            Atom::from("reachable(1, 4)"),
+            Atom::from("reachable(1, 5)"),
+            Atom::from("reachable(2, 3)"),
+            Atom::from("reachable(2, 4)"),
+            Atom::from("reachable(2, 5)"),
+            Atom::from("reachable(4, 5)"),
         ]
-        .into_iter()
-        .collect();
+            .iter()
+            .for_each(|point_query| assert!(reasoner.contains(point_query)));
 
-        assert_eq!(new_tuples, expected_new_tuples)
+        reasoner.update(vec![
+            (true, ("edge", vec![Box::new(1), Box::new(3)])),
+            (true, ("edge", vec![Box::new(3), Box::new(4)])),
+            (false, ("edge", vec![Box::new(1), Box::new(2)])),
+            (false, ("edge", vec![Box::new(2), Box::new(3)])),
+            (false, ("edge", vec![Box::new(2), Box::new(4)])),
+        ]);
+
+        vec![
+            Atom::from("reachable(1, 3)"),
+            Atom::from("reachable(3, 4)"),
+            Atom::from("reachable(3, 5)"),
+        ]
+            .iter()
+            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+
+        vec![
+            Atom::from("reachable(1, 2)"),
+            Atom::from("reachable(2, 3)"),
+            Atom::from("reachable(2, 4)"),
+            Atom::from("reachable(2, 5)"),
+        ]
+            .iter()
+            .for_each(|point_query| assert!(!reasoner.contains(point_query)));
+    }
+
+    #[test]
+    fn test_simple_datalog() {
+        let mut reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = Default::default();
+        reasoner.insert("edge", vec![Box::new(1), Box::new(2)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(3)]);
+        reasoner.insert("edge", vec![Box::new(2), Box::new(4)]);
+        reasoner.insert("edge", vec![Box::new(4), Box::new(5)]);
+
+        let query = vec![
+            Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+        ];
+
+        reasoner.materialize(&query);
+
+        vec![
+            Atom::from("reachable(1, 2)"),
+            Atom::from("reachable(1, 3)"),
+            Atom::from("reachable(1, 4)"),
+            Atom::from("reachable(1, 5)"),
+            Atom::from("reachable(2, 3)"),
+            Atom::from("reachable(2, 4)"),
+            Atom::from("reachable(2, 5)"),
+            Atom::from("reachable(4, 5)"),
+        ]
+            .iter()
+            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+
+        reasoner.update(vec![
+            (true, ("edge", vec![Box::new(1), Box::new(3)])),
+            (true, ("edge", vec![Box::new(3), Box::new(4)])),
+            (false, ("edge", vec![Box::new(1), Box::new(2)])),
+            (false, ("edge", vec![Box::new(2), Box::new(3)])),
+            (false, ("edge", vec![Box::new(2), Box::new(4)])),
+        ]);
+
+        vec![
+            Atom::from("reachable(1, 3)"),
+            Atom::from("reachable(3, 4)"),
+            Atom::from("reachable(3, 5)"),
+        ]
+            .iter()
+            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+
+        vec![
+            Atom::from("reachable(1, 2)"),
+            Atom::from("reachable(2, 3)"),
+            Atom::from("reachable(2, 4)"),
+            Atom::from("reachable(2, 5)"),
+        ]
+            .iter()
+            .for_each(|point_query| assert!(!reasoner.contains(point_query)));
     }
 }

@@ -1,7 +1,9 @@
+use ahash::{HashSet, HashSetExt};
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher};
-use crate::models::datalog::{Rule, Ty};
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
+use crate::models::datalog::Rule;
 use crate::models::index::IndexBacking;
+use crate::models::relational_algebra::Row;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
@@ -58,16 +60,21 @@ pub fn delete_rederive<K, T>
 (
     instance: &mut T,
     program: &Vec<Rule>,
-    updates: Vec<(&str, Vec<Box<dyn Ty>>)>
+    updates: Vec<(&str, Row)>
 ) where
     K : IndexBacking,
-    T : DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K>
+    T : DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K> + RelationDropper
 {
+    let mut extensional_relations = HashSet::new();
+    let mut ephemeral_relations: HashSet<String> = HashSet::new();
     updates
+        .clone()
         .into_iter()
         .for_each(|(symbol, update)| {
             let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
-            instance.insert(&del_sym, update)
+            instance.insert_typed(&del_sym, update);
+            extensional_relations.insert(symbol);
+            ephemeral_relations.insert(del_sym);
         });
     // Stage 1 - overdeletion
     let delete = make_overdeletion_program(program);
@@ -75,31 +82,34 @@ pub fn delete_rederive<K, T>
     ods
         .database
         .iter()
-        .for_each(|(symbol, relation)| {
+        .for_each(|(del_sym, relation)| {
             relation
                 .ward
                 .iter()
                 .for_each(|(data, _active)| {
-                    instance.insert_typed(&symbol, data.clone())
-                })
+                    instance.insert_typed(&del_sym, data.clone())
+                });
+            ephemeral_relations.insert(del_sym.clone());
         });
 
     // Stage 2 - rederivation
     let rederive = make_alternative_derivation_program(program);
+
     let alts = instance.evaluate_program_bottom_up(rederive);
     alts
         .database
         .iter()
-        .for_each(|(symbol, relation)| {
+        .for_each(|(alt_sym, relation)| {
             relation
                 .ward
                 .iter()
                 .for_each(|(data, _active)| {
-                    instance.insert_typed(&symbol, data.clone())
-                })
+                    instance.insert_typed(&alt_sym, data.clone())
+                });
+            ephemeral_relations.insert(alt_sym.clone());
         });
 
-    // Stage 3 - diffing overdeletions from alternative derivations
+    // Stage 3 - diffing overdeletions from alternative derivations and physically deleting them
     ods
         .database
         .into_iter()
@@ -120,14 +130,36 @@ pub fn delete_rederive<K, T>
                         instance.delete_typed(sym, row.clone());
                     }
                 });
+            instance.flush(sym);
+        });
+
+    updates
+        .iter()
+        .for_each(|(sym, row)| {
+            println!("deleting edb rel {}{:?}", sym, row.clone());
+            instance.flush(sym);
+            instance.delete_typed(sym, row.clone())
+        });
+
+    extensional_relations
+        .iter()
+        .for_each(|sym| {
+            println!("flushing {}", sym);
             instance.flush(sym)
         });
+
+    ephemeral_relations
+        .iter()
+        .for_each(|sym| {
+            println!("dropping {}", sym);
+            instance.drop_relation(sym)
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use ahash::HashSet;
-    use crate::models::datalog::Rule;
+    use crate::models::datalog::{Rule, Ty};
     use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped};
     use crate::reasoning::algorithms::delete_rederive::{delete_rederive, make_alternative_derivation_program, make_overdeletion_program, OVERDELETION_PREFIX, REDERIVATION_PREFIX};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
@@ -213,7 +245,7 @@ mod tests {
             .collect();
 
         delete_rederive(&mut chibi, &program, vec![
-            ("edge", vec![Box::new("e"), Box::new("f")])
+            ("edge", Box::new(["e".to_typed_value(), "f".to_typed_value()]))
         ]);
         let rederivation_result: HashSet<(String, String)> = chibi
             .fact_store

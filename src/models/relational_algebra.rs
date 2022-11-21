@@ -103,8 +103,20 @@ impl<T: IndexBacking> Relation<T> {
     }
 
     pub fn compact(&mut self) {
-        self.ward
-            .retain(|_k, v| *v);
+        let indexes: Vec<Index<T>> = self
+            .indexes
+            .iter()
+            .enumerate()
+            .map(|(_index_idx, _index)| {
+                return Index {
+                    index: Default::default(),
+                    active: true,
+                };
+            })
+            .collect();
+
+        self.indexes = indexes;
+        self.ward.retain(|_k, v| *v);
     }
 
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
