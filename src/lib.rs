@@ -9,10 +9,9 @@ pub mod misc;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::models::datalog::{Atom, Rule};
-    use crate::models::index::ValueRowId;
+    use crate::models::index::{BTreeIndex};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
     use crate::reasoning::reasoners::simple::SimpleDatalog;
 
@@ -26,7 +25,7 @@ mod tests {
 
         let query = vec![
             Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+            Rule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
         ];
 
         reasoner.materialize(&query);
@@ -72,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_simple_datalog() {
-        let mut reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = Default::default();
+        let mut reasoner: SimpleDatalog<BTreeIndex> = Default::default();
         reasoner.insert("edge", vec![Box::new(1), Box::new(2)]);
         reasoner.insert("edge", vec![Box::new(2), Box::new(3)]);
         reasoner.insert("edge", vec![Box::new(2), Box::new(4)]);
@@ -80,7 +79,7 @@ mod tests {
 
         let query = vec![
             Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+            Rule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
         ];
 
         reasoner.materialize(&query);

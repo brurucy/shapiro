@@ -247,14 +247,6 @@ impl Materializer for ChibiDatalog {
             delete_rederive(self, &self.materialization.clone(), retractions)
         }
 
-        self
-            .fact_store
-            .database
-            .iter()
-            .for_each(|rel| {
-                println!("{}{:?}", rel.0, rel.1.ward)
-            });
-
         if additions.len() > 0 {
             additions
                 .iter()
@@ -290,14 +282,17 @@ impl Materializer for ChibiDatalog {
 }
 
 impl Queryable for ChibiDatalog {
-    fn contains(&self, atom: &Atom) -> bool {
+    fn contains(&mut self, atom: &Atom) -> bool {
         let rel = self.fact_store.view(&atom.symbol);
-        let boolean_query = atom
+        let mut boolean_query = atom
             .terms
             .iter()
             .map(|term| term.clone().into())
             .collect::<Vec<TypedValue>>()
             .into_boxed_slice();
+        if self.intern {
+            boolean_query = self.interner.intern_typed_values(boolean_query);
+        }
 
         return rel.contains(&boolean_query);
     }

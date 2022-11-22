@@ -1,5 +1,4 @@
 use ahash::{HashSet, HashSetExt};
-use crate::data_structures::hashmap::IndexedHashMap;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
 use crate::models::datalog::Rule;
 use crate::models::index::IndexBacking;
@@ -65,16 +64,16 @@ pub fn delete_rederive<K, T>
     K : IndexBacking,
     T : DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K> + RelationDropper
 {
-    let mut extensional_relations = HashSet::new();
-    let mut ephemeral_relations: HashSet<String> = HashSet::new();
+    let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
+    let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
     updates
         .clone()
         .into_iter()
         .for_each(|(symbol, update)| {
             let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
             instance.insert_typed(&del_sym, update);
-            extensional_relations.insert(symbol);
-            ephemeral_relations.insert(del_sym);
+            relations_to_be_dropped.insert(del_sym.to_string());
+            relations_to_be_flushed.insert(symbol.to_string());
         });
     // Stage 1 - overdeletion
     let delete = make_overdeletion_program(program);
@@ -83,13 +82,28 @@ pub fn delete_rederive<K, T>
         .database
         .iter()
         .for_each(|(del_sym, relation)| {
+            let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
             relation
                 .ward
                 .iter()
                 .for_each(|(data, _active)| {
-                    instance.insert_typed(&del_sym, data.clone())
+                    instance.insert_typed(&del_sym, data.clone());
+                    relations_to_be_dropped.insert(del_sym.to_string());
+                    instance.delete_typed(sym, data.clone());
+                    relations_to_be_flushed.insert(sym.to_string());
                 });
-            ephemeral_relations.insert(del_sym.clone());
+        });
+
+    updates
+        .iter()
+        .for_each(|(sym, row)| {
+            instance.delete_typed(sym, row.clone())
+        });
+
+    relations_to_be_flushed
+        .iter()
+        .for_each(|sym| {
+            instance.flush(sym);
         });
 
     // Stage 2 - rederivation
@@ -100,67 +114,26 @@ pub fn delete_rederive<K, T>
         .database
         .iter()
         .for_each(|(alt_sym, relation)| {
+            let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
             relation
                 .ward
                 .iter()
                 .for_each(|(data, _active)| {
-                    instance.insert_typed(&alt_sym, data.clone())
+                    instance.insert_typed(&sym, data.clone());
                 });
-            ephemeral_relations.insert(alt_sym.clone());
         });
 
-    // Stage 3 - diffing overdeletions from alternative derivations and physically deleting them
-    ods
-        .database
-        .into_iter()
-        .for_each(|(del_sym, relation)| {
-            let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-            let alt_sym = format!("{}{}", REDERIVATION_PREFIX, sym);
-
-            let mut alt = IndexedHashMap::default();
-            if let Some(alternative_derivations) = alts.database.get(&alt_sym).cloned() {
-                alt = alternative_derivations.ward;
-            }
-
-            relation
-                .ward
-                .into_iter()
-                .for_each(|(row, _active)| {
-                    if !alt.contains_key(&row) {
-                        instance.delete_typed(sym, row.clone());
-                    }
-                });
-            instance.flush(sym);
-        });
-
-    updates
+    relations_to_be_dropped
         .iter()
-        .for_each(|(sym, row)| {
-            println!("deleting edb rel {}{:?}", sym, row.clone());
-            instance.flush(sym);
-            instance.delete_typed(sym, row.clone())
-        });
-
-    extensional_relations
-        .iter()
-        .for_each(|sym| {
-            println!("flushing {}", sym);
-            instance.flush(sym)
-        });
-
-    ephemeral_relations
-        .iter()
-        .for_each(|sym| {
-            println!("dropping {}", sym);
-            instance.drop_relation(sym)
+        .for_each(|del_sym| {
+            instance.drop_relation(del_sym);
         })
 }
 
 #[cfg(test)]
 mod tests {
-    use ahash::HashSet;
-    use crate::models::datalog::{Rule, Ty};
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped};
+    use crate::models::datalog::{Atom, Rule, Ty};
+    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::reasoning::algorithms::delete_rederive::{delete_rederive, make_alternative_derivation_program, make_overdeletion_program, OVERDELETION_PREFIX, REDERIVATION_PREFIX};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
 
@@ -201,7 +174,7 @@ mod tests {
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
     fn test_delete_rederive() {
-        let mut chibi = ChibiDatalog::new(true, false);
+        let mut chibi: ChibiDatalog = Default::default();
 
         vec![
             ("a", "b"),
@@ -228,50 +201,26 @@ mod tests {
             Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]")
         ];
 
-        let materialization = chibi.evaluate_program_bottom_up(program.clone());
-        materialization
-            .view("reach")
-            .iter()
-            .for_each(|row| {
-                chibi.insert_typed("reach", row.clone())
-            });
-        let mat_result: HashSet<(String, String)> = materialization
-            .view("reach")
-            .iter()
-            .map(|boxed_slice| {
-                let boxed_vec = boxed_slice.to_vec();
-                (boxed_vec[0].clone().try_into().unwrap(), boxed_vec[1].clone().try_into().unwrap())
-            })
-            .collect();
+        chibi.materialize(&program);
+
+        let expected_deletion_1 = Atom::from("reach(e, f)");
+        let expected_deletion_2 = Atom::from("reach(e, h)");
+        let expected_deletion_3 = Atom::from("reach(b, f)");
+        let expected_deletion_4 = Atom::from("reach(b, h)");
+
+
+        assert!(chibi.contains(&expected_deletion_1));
+        assert!(chibi.contains(&expected_deletion_2));
+        assert!(chibi.contains(&expected_deletion_3));
+        assert!(chibi.contains(&expected_deletion_4));
 
         delete_rederive(&mut chibi, &program, vec![
             ("edge", Box::new(["e".to_typed_value(), "f".to_typed_value()]))
         ]);
-        let rederivation_result: HashSet<(String, String)> = chibi
-            .fact_store
-            .view("reach")
-            .iter()
-            .map(|boxed_slice| {
-                let boxed_vec = boxed_slice.to_vec();
-                (boxed_vec[0].clone().try_into().unwrap(), boxed_vec[1].clone().try_into().unwrap())
-            })
-            .collect();
 
-        let expected_deletion_1 = ("e".to_string(), "f".to_string());
-        let expected_deletion_2 = ("e".to_string(), "h".to_string());
-        let expected_deletion_3 = ("b".to_string(), "f".to_string());
-        let expected_deletion_4 = ("b".to_string(), "h".to_string());
-
-        assert!(mat_result.contains(&expected_deletion_1));
-        assert!(!rederivation_result.contains(&expected_deletion_1));
-
-        assert!(mat_result.contains(&expected_deletion_2));
-        assert!(!rederivation_result.contains(&expected_deletion_2));
-
-        assert!(mat_result.contains(&expected_deletion_3));
-        assert!(!rederivation_result.contains(&expected_deletion_3));
-
-        assert!(mat_result.contains(&expected_deletion_4));
-        assert!(!rederivation_result.contains(&expected_deletion_4));
+        assert!(!chibi.contains(&expected_deletion_1));
+        assert!(!chibi.contains(&expected_deletion_2));
+        assert!(!chibi.contains(&expected_deletion_3));
+        assert!(!chibi.contains(&expected_deletion_4));
     }
 }

@@ -38,7 +38,7 @@ pub trait Materializer {
 }
 
 pub trait Queryable {
-    fn contains(&self, atom: &Atom) -> bool;
+    fn contains(&mut self, atom: &Atom) -> bool;
 }
 
 pub trait BottomUpEvaluator<T : IndexBacking> {

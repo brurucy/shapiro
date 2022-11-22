@@ -7,6 +7,12 @@ use crate::data_structures::hashmap::IndexedHashMap;
 use crate::misc::generic_binary_join::generic_join_for_each;
 
 pub type ValueRowId = (TypedValue, usize);
+pub type HashMapIndex = HashMap<TypedValue, Vec<usize>, ahash::RandomState>;
+pub type IndexedHashMapIndex = IndexedHashMap<TypedValue, Vec<usize>>;
+pub type ImmutableVectorIndex = Vector<ValueRowId>;
+pub type VecIndex = Vec<ValueRowId>;
+pub type SpineIndex = Spine<ValueRowId>;
+pub type BTreeIndex = BTreeSet<ValueRowId>;
 
 // IndexBacking allows the type that implements it to be used as an index
 pub trait IndexBacking: Default + Clone + Sync + Send + PartialEq {
@@ -14,9 +20,9 @@ pub trait IndexBacking: Default + Clone + Sync + Send + PartialEq {
     fn join(&self, other: &Self, f: impl FnMut(usize, usize));
 }
 
-impl IndexBacking for BTreeSet<ValueRowId> {
+impl IndexBacking for BTreeIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool { return self.insert(value) }
-    fn join(&self, other: &BTreeSet<ValueRowId>, f: impl FnMut(usize, usize)) {
+    fn join(&self, other: &BTreeIndex, f: impl FnMut(usize, usize)) {
         generic_join_for_each(
             self,
             other,
@@ -25,9 +31,9 @@ impl IndexBacking for BTreeSet<ValueRowId> {
     }
 }
 
-impl IndexBacking for Spine<ValueRowId> {
+impl IndexBacking for SpineIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool { return self.insert(value) }
-    fn join(&self, other: &Spine<ValueRowId>, f: impl FnMut(usize, usize)) {
+    fn join(&self, other: &SpineIndex, f: impl FnMut(usize, usize)) {
         generic_join_for_each(
             self,
             other,
@@ -36,12 +42,12 @@ impl IndexBacking for Spine<ValueRowId> {
     }
 }
 
-impl IndexBacking for Vec<ValueRowId> {
+impl IndexBacking for VecIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool {
         self.push(value);
         return true
     }
-    fn join(&self, other: &Vec<ValueRowId>, f: impl FnMut(usize, usize)) {
+    fn join(&self, other: &VecIndex, f: impl FnMut(usize, usize)) {
         let mut left = self.clone();
         let mut right = other.clone();
         rayon::join(|| {left.par_sort_unstable()}, || {right.par_sort_unstable();});
@@ -52,7 +58,7 @@ impl IndexBacking for Vec<ValueRowId> {
     }
 }
 
-impl IndexBacking for Vector<ValueRowId> {
+impl IndexBacking for ImmutableVectorIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool {
         self.push_back(value);
         return true;
@@ -69,7 +75,7 @@ impl IndexBacking for Vector<ValueRowId> {
     }
 }
 
-impl IndexBacking for IndexedHashMap<TypedValue, Vec<usize>> {
+impl IndexBacking for IndexedHashMapIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool {
         if !self.contains_key(&value.0) {
             self.insert(value.0, vec![value.1]);
@@ -79,7 +85,7 @@ impl IndexBacking for IndexedHashMap<TypedValue, Vec<usize>> {
         }
         return true;
     }
-    fn join(&self, other: &IndexedHashMap<TypedValue, Vec<usize>>, mut f: impl FnMut(usize, usize)) {
+    fn join(&self, other: &IndexedHashMapIndex, mut f: impl FnMut(usize, usize)) {
         self
             .into_iter()
             .for_each(|(value, left_row_set)| {
@@ -98,7 +104,7 @@ impl IndexBacking for IndexedHashMap<TypedValue, Vec<usize>> {
     }
 }
 
-impl IndexBacking for HashMap<TypedValue, Vec<usize>, ahash::RandomState> {
+impl IndexBacking for HashMapIndex {
     fn insert_row(&mut self, value: ValueRowId) -> bool {
         if !self.contains_key(&value.0) {
             self.insert(value.0, vec![value.1]);
@@ -108,7 +114,7 @@ impl IndexBacking for HashMap<TypedValue, Vec<usize>, ahash::RandomState> {
         }
         return true;
     }
-    fn join(&self, other: &HashMap<TypedValue, Vec<usize>, ahash::RandomState>, mut f: impl FnMut(usize, usize)) {
+    fn join(&self, other: &HashMapIndex, mut f: impl FnMut(usize, usize)) {
         self
             .into_iter()
             .for_each(|(value, left_row_set)| {

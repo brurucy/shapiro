@@ -57,7 +57,11 @@ pub struct ParallelRelationalAlgebra {
 impl ParallelRelationalAlgebra {
     fn new(program: &Vec<Rule>) -> Self {
         return ParallelRelationalAlgebra {
-            program: program.iter().map(|rule| (rule.head.symbol.to_string(), RelationalExpression::from(rule))).collect()
+            program: program.iter().map(|rule| {
+                let head = rule.head.symbol.to_string();
+                let expr = RelationalExpression::from(rule);
+                return (head, expr)
+            }).collect()
         }
     }
 }
@@ -202,9 +206,14 @@ impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
         if self.intern {
             program = program
                 .iter()
-                .map(|rule| self.interner.intern_rule(rule))
+                .map(|rule|
+                    {
+                        self.interner.intern_rule(rule)
+                    }
+                )
                 .collect();
         }
+
         let mut evaluation = Evaluation::new(&self.fact_store, Box::new(RuleToRelationalExpressionConverter::new(&sort_program(&program))));
         if self.parallel {
             evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&program));
@@ -280,14 +289,6 @@ impl<T : IndexBacking> Materializer for SimpleDatalog<T> {
             delete_rederive(self, &self.materialization.clone(), retractions)
         }
 
-        self
-            .fact_store
-            .database
-            .iter()
-            .for_each(|rel| {
-                println!("{}{:?}", rel.0, rel.1.ward)
-            });
-
         if additions.len() > 0 {
             additions
                 .iter()
@@ -323,14 +324,17 @@ impl<T : IndexBacking> Materializer for SimpleDatalog<T> {
 }
 
 impl<T : IndexBacking> Queryable for SimpleDatalog<T> {
-    fn contains(&self, atom: &Atom) -> bool {
+    fn contains(&mut self, atom: &Atom) -> bool {
         let rel = self.fact_store.view(&atom.symbol);
-        let boolean_query = atom
+        let mut boolean_query = atom
             .terms
             .iter()
             .map(|term| term.clone().into())
             .collect::<Vec<TypedValue>>()
             .into_boxed_slice();
+        if self.intern {
+            boolean_query = self.interner.intern_typed_values(boolean_query);
+        }
 
         return rel.contains(&boolean_query);
     }
@@ -345,15 +349,15 @@ impl<T : IndexBacking> RelationDropper for SimpleDatalog<T> {
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::{Rule, Ty, TypedValue};
-    use std::collections::{BTreeSet, HashSet};
+    use std::collections::HashSet;
     use std::ops::Deref;
-    use crate::models::index::ValueRowId;
+    use crate::models::index::BTreeIndex;
     use crate::models::reasoner::BottomUpEvaluator;
     use crate::reasoning::reasoners::simple::SimpleDatalog;
 
     #[test]
     fn test_simple_datalog() {
-        let mut reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = Default::default();
+        let mut reasoner: SimpleDatalog<BTreeIndex> = Default::default();
         reasoner.fact_store.insert_typed(
             "edge",
             Box::new(["a".to_typed_value(), "b".to_typed_value()]),

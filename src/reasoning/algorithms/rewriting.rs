@@ -155,9 +155,8 @@ pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Rel
 mod tests {
     use crate::models::datalog::{Atom, Rule, TypedValue};
     use crate::models::instance::Instance;
-    use std::collections::BTreeSet;
     use crate::data_structures::substitutions::Substitutions;
-    use crate::models::index::ValueRowId;
+    use crate::models::index::BTreeIndex;
     use crate::reasoning::algorithms::rewriting::{accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions};
 
     use super::generate_all_substitutions;
@@ -194,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_ground_atom() {
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
         fact_store.insert_atom(&Atom::from("edge(a, b)"));
         fact_store.insert_atom(&Atom::from("edge(b, c)"));
@@ -233,7 +232,7 @@ mod tests {
     #[test]
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
         fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
         fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
 
@@ -271,7 +270,7 @@ mod tests {
         let rule = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
         let rule_body = rule.body;
 
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
 
         fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
         fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));

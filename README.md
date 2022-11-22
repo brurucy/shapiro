@@ -2,15 +2,13 @@
 
 Shapiro is a datalog toolbox and zoo.
 
-Here you can find:
+Here you can find, at the moment, **two** simple in-memory query engines that support materialized recursive queries.
 
 1. [x] A very fast in-memory parallel datalog and relational algebra engine that relies on an ordered(not necessarily sorted) 
    container for storage and sorted sets as indexes - Simple Datalog
 2. [x] A not-so-fast in-memory parallel datalog engine that uses no indexes and does not rely on order - ChibiDatalog
 
-With more to come.
-
-Here's an example with the classic ancestor query:
+The following snippet showcases `ChibiDatalog` in action.
 
 ```rust
 #[cfg(test)]
@@ -62,7 +60,7 @@ mod tests {
          Atom::from("reachable(2, 3)"),
          Atom::from("reachable(2, 4)"),
          Atom::from("reachable(2, 5)"),
-         Atom::from("reachable(4, 5"),
+         Atom::from("reachable(4, 5)"),
       ]
               .iter()
               .for_each(|point_query| assert!(reasoner.contains(point_query)));

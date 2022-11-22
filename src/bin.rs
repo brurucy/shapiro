@@ -1,20 +1,17 @@
-use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use shapiro::models::datalog::Rule;
-use shapiro::models::index::ValueRowId;
+use shapiro::models::index::{BTreeIndex, HashMapIndex, ImmutableVectorIndex, IndexedHashMapIndex, SpineIndex, ValueRowId, VecIndex};
 use shapiro::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer};
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::simple::SimpleDatalog;
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item=String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
-        if let buffer = BufReader::new(file) {
-            Ok(buffer.lines().filter_map(|line| line.ok()))
-        } else {
-            Err("fail to make buffer")
-        }
+        let buffer = BufReader::new(file);
+
+        Ok(buffer.lines().filter_map(|line| line.ok()))
     } else {
         Err("fail to open file")
     };
@@ -51,12 +48,12 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::default();
-    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::default();
+    let mut simple_reasoner: SimpleDatalog<IndexedHashMapIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<SpineIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<BTreeIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<VecIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<ImmutableVectorIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<HashMapIndex> = SimpleDatalog::default();
     let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
     infer_reasoner.materialize(&program);
 

@@ -1,4 +1,4 @@
-use crate::models::index::{IndexBacking};
+use crate::models::index::IndexBacking;
 use crate::models::instance::Database;
 use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
 
@@ -198,14 +198,13 @@ pub fn evaluate<T: IndexBacking>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use crate::models::datalog::Rule;
     use crate::models::instance::Instance;
     use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue};
 
     #[test]
     fn select_value_test() {
-        let mut relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, false);
+        let mut relation: Relation<BTreeIndex> = Relation::new(&"X", 2, false);
         let relation_data = vec![(true, 1), (true, 4), (false, 4)];
         relation_data.into_iter().for_each(|tuple| {
             relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
@@ -224,7 +223,7 @@ mod tests {
 
     #[test]
     fn select_equality_test() {
-        let mut relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"four", 3, false);
+        let mut relation: Relation<BTreeIndex> = Relation::new(&"four", 3, false);
         let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
         rel_data.into_iter().for_each(|tuple| {
             relation.insert(vec![
@@ -250,12 +249,12 @@ mod tests {
     }
 
     use itertools::Itertools;
-    use crate::models::index::ValueRowId;
+    use crate::models::index::BTreeIndex;
     use crate::reasoning::algorithms::relational_algebra::{join, product, select_equality, select_value};
 
     #[test]
     fn product_test() {
-        let mut left_relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, false);
+        let mut left_relation: Relation<BTreeIndex> = Relation::new(&"X", 2, false);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -298,7 +297,7 @@ mod tests {
 
     #[test]
     fn join_test() {
-        let mut left_relation: Relation<BTreeSet<ValueRowId>> = Relation::new(&"X", 2, true);
+        let mut left_relation: Relation<BTreeIndex> = Relation::new(&"X", 2, true);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -309,7 +308,7 @@ mod tests {
         left_data.clone().into_iter().for_each(|tuple| {
             left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
-        left_relation.compact();
+        left_relation.compact_physical(0);
 
         let mut right_relation = Relation::new(&"Y", 2, true);
         let right_data = vec![
@@ -321,7 +320,7 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
-        right_relation.compact();
+        right_relation.compact_physical(0);
 
         let mut expected_join = Relation::new(&"XY", 4, false);
         let expected_join_data = vec![
@@ -349,7 +348,7 @@ mod tests {
 
         let expression = RelationalExpression::from(&Rule::from(rule));
 
-        let mut instance: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
+        let mut instance: Instance<BTreeIndex> = Instance::new(false);
         vec![
             ("adam", "jumala"),
             ("vanasarvik", "jumala"),
