@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - An implementation of the Derive-Rederive algorithm
+- Materialization of programs
+
+### Changed
+- Refactored all APIs
 
 ### Changed
 - `Chibi` and `Simple` now have a `delete` method.
