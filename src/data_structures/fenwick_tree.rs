@@ -22,7 +22,7 @@ impl FenwickTree {
             }
         });
 
-        return FenwickTree { inner: inner };
+        return FenwickTree { inner };
     }
 
     pub fn prefix_sum(&self, idx: usize) -> usize {
@@ -94,16 +94,16 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let lengths = [1, 6, 3, 9, 2];
+        let lengths: [usize; 5] = [1, 6, 3, 9, 2];
         let expected_index: Vec<usize> = vec![1, 7, 3, 19, 2];
-        let actual_index = FenwickTree::new(lengths, |item| item.clone());
+        let actual_index = FenwickTree::new(lengths, |item| *item);
         assert_eq!(expected_index, actual_index.inner)
     }
 
     #[test]
     fn test_prefix_sum() {
         let lengths = [1, 6, 3, 9, 2];
-        let fenwick_array = FenwickTree::new(lengths, |item| item.clone());
+        let fenwick_array = FenwickTree::new(lengths, |item| *item);
 
         let cases: Vec<(usize, usize)> =
             vec![(0, 0), (1, 1), (2, 7), (3, 10), (4, 19), (5, 21), (6, 0)];
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_increase_length() {
         let lengths = [1, 6, 3, 9, 2];
-        let mut fenwick_array = FenwickTree::new(lengths, |item| item.clone());
+        let mut fenwick_array = FenwickTree::new(lengths, |item| *item);
 
         let cases: Vec<(usize, usize)> = vec![(0, 2), (1, 8), (2, 3), (3, 20), (4, 2)];
 
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_index_of() {
         let lengths: Vec<usize> = vec![1, 6, 3, 9, 2];
-        let fenwick_array = FenwickTree::new(lengths, |item| item.clone());
+        let fenwick_array = FenwickTree::new(lengths, |item| *item);
 
         let cases: Vec<(usize, usize)> = vec![(0, 0), (6, 1), (9, 2), (18, 3), (20, 4)];
 

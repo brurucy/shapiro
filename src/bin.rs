@@ -1,24 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet};
-use shapiro::implementations::datalog_positive_relalg::SimpleDatalog;
-use shapiro::models::datalog::{BottomUpEvaluator, Rule, TypedValue};
-use shapiro::ChibiDatalog;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use ahash::AHashMap;
-use im::{Vector, HashMap};
-use shapiro::data_structures::hashmap::IndexedHashMap;
-use shapiro::data_structures::spine::Spine;
-use shapiro::models::index::ValueRowId;
-use shapiro::models::relational_algebra::Row;
+use shapiro::models::datalog::Rule;
+use shapiro::models::index::{BTreeIndex, HashMapIndex, ImmutableVectorIndex, IndexedHashMapIndex, SpineIndex, ValueRowId, VecIndex};
+use shapiro::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer};
+use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
+use shapiro::reasoning::reasoners::simple::SimpleDatalog;
 
-fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
+fn read_file(filename: &str) -> Result<impl Iterator<Item=String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
-        if let buffer = BufReader::new(file) {
-            Ok(buffer.lines().filter_map(|line| line.ok()))
-        } else {
-            Err("fail to make buffer")
-        }
+        let buffer = BufReader::new(file);
+
+        Ok(buffer.lines().filter_map(|line| line.ok()))
     } else {
         Err("fail to open file")
     };
@@ -26,7 +19,7 @@ fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static st
 
 pub fn load3ple<'a>(
     filename: &str,
-) -> Result<impl Iterator<Item = (String, String, String)> + 'a, &'static str> {
+) -> Result<impl Iterator<Item=(String, String, String)> + 'a, &'static str> {
     match read_file(filename) {
         Ok(file) => Ok(file.map(move |line| {
             let mut split_line = line.split(' ');
@@ -55,13 +48,14 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    //let mut simple_reasoner: SimpleDatalog<IndexedHashMap<TypedValue, Vec<usize>>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<Spine<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<BTreeSet<ValueRowId>> = SimpleDatalog::default();
-    let mut simple_reasoner: SimpleDatalog<Vec<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<Vector<ValueRowId>> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<HashMap<TypedValue, Vec<usize>, ahash::RandomState>> = SimpleDatalog::default();
+    let mut simple_reasoner: SimpleDatalog<IndexedHashMapIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<SpineIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<BTreeIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<VecIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<ImmutableVectorIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<HashMapIndex> = SimpleDatalog::default();
     let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
+    infer_reasoner.materialize(&program);
 
     abox.chain(tbox).for_each(|row| {
         let mut predicate = row.1.clone();
@@ -88,12 +82,13 @@ fn main() {
                 Box::new(p.clone()),
                 Box::new(o.clone()),
             ]);
-        infer_reasoner
-            .insert("T", vec![
+        infer_reasoner.insert(
+            "T",
+            vec![
                 Box::new(s),
                 Box::new(p),
-                Box::new(o)
-            ])
+                Box::new(o),
+            ]);
     });
 
     println!("starting bench");
@@ -102,7 +97,7 @@ fn main() {
     println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
     println!(
         "triples - simple: {}",
-        simple_triples.database.get("T").unwrap().ward.len()
+        simple_triples.view("T").len()
     );
 
     now = Instant::now();
@@ -110,6 +105,6 @@ fn main() {
     println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
     println!(
         "triples - infer: {}",
-        infer_triples.database.get("T").unwrap().ward.len()
+        infer_triples.view("T").len()
     );
 }

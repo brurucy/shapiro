@@ -1,14 +1,11 @@
 use ordered_float::{OrderedFloat};
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use itertools::Itertools;
-use crate::models::index::IndexBacking;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
-use super::instance::Instance;
-
+// TypedValue are the allowed types in the datalog model. Not canonical.
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum TypedValue {
     Str(String),
@@ -63,6 +60,8 @@ impl TryInto<f64> for TypedValue {
     }
 }
 
+// Ty is a short-lived type used only to allow for the convenience of being able to use regular vanilla
+// rust types.
 pub trait Ty {
     fn to_typed_value(&self) -> TypedValue;
 }
@@ -109,6 +108,7 @@ impl Display for TypedValue {
     }
 }
 
+// A Term is either a Variable or a Constant
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
 pub enum Term {
     Constant(TypedValue),
@@ -135,12 +135,14 @@ impl Display for Term {
     }
 }
 
+// A Sign represents whether the Atom is a negation or not. At the moment it is not used.
 #[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash)]
 pub enum Sign {
     Positive,
     Negative,
 }
 
+// An Atom is a collection of Terms with a Symbol.
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Atom {
     pub terms: Vec<Term>,
@@ -204,118 +206,4 @@ impl Display for Rule {
     }
 }
 
-pub trait BottomUpEvaluator<T>
-    where T : IndexBacking{
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T>;
-}
-
-pub trait TopDownEvaluator<T>
-    where T : IndexBacking {
-    fn evaluate_program_top_down(&mut self, query: &Rule, program: Vec<Rule>) -> Instance<T>;
-}
-
-pub fn remove_redundant_atoms(_rule: &Rule) -> Rule {
-    todo!()
-}
-
-// pub fn constant_to_eq(rule: &Rule) -> Rule {
-//     let mut new_rule = rule.clone();
-//
-//     rule.clone()
-//         .head
-//         .terms
-//         .into_iter()
-//         .enumerate()
-//         .for_each(|(idx, term)| {
-//             if let Term::Constant(typed_value) = term.clone() {
-//                 let newvarsymbol = format!("?{}", typed_value.clone());
-//
-//                 let newvar = Term::Variable(newvarsymbol);
-//
-//                 new_rule.head.terms[idx] = newvar.clone();
-//                 new_rule.body.push(Atom {
-//                     terms: vec![newvar, Term::Constant(typed_value)],
-//                     symbol: "EQ".to_string(),
-//                     sign: Sign::Positive,
-//                 })
-//             }
-//         });
-//     new_rule
-// }
-
-// pub fn duplicate_to_eq(rule: &Rule) -> Rule {
-//     let mut new_rule = rule.clone();
-//
-//     rule.clone()
-//         .head
-//         .terms
-//         .into_iter()
-//         .enumerate()
-//         .for_each(|(idx_outer, term_outer)| {
-//             rule.clone()
-//                 .head
-//                 .terms
-//                 .into_iter()
-//                 .enumerate()
-//                 .for_each(|(idx_inner, term_inner)| {
-//                     if idx_inner > idx_outer {
-//                         if let Term::Variable(symbol) = term_outer.clone() {
-//                             if term_outer == term_inner
-//                                 && new_rule.head.terms[idx_outer] == new_rule.head.terms[idx_inner]
-//                             {
-//                                 let newvarsymbol = format!("{}{}", symbol.clone(), idx_inner);
-//
-//                                 let newvar = Term::Variable(newvarsymbol.to_string());
-//
-//                                 new_rule.head.terms[idx_inner] = newvar.clone();
-//                                 new_rule.body.push(Atom {
-//                                     terms: vec![term_inner.clone(), newvar],
-//                                     symbol: "EQ".to_string(),
-//                                     sign: Sign::Positive,
-//                                 })
-//                             }
-//                         }
-//                     };
-//                 })
-//         });
-//
-//     return new_rule;
-// }
-
-#[cfg(test)]
-mod tests {
-
-    // #[test]
-    // fn test_constant_pushdown() {
-    //     let rule = parse_rule("T(?x, y) <- [T(?x, ?z)]");
-    //
-    //     let constant_pushing_application = constant_to_eq(&rule);
-    //     let expected_constant_pushed_rule = parse_rule("T(?x, ?Stry) <- [T(?x, ?z), EQ(?Stry, y)]");
-    //
-    //     assert_eq!(constant_pushing_application, expected_constant_pushed_rule);
-    //     assert_eq!(
-    //         expected_constant_pushed_rule,
-    //         constant_to_eq(&expected_constant_pushed_rule)
-    //     )
-    // }
-    //
-    // #[test]
-    // fn test_duplicate_pushdown() {
-    //     let rule = parse_rule("U(?x, ?x, ?x, ?x, y) <- [T(?x, ?z)]");
-    //
-    //     let duplicate_pushing_application = duplicate_to_eq(&rule);
-    //     let expected_duplicate_pushed_rule = parse_rule(
-    //         "U(?x, ?x1, ?x2, ?x3, y) <- [T(?x, ?z), EQ(?x, ?x1), EQ(?x, ?x2), EQ(?x, ?x3)]",
-    //     );
-    //
-    //     assert_eq!(
-    //         duplicate_pushing_application,
-    //         expected_duplicate_pushed_rule
-    //     );
-    //
-    //     assert_eq!(
-    //         expected_duplicate_pushed_rule,
-    //         duplicate_to_eq(&expected_duplicate_pushed_rule)
-    //     )
-    // }
-}
+pub type Program = Vec<Rule>;

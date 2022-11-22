@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 
 use crate::data_structures::hashmap::IndexedHashMap;
@@ -103,8 +103,20 @@ impl<T: IndexBacking> Relation<T> {
     }
 
     pub fn compact(&mut self) {
-        self.ward
-            .retain(|_k, v| *v);
+        let indexes: Vec<Index<T>> = self
+            .indexes
+            .iter()
+            .enumerate()
+            .map(|(_index_idx, _index)| {
+                return Index {
+                    index: Default::default(),
+                    active: true,
+                };
+            })
+            .collect();
+
+        self.indexes = indexes;
+        self.ward.retain(|_k, v| *v);
     }
 
     pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
@@ -464,7 +476,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
             relations.clone().into_iter().enumerate().for_each(
                 |(idx_inner, (term_inner, term_inner_inner_idx, inner_node_idx))| {
                     if idx_inner > idx_outer {
-                        if let datalog::Term::Variable(symbol) = term_outer.clone() {
+                        if let datalog::Term::Variable(_symbol) = term_outer.clone() {
                             if term_outer == term_inner {
                                 let newvar = datalog::Term::Variable(*next_id);
                                 *next_id += 1;
@@ -557,7 +569,7 @@ mod tests {
         let rule =
             Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
 
-        let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?x, ?y), ⋈_0=0(T(?y2, ?z), σ_1=hardcore(U(?y4, ?Strhardcore))))))";
+        let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?0, ?2), ⋈_0=0(T(?10, ?1), σ_1=hardcore(U(?12, ?9))))))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)
@@ -567,7 +579,7 @@ mod tests {
     fn test_rule_to_expression_complex() {
         let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
-        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?a, ?Strrdfs:domain, ?x)), T(?y, ?a4, ?z)))";
+        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)

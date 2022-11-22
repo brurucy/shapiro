@@ -1,5 +1,6 @@
-use lasso::{Key, Rodeo, Spur};
+use lasso::{Key, Rodeo};
 use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
+use crate::models::relational_algebra::Row;
 
 pub struct Interner {
     rodeo: Rodeo
@@ -7,7 +8,7 @@ pub struct Interner {
 
 impl Interner {
     pub(crate) fn intern_atom(&mut self, atom: &Atom) -> Atom {
-        let mut new_terms = atom
+        let new_terms = atom
             .terms
             .iter()
             .map(|term| {
@@ -30,39 +31,18 @@ impl Interner {
         }
     }
 
-    fn unintern_atom(&self, atom: &Atom) -> Atom {
-        let mut new_terms = atom
-            .terms
+    pub fn intern_typed_values(&mut self, values: Row) -> Row {
+        return values
             .iter()
-            .map(|term| {
-                match term {
-                    Term::Constant(inner) => {
-                        match inner {
-                            TypedValue::InternedStr(inner) => {
-                                Term::Constant(TypedValue::Str(self.rodeo.resolve(&Spur::try_from_usize(*inner).unwrap()).to_string()))
-                            },
-                            not_str => Term::Constant(not_str.clone())
-                        }
+            .map(|typed_value| {
+                match typed_value {
+                    TypedValue::Str(inner) => {
+                        TypedValue::InternedStr(self.rodeo.get_or_intern(inner).into_usize())
                     }
-                    variable => variable.clone()
+                    not_str => not_str.clone()
                 }
-            });
-        return Atom {
-            terms: new_terms.collect(),
-            symbol: atom.symbol.clone(),
-            sign: Sign::Positive
-        }
-    }
-
-    fn unintern_rule(&self, rule: &Rule) -> Rule {
-        let mut new_rule = rule.clone();
-        new_rule.head = self.unintern_atom(&new_rule.head);
-        new_rule.body = new_rule.body
-            .iter()
-            .map(|body_atom| self.unintern_atom(body_atom))
-            .collect();
-
-        return new_rule
+            })
+            .collect()
     }
 
     pub(crate) fn intern_rule(&mut self, rule: &Rule) -> Rule {
@@ -74,10 +54,6 @@ impl Interner {
             .collect();
 
         return new_rule
-    }
-
-    fn new() -> Self {
-        return Self::default()
     }
 }
 

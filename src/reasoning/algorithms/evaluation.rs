@@ -1,4 +1,4 @@
-use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::index::IndexBacking;
 use crate::models::instance::Instance;
 use crate::models::relational_algebra::{Relation};
 

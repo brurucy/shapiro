@@ -7,7 +7,7 @@ pub enum DatalogToken<'a> {
     Variable(&'a str),
     #[regex(r"[0-9]+", |lex| lex.slice().parse())]
     UIntConst(u32),
-    #[regex(r"[A-Za-z:]+")]
+    #[regex(r"[A-Za-z:+-]+")]
     Str(&'a str),
     #[regex(r"(true|false)", |lex| lex.slice().parse())]
     BoolConst(bool),

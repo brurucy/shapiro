@@ -52,9 +52,9 @@ pub fn sort_program(program: &Vec<Rule>) -> Vec<Rule> {
 
 #[cfg(test)]
 mod tests {
-    use crate::implementations::rule_graph::generate_rule_dependency_graph;
     use crate::models::datalog::{Atom, Rule, Sign};
     use std::collections::HashSet;
+    use crate::misc::rule_graph::generate_rule_dependency_graph;
 
     #[test]
     fn generate_rule_dependency_graph_test() {

@@ -1,16 +1,9 @@
-use crate::models::{
-    datalog::{Atom, Body, BottomUpEvaluator, Rule, Sign, Term},
-    instance::Instance,
-    relational_algebra::Relation,
-};
 use rayon::prelude::*;
 use crate::data_structures::substitutions::Substitutions;
-use crate::implementations::evaluation::{Evaluation, InstanceEvaluator};
-use crate::implementations::interning::Interner;
-use crate::implementations::rule_graph::sort_program;
-use crate::models::datalog::Sign::Positive;
-use crate::models::datalog::Ty;
-use crate::models::index::{IndexBacking, ValueRowId};
+use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
+use crate::models::index::IndexBacking;
+use crate::models::instance::Instance;
+use crate::models::relational_algebra::Relation;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -158,129 +151,13 @@ pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Rel
     );
 }
 
-pub struct Rewriting {
-    pub program: Vec<Rule>,
-}
-
-impl Rewriting {
-    fn new(program: &Vec<Rule>) -> Self {
-        return Rewriting {
-            program: program.clone()
-        };
-    }
-}
-
-impl<T> InstanceEvaluator<T> for Rewriting
-    where T: IndexBacking {
-    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
-        return self.program
-            .clone()
-            .into_iter()
-            .filter_map(|rule| {
-                println!("evaluating: {}", rule);
-                return evaluate_rule(&instance, &rule);
-            })
-            .collect();
-    }
-}
-
-pub struct ParallelRewriting {
-    pub program: Vec<Rule>,
-}
-
-impl ParallelRewriting {
-    fn new(program: &Vec<Rule>) -> Self {
-        return ParallelRewriting {
-            program: program.clone()
-        };
-    }
-}
-
-impl<T> InstanceEvaluator<T> for ParallelRewriting
-    where T: IndexBacking {
-    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
-        return self.program
-            .clone()
-            .into_par_iter()
-            .filter_map(|rule| {
-                println!("evaluating: {}", rule);
-                return evaluate_rule(&instance, &rule);
-            })
-            .collect();
-    }
-}
-
-pub struct ChibiDatalog {
-    pub fact_store: Instance<Vec<ValueRowId>>,
-    interner: Interner,
-    parallel: bool,
-    intern: bool,
-}
-
-impl Default for ChibiDatalog {
-    fn default() -> Self {
-        ChibiDatalog {
-            fact_store: Instance::new(false),
-            interner: Interner::default(),
-            parallel: true,
-            intern: true,
-        }
-    }
-}
-
-impl ChibiDatalog {
-    pub fn new(parallel: bool, intern: bool) -> Self {
-        return Self {
-            parallel,
-            intern,
-            ..Default::default()
-        };
-    }
-    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let mut atom = Atom {
-            symbol: table.to_string(),
-            terms: row
-                .iter()
-                .map(|ty| Term::Constant(ty.to_typed_value()))
-                .collect(),
-            sign: Positive
-        };
-        if self.intern {
-            atom = self.interner.intern_atom(&atom)
-        }
-        self.fact_store.insert_atom(&atom)
-    }
-}
-
-impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>> {
-        let mut program = program;
-        if self.intern {
-            program = program
-                .iter()
-                .map(|rule| self.interner.intern_rule(rule))
-                .collect();
-        }
-        let mut evaluation = Evaluation::new(&self.fact_store, Box::new(Rewriting::new(&sort_program(&program))));
-        if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRewriting::new(&program));
-        }
-        evaluation.semi_naive();
-
-        return evaluation.output;
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::implementations::datalog_positive_infer::{
-        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions,
-    };
-    use crate::models::datalog::{Atom, TypedValue};
+    use crate::models::datalog::{Atom, Rule, TypedValue};
     use crate::models::instance::Instance;
-    use std::collections::{BTreeSet, HashMap};
-    use crate::data_structures::substitutions::{Substitution, Substitutions};
-    use crate::models::index::ValueRowId;
+    use crate::data_structures::substitutions::Substitutions;
+    use crate::models::index::BTreeIndex;
+    use crate::reasoning::algorithms::rewriting::{accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions};
 
     use super::generate_all_substitutions;
 
@@ -316,22 +193,10 @@ mod tests {
 
     #[test]
     fn test_ground_atom() {
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-        fact_store.insert_typed(
-            "edge",
-            Box::new([
-                TypedValue::Str("a".to_string()),
-                TypedValue::Str("b".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "edge",
-            Box::new([
-                TypedValue::Str("b".to_string()),
-                TypedValue::Str("c".to_string()),
-            ]),
-        );
+        fact_store.insert_atom(&Atom::from("edge(a, b)"));
+        fact_store.insert_atom(&Atom::from("edge(b, c)"));
 
         let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
         assert_eq!(
@@ -367,23 +232,9 @@ mod tests {
     #[test]
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
-        fact_store.insert_typed(
-            "T",
-            Box::new([
-                TypedValue::Str("student".to_string()),
-                TypedValue::Str("takesClassesFrom".to_string()),
-                TypedValue::Str("PLlab".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "T",
-            Box::new([
-                TypedValue::Str("professor".to_string()),
-                TypedValue::Str("worksAt".to_string()),
-                TypedValue::Str("PLlab".to_string()),
-            ]),
-        );
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+        fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
+        fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
 
         let partial_subs = vec![
             Substitutions {
@@ -416,60 +267,37 @@ mod tests {
 
     #[test]
     fn test_explode_body_substitutions() {
-        let rule_atom_0 = Atom::from("ancestor(?X, ?Y)");
-        let rule_atom_1 = Atom::from("ancestor(?Y, ?Z)");
-        let rule_body = vec![rule_atom_0, rule_atom_1];
+        let rule = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let rule_body = rule.body;
 
-        let mut fact_store: Instance<BTreeSet<ValueRowId>> = Instance::new(false);
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("adam".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("vanasarvik".to_string()),
-                TypedValue::Str("jumala".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("eve".to_string()),
-                TypedValue::Str("adam".to_string()),
-            ]),
-        );
-        fact_store.insert_typed(
-            "ancestor",
-            Box::new([
-                TypedValue::Str("jumala".to_string()),
-                TypedValue::Str("cthulu".to_string()),
-            ]),
-        );
+        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+
+        fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
+        fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
+
 
         let fitting_substitutions = vec![
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("adam".to_string())),
-                    (1, TypedValue::Str("jumala".to_string())),
-                    (2, TypedValue::Str("cthulu".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
                 ]
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("vanasarvik".to_string())),
-                    (1, TypedValue::Str("jumala".to_string())),
-                    (2, TypedValue::Str("cthulu".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
                 ]
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("eve".to_string())),
-                    (1, TypedValue::Str("adam".to_string())),
-                    (2, TypedValue::Str("jumala".to_string())),
+                    (1, TypedValue::Str("jumala".to_string())),
+                    (2, TypedValue::Str("adam".to_string())),
                 ]
             },
         ];

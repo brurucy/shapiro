@@ -271,8 +271,6 @@ mod tests {
             acc
         });
 
-        let actual_output: Vec<usize> = spine.into_iter().cloned().collect();
-
         expected_output
             .into_iter()
             .for_each(|item| {
