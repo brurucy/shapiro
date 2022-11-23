@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use clap::{Arg, Command};
 use shapiro::models::datalog::Rule;
 use shapiro::models::index::{BTreeIndex, HashMapIndex, ImmutableVectorIndex, IndexedHashMapIndex, SpineIndex, ValueRowId, VecIndex};
 use shapiro::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer};
@@ -33,13 +34,79 @@ pub fn load3ple<'a>(
 }
 
 fn main() {
+    let matches = Command::new("shapiro-bencher")
+        .version("0.6.0")
+        .about("Benches the time taken to reason over .nt files")
+        .arg(
+            Arg::new("DATA_PATH")
+                .help("Sets the data file path")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::new("PROGRAM")
+                .help("Sets the program file path")
+                .required(true)
+                .index(2),
+        )
+        .arg(
+            Arg::new("PARALLEL")
+                .help("Sets whether the reasoner should run single-threaded or in parallel")
+                .required(true)
+                .index(3),
+        )
+        .arg(
+            Arg::new("REASONER")
+                .help("Sets the reasoner to be used, chibi or simple")
+                .required(true)
+                .index(4),
+        )
+        .arg(
+            Arg::new("INTERN")
+                .help("Sets whether strings should be interned")
+                .required(true)
+                .index(5)
+        )
+        .arg(
+            Arg::new("BATCH")
+                .help("Sets the batch size, from 0-1.0")
+                .required(false)
+                .index(6),
+        )
+        .get_matches();
+
+    let t_path: String = matches.value_of("TBOX_PATH").unwrap().to_string();
+    let a_path: String = matches.value_of("ABOX_PATH").unwrap().to_string();
+    let expressivity: String = matches.value_of("EXPRESSIVITY").unwrap().to_string();
+    let workers: usize = matches
+        .value_of("WORKERS")
+        .unwrap()
+        .parse::<usize>()
+        .unwrap();
+    let batch_size: f64 = matches
+        .value_of("BATCH_SIZE")
+        .unwrap()
+        .parse::<f64>()
+        .unwrap();
+    let logic = match expressivity.as_str() {
+        "rdfspp" => Engine::RDFSpp,
+        "rdfs" => Engine::RDFS,
+        "owl2rl" => Engine::OWL2RL,
+        _ => Engine::Dummy,
+    };
+    let distributed: bool = matches.is_present("HOSTFILE");
+    let mut cfg: Config = Config {
+        communication: Process(workers),
+        worker: WorkerConfig::default(),
+    };
+
     let program = vec![
-        Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]"),
-        Rule::from("T(?z, rdf:type, ?x) <- [T(?a, rdfs:range, ?x), T(?y, ?a, ?z)]"),
+        Rule::from("A(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), A(?y, ?a, ?z)]"),
+        Rule::from("A(?z, rdf:type, ?x) <- [T(?a, rdfs:range, ?x), A(?y, ?a, ?z)]"),
         Rule::from("T(?x, rdfs:subPropertyOf, ?z) <- [T(?x, rdfs:subPropertyOf, ?y), T(?y, rdfs:subPropertyOf, ?z)]"),
         Rule::from("T(?x, rdfs:subClassOf, ?z) <- [T(?x, rdfs:subClassOf, ?y), T(?y, rdfs:subClassOf, ?z)]"),
-        Rule::from("T(?z, rdf:type, ?y) <- [T(?x, rdfs:subClassOf, ?y), T(?z, rdf:type, ?x)]"),
-        Rule::from("T(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), T(?x, ?a, ?y)]"),
+        Rule::from("A(?z, rdf:type, ?y) <- [T(?x, rdfs:subClassOf, ?y), A(?z, rdf:type, ?x)]"),
+        Rule::from("A(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), A(?x, ?a, ?y)]"),
     ];
 
     const ABOX_LOCATION: &str = "./data/real_abox.nt";
@@ -48,16 +115,16 @@ fn main() {
     let abox = load3ple(&ABOX_LOCATION).unwrap();
     let tbox = load3ple(&TBOX_LOCATION).unwrap();
 
-    let mut simple_reasoner: SimpleDatalog<IndexedHashMapIndex> = SimpleDatalog::default();
+    //let mut simple_reasoner: SimpleDatalog<IndexedHashMapIndex> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<SpineIndex> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<BTreeIndex> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<VecIndex> = SimpleDatalog::default();
     //let mut simple_reasoner: SimpleDatalog<ImmutableVectorIndex> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<HashMapIndex> = SimpleDatalog::default();
+    let mut simple_reasoner: SimpleDatalog<HashMapIndex> = SimpleDatalog::default();
     let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
     infer_reasoner.materialize(&program);
 
-    abox.chain(tbox).for_each(|row| {
+    tbox.for_each(|row| {
         let mut predicate = row.1.clone();
         if predicate.clone().contains("type") {
             predicate = "rdf:type".to_string()
@@ -91,20 +158,48 @@ fn main() {
             ]);
     });
 
+    abox.for_each(|row| {
+        let mut predicate = row.1.clone();
+        if predicate.clone().contains("type") {
+            predicate = "rdf:type".to_string()
+        } else if predicate.clone().contains("domain") {
+            predicate = "rdfs:domain".to_string()
+        } else if predicate.clone().contains("range") {
+            predicate = "rdfs:range".to_string()
+        } else if predicate.clone().contains("subPropertyOf") {
+            predicate = "rdfs:subPropertyOf".to_string()
+        } else if predicate.clone().contains("subClassOf") {
+            predicate = "rdfs:subClassOf".to_string()
+        }
+
+        let s = row.0;
+        let p = predicate;
+        let o = row.2;
+
+        simple_reasoner.insert(
+            "A",
+            vec![
+                Box::new(s.clone()),
+                Box::new(p.clone()),
+                Box::new(o.clone()),
+            ]);
+        infer_reasoner.insert(
+            "A",
+            vec![
+                Box::new(s),
+                Box::new(p),
+                Box::new(o),
+            ]);
+    });
+
     println!("starting bench");
     let mut now = Instant::now();
     let simple_triples = simple_reasoner.evaluate_program_bottom_up(program.clone());
     println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
-    println!(
-        "triples - simple: {}",
-        simple_triples.view("T").len()
-    );
+    println!("triples - simple: {}", simple_triples.view("A").len());
 
     now = Instant::now();
     let infer_triples = infer_reasoner.evaluate_program_bottom_up(program.clone());
     println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
-    println!(
-        "triples - infer: {}",
-        infer_triples.view("T").len()
-    );
+    println!("triples - infer: {}", infer_triples.view("A").len());
 }
