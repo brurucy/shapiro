@@ -1,3 +1,6 @@
+extern crate core;
+
+use core::panicking::panic;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
@@ -7,6 +10,7 @@ use shapiro::models::index::{BTreeIndex, HashMapIndex, ImmutableVectorIndex, Ind
 use shapiro::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer};
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::simple::SimpleDatalog;
+use crate::Reasoners::{Chibi, SimpleBTree, SimpleHashMap, SimpleImmutableVector, SimpleSpine, SimpleVec};
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item=String>, &'static str> {
     return if let Ok(file) = File::open(filename) {
@@ -31,6 +35,15 @@ pub fn load3ple<'a>(
         })),
         Err(msg) => Err(msg),
     }
+}
+
+pub enum Reasoners {
+    Chibi,
+    SimpleHashMap,
+    SimpleBTree,
+    SimpleVec,
+    SimpleImmutableVector,
+    SimpleSpine
 }
 
 fn main() {
@@ -75,30 +88,24 @@ fn main() {
         )
         .get_matches();
 
-    let t_path: String = matches.value_of("TBOX_PATH").unwrap().to_string();
-    let a_path: String = matches.value_of("ABOX_PATH").unwrap().to_string();
-    let expressivity: String = matches.value_of("EXPRESSIVITY").unwrap().to_string();
-    let workers: usize = matches
-        .value_of("WORKERS")
-        .unwrap()
-        .parse::<usize>()
-        .unwrap();
+    let data_path: String = matches.value_of("DATA_PATH").unwrap().to_string();
+    let program_path: String = matches.value_of("PROGRAM_PATH").unwrap().to_string();
+    let parallel: bool = matches.value_of("PARALLEL").unwrap().parse().unwrap();
+    let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
+        "chibi" => Chibi,
+        "simple-hashmap" => SimpleHashMap,
+        "simple-btree" => SimpleBTree,
+        "simple-vec" => SimpleVec,
+        "simple-immutable-vector" => SimpleImmutableVector,
+        "simple-spine" => SimpleSpine,
+        other => panic!("unknown reasoner variant: {}", other),
+    };
+    let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
     let batch_size: f64 = matches
         .value_of("BATCH_SIZE")
         .unwrap()
         .parse::<f64>()
         .unwrap();
-    let logic = match expressivity.as_str() {
-        "rdfspp" => Engine::RDFSpp,
-        "rdfs" => Engine::RDFS,
-        "owl2rl" => Engine::OWL2RL,
-        _ => Engine::Dummy,
-    };
-    let distributed: bool = matches.is_present("HOSTFILE");
-    let mut cfg: Config = Config {
-        communication: Process(workers),
-        worker: WorkerConfig::default(),
-    };
 
     let program = vec![
         Rule::from("A(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), A(?y, ?a, ?z)]"),
