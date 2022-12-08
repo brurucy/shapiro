@@ -107,106 +107,19 @@ fn main() {
         .parse::<f64>()
         .unwrap();
 
-    let program = vec![
-        Rule::from("A(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), A(?y, ?a, ?z)]"),
-        Rule::from("A(?z, rdf:type, ?x) <- [T(?a, rdfs:range, ?x), A(?y, ?a, ?z)]"),
-        Rule::from("T(?x, rdfs:subPropertyOf, ?z) <- [T(?x, rdfs:subPropertyOf, ?y), T(?y, rdfs:subPropertyOf, ?z)]"),
-        Rule::from("T(?x, rdfs:subClassOf, ?z) <- [T(?x, rdfs:subClassOf, ?y), T(?y, rdfs:subClassOf, ?z)]"),
-        Rule::from("A(?z, rdf:type, ?y) <- [T(?x, rdfs:subClassOf, ?y), A(?z, rdf:type, ?x)]"),
-        Rule::from("A(?x, ?b, ?y) <- [T(?a, rdfs:subPropertyOf, ?b), A(?x, ?a, ?y)]"),
-    ];
+    let evaluator: Materializer = match reasoner {
+        Chibi => ChibiDatalog::new(parallel, intern),
+        SimpleHashMap => SimpleDatalog::new(parallel, intern),
+        SimpleBTree => {}
+        SimpleVec => {}
+        SimpleImmutableVector => {}
+        SimpleSpine => {}
+    }
 
-    const ABOX_LOCATION: &str = "./data/real_abox.nt";
-    const TBOX_LOCATION: &str = "./data/real_tbox.nt";
-
-    let abox = load3ple(&ABOX_LOCATION).unwrap();
-    let tbox = load3ple(&TBOX_LOCATION).unwrap();
-
-    //let mut simple_reasoner: SimpleDatalog<IndexedHashMapIndex> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<SpineIndex> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<BTreeIndex> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<VecIndex> = SimpleDatalog::default();
-    //let mut simple_reasoner: SimpleDatalog<ImmutableVectorIndex> = SimpleDatalog::default();
-    let mut simple_reasoner: SimpleDatalog<HashMapIndex> = SimpleDatalog::default();
-    let mut infer_reasoner: ChibiDatalog = ChibiDatalog::default();
     infer_reasoner.materialize(&program);
-
-    tbox.for_each(|row| {
-        let mut predicate = row.1.clone();
-        if predicate.clone().contains("type") {
-            predicate = "rdf:type".to_string()
-        } else if predicate.clone().contains("domain") {
-            predicate = "rdfs:domain".to_string()
-        } else if predicate.clone().contains("range") {
-            predicate = "rdfs:range".to_string()
-        } else if predicate.clone().contains("subPropertyOf") {
-            predicate = "rdfs:subPropertyOf".to_string()
-        } else if predicate.clone().contains("subClassOf") {
-            predicate = "rdfs:subClassOf".to_string()
-        }
-
-        let s = row.0;
-        let p = predicate;
-        let o = row.2;
-
-        simple_reasoner.insert(
-            "T",
-            vec![
-                Box::new(s.clone()),
-                Box::new(p.clone()),
-                Box::new(o.clone()),
-            ]);
-        infer_reasoner.insert(
-            "T",
-            vec![
-                Box::new(s),
-                Box::new(p),
-                Box::new(o),
-            ]);
-    });
-
-    abox.for_each(|row| {
-        let mut predicate = row.1.clone();
-        if predicate.clone().contains("type") {
-            predicate = "rdf:type".to_string()
-        } else if predicate.clone().contains("domain") {
-            predicate = "rdfs:domain".to_string()
-        } else if predicate.clone().contains("range") {
-            predicate = "rdfs:range".to_string()
-        } else if predicate.clone().contains("subPropertyOf") {
-            predicate = "rdfs:subPropertyOf".to_string()
-        } else if predicate.clone().contains("subClassOf") {
-            predicate = "rdfs:subClassOf".to_string()
-        }
-
-        let s = row.0;
-        let p = predicate;
-        let o = row.2;
-
-        simple_reasoner.insert(
-            "A",
-            vec![
-                Box::new(s.clone()),
-                Box::new(p.clone()),
-                Box::new(o.clone()),
-            ]);
-        infer_reasoner.insert(
-            "A",
-            vec![
-                Box::new(s),
-                Box::new(p),
-                Box::new(o),
-            ]);
-    });
 
     println!("starting bench");
     let mut now = Instant::now();
-    let simple_triples = simple_reasoner.evaluate_program_bottom_up(program.clone());
-    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
-    println!("triples - simple: {}", simple_triples.view("A").len());
 
-    now = Instant::now();
-    let infer_triples = infer_reasoner.evaluate_program_bottom_up(program.clone());
-    println!("reasoning time - infer: {} ms", now.elapsed().as_millis());
-    println!("triples - infer: {}", infer_triples.view("A").len());
+    println!("reasoning time - simple: {} ms", now.elapsed().as_millis());
 }
