@@ -1,17 +1,17 @@
 extern crate core;
 
+pub mod data_structures;
 pub mod lexers;
+pub mod misc;
 pub mod models;
 pub mod parsers;
-pub mod data_structures;
 pub mod reasoning;
-pub mod misc;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::models::datalog::{Atom, Rule};
-    use crate::models::index::{BTreeIndex};
+    use crate::models::index::BTreeIndex;
+    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
     use crate::reasoning::reasoners::simple::SimpleDatalog;
 
@@ -40,8 +40,8 @@ mod tests {
             Atom::from("reachable(2, 5)"),
             Atom::from("reachable(4, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(reasoner.contains(point_query)));
 
         reasoner.update(vec![
             (true, ("edge", vec![Box::new(1), Box::new(3)])),
@@ -56,8 +56,8 @@ mod tests {
             Atom::from("reachable(3, 4)"),
             Atom::from("reachable(3, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(reasoner.contains(point_query)));
 
         vec![
             Atom::from("reachable(1, 2)"),
@@ -65,8 +65,8 @@ mod tests {
             Atom::from("reachable(2, 4)"),
             Atom::from("reachable(2, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(!reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(!reasoner.contains(point_query)));
     }
 
     #[test]
@@ -94,8 +94,8 @@ mod tests {
             Atom::from("reachable(2, 5)"),
             Atom::from("reachable(4, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(reasoner.contains(point_query)));
 
         reasoner.update(vec![
             (true, ("edge", vec![Box::new(1), Box::new(3)])),
@@ -110,8 +110,8 @@ mod tests {
             Atom::from("reachable(3, 4)"),
             Atom::from("reachable(3, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(reasoner.contains(point_query)));
 
         vec![
             Atom::from("reachable(1, 2)"),
@@ -119,7 +119,7 @@ mod tests {
             Atom::from("reachable(2, 4)"),
             Atom::from("reachable(2, 5)"),
         ]
-            .iter()
-            .for_each(|point_query| assert!(!reasoner.contains(point_query)));
+        .iter()
+        .for_each(|point_query| assert!(!reasoner.contains(point_query)));
     }
 }

@@ -35,7 +35,7 @@ impl<T: Clone + Ord> Vertebra<T> {
             }
         } else {
             if let Err(err) = self.inner.try_push(value.clone()) {
-                return Err(err)
+                return Err(err);
             }
             added = true;
         }

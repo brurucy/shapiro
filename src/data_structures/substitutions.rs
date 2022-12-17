@@ -3,25 +3,22 @@ use crate::models::datalog::TypedValue;
 pub type Substitution = (u8, TypedValue);
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct Substitutions
-{
+pub struct Substitutions {
     pub inner: Vec<(u8, TypedValue)>,
 }
 
 impl Substitutions {
     pub fn new() -> Self {
-        return Self {
-            inner: Vec::new(),
-        };
+        return Self { inner: Vec::new() };
     }
     pub fn get(&self, key: u8) -> Option<TypedValue> {
         let idx = self.inner.partition_point(|item| item.0 < key);
         if let Some(value_at_idx) = self.inner.get(idx) {
             if value_at_idx.0 == key {
-                return Some(value_at_idx.1.clone())
+                return Some(value_at_idx.1.clone());
             }
         }
-        return None
+        return None;
     }
 
     pub fn insert(&mut self, value: Substitution) -> Option<Substitution> {
@@ -30,7 +27,7 @@ impl Substitutions {
             if value_at_idx.0 != value.0 {
                 self.inner.insert(idx, value.clone());
             } else {
-                return None
+                return None;
             }
         } else {
             self.inner.push(value.clone())
@@ -41,20 +38,15 @@ impl Substitutions {
         return self.inner.len();
     }
     pub fn extend(&mut self, other: &Self) {
-        other
-            .inner
-            .iter()
-            .for_each(|sub| {
-                self.insert(sub.clone());
-            })
+        other.inner.iter().for_each(|sub| {
+            self.insert(sub.clone());
+        })
     }
 }
 
 impl Default for Substitutions {
     fn default() -> Self {
-        return Self {
-            inner: Vec::new(),
-        };
+        return Self { inner: Vec::new() };
     }
 }
 
@@ -74,10 +66,7 @@ mod tests {
         assert_eq!(subs.insert(first_sub.clone()), Some(first_sub.clone()));
         assert_eq!(subs.insert(second_sub), None);
         assert_eq!(subs.insert(zeroth_sub.clone()), Some(zeroth_sub.clone()));
-        assert_eq!(subs.inner, vec![
-            first_sub,
-            zeroth_sub
-        ])
+        assert_eq!(subs.inner, vec![first_sub, zeroth_sub])
     }
 
     #[test]
@@ -106,9 +95,12 @@ mod tests {
 
         subs_left.extend(&subs_right);
 
-        assert_eq!(subs_left.inner, vec![
-            (0, TypedValue::Str("one".to_string())),
-            (1, TypedValue::Str("one".to_string())),
-        ])
+        assert_eq!(
+            subs_left.inner,
+            vec![
+                (0, TypedValue::Str("one".to_string())),
+                (1, TypedValue::Str("one".to_string())),
+            ]
+        )
     }
 }

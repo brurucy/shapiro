@@ -13,7 +13,7 @@ use data_structures::tree::Tree;
 pub type Row = Box<[TypedValue]>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Relation<T : IndexBacking> {
+pub struct Relation<T: IndexBacking> {
     pub symbol: String,
     pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
@@ -60,16 +60,14 @@ impl<T: IndexBacking> Relation<T> {
             .collect();
 
         let mut new_row_id = 0usize;
-        self.ward
-            .iter()
-            .for_each(|(k, v)| {
-                if *v {
-                    indexes[index_idx]
-                        .index
-                        .insert_row((k[index_idx].clone(), new_row_id));
-                }
-                new_row_id += 1;
-            });
+        self.ward.iter().for_each(|(k, v)| {
+            if *v {
+                indexes[index_idx]
+                    .index
+                    .insert_row((k[index_idx].clone(), new_row_id));
+            }
+            new_row_id += 1;
+        });
 
         self.indexes = indexes;
     }
@@ -88,16 +86,15 @@ impl<T: IndexBacking> Relation<T> {
             .collect();
 
         let mut new_row_id = 0usize;
-        self.ward
-            .retain(|k, v| {
-                if *v {
-                    indexes[index_idx]
-                        .index
-                        .insert_row((k[index_idx].clone(), new_row_id));
-                    new_row_id += 1;
-                }
-                *v
-            });
+        self.ward.retain(|k, v| {
+            if *v {
+                indexes[index_idx]
+                    .index
+                    .insert_row((k[index_idx].clone(), new_row_id));
+                new_row_id += 1;
+            }
+            *v
+        });
 
         self.indexes = indexes;
     }
@@ -229,7 +226,7 @@ impl Display for Term {
             Term::Relation(atom) => write!(f, "{}", atom),
             Term::Product => write!(f, "{}", "×"),
             Term::Join(left_column_idx, right_column_idx) => {
-                write!(f, "{}_{}={}","⋈", left_column_idx, right_column_idx)
+                write!(f, "{}_{}={}", "⋈", left_column_idx, right_column_idx)
             }
         }
     }
@@ -397,7 +394,10 @@ fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
     return expression;
 }
 
-fn constant_to_selection<'a>(expr: &RelationalExpression, next_id: &mut u8) -> RelationalExpression {
+fn constant_to_selection<'a>(
+    expr: &RelationalExpression,
+    next_id: &mut u8,
+) -> RelationalExpression {
     let mut expression = expr.clone();
     expression.arena.clone().into_iter().for_each(|node| {
         if let Term::Relation(atom) = node.value {
@@ -416,10 +416,12 @@ fn constant_to_selection<'a>(expr: &RelationalExpression, next_id: &mut u8) -> R
                             selection = Term::Selection(idx, SelectionTypedValue::UInt(uint_value))
                         }
                         TypedValue::Float(float_value) => {
-                            selection = Term::Selection(idx, SelectionTypedValue::Float(float_value))
+                            selection =
+                                Term::Selection(idx, SelectionTypedValue::Float(float_value))
                         }
                         TypedValue::InternedStr(usize_value) => {
-                            selection = Term::Selection(idx, SelectionTypedValue::InternedStr(usize_value))
+                            selection =
+                                Term::Selection(idx, SelectionTypedValue::InternedStr(usize_value))
                         }
                     }
 
@@ -537,18 +539,21 @@ fn project_head(rule: &Rule) -> Term {
 impl From<&Rule> for RelationalExpression {
     fn from(rule: &Rule) -> Self {
         // This is necessary in order to create fresh relations.
-        let head_term_count = rule
-            .head
-            .terms
-            .len();
-        let body_term_count: usize = rule.body.iter().map(|body_atom| body_atom.terms.len()).sum();
+        let head_term_count = rule.head.terms.len();
+        let body_term_count: usize = rule
+            .body
+            .iter()
+            .map(|body_atom| body_atom.terms.len())
+            .sum();
         // This could be a source of funny problems, but only if rules are hilariously long.
         let mut expression_variable_start: u8 = (head_term_count + body_term_count + 1) as u8;
         // Turning the body into products
         let products = rule_body_to_expression(&rule);
         // Morphing relations with constants to selection equalities
-        let products_and_selections = constant_to_selection(&products, &mut expression_variable_start);
-        let mut expression = equality_to_selection(&products_and_selections, &mut expression_variable_start);
+        let products_and_selections =
+            constant_to_selection(&products, &mut expression_variable_start);
+        let mut expression =
+            equality_to_selection(&products_and_selections, &mut expression_variable_start);
         // Projecting the head
         let projection_idx = expression.allocate(&project_head(&rule));
         expression.set_left_child(projection_idx, expression.root.unwrap());
@@ -579,7 +584,8 @@ mod tests {
     fn test_rule_to_expression_complex() {
         let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
-        let expected_expression = "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";
+        let expected_expression =
+            "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";
 
         let actual_expression = RelationalExpression::from(&rule).to_string();
         assert_eq!(expected_expression, actual_expression)

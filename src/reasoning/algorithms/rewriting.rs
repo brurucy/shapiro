@@ -1,9 +1,9 @@
-use rayon::prelude::*;
 use crate::data_structures::substitutions::Substitutions;
 use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
 use crate::models::index::IndexBacking;
 use crate::models::instance::Instance;
 use crate::models::relational_algebra::Relation;
+use rayon::prelude::*;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -57,7 +57,9 @@ pub fn generate_all_substitutions<T>(
     knowledge_base: &Instance<T>,
     target_atom: &Atom,
 ) -> Vec<Substitutions>
-    where T: IndexBacking {
+where
+    T: IndexBacking,
+{
     let relation = knowledge_base.view(&target_atom.symbol);
 
     return relation
@@ -97,7 +99,9 @@ pub fn accumulate_substitutions<T>(
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
 ) -> Vec<Substitutions>
-    where T: IndexBacking {
+where
+    T: IndexBacking,
+{
     return input_substitutions
         .iter()
         .fold(vec![], |mut acc, substitution| {
@@ -119,8 +123,13 @@ pub fn accumulate_substitutions<T>(
         });
 }
 
-pub fn accumulate_body_substitutions<T>(knowledge_base: &Instance<T>, body: Body) -> Vec<Substitutions>
-    where T: IndexBacking {
+pub fn accumulate_body_substitutions<T>(
+    knowledge_base: &Instance<T>,
+    body: Body,
+) -> Vec<Substitutions>
+where
+    T: IndexBacking,
+{
     return body
         .into_iter()
         .fold(vec![Default::default()], |acc, item| {
@@ -129,7 +138,9 @@ pub fn accumulate_body_substitutions<T>(knowledge_base: &Instance<T>, body: Body
 }
 
 pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T>>
-    where T: IndexBacking {
+where
+    T: IndexBacking,
+{
     let mut output_instance = Instance::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
@@ -144,7 +155,9 @@ pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<
 }
 
 pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Relation<T>>
-    where T: IndexBacking {
+where
+    T: IndexBacking,
+{
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, rule.clone().body),
@@ -153,11 +166,14 @@ pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Rel
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule, TypedValue};
-    use crate::models::instance::Instance;
     use crate::data_structures::substitutions::Substitutions;
+    use crate::models::datalog::{Atom, Rule, TypedValue};
     use crate::models::index::BTreeIndex;
-    use crate::reasoning::algorithms::rewriting::{accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground, make_substitutions};
+    use crate::models::instance::Instance;
+    use crate::reasoning::algorithms::rewriting::{
+        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground,
+        make_substitutions,
+    };
 
     use super::generate_all_substitutions;
 
@@ -171,7 +187,7 @@ mod tests {
                 inner: vec![
                     (0, TypedValue::Str("a".to_string())),
                     (1, TypedValue::Str("b".to_string())),
-                ]
+                ],
             };
             assert_eq!(sub, expected_sub);
         } else {
@@ -203,15 +219,13 @@ mod tests {
             subs,
             vec![
                 Substitutions {
-                    inner:
-                    vec![
+                    inner: vec![
                         (0, TypedValue::Str("a".to_string())),
                         (1, TypedValue::Str("b".to_string())),
                     ]
                 },
                 Substitutions {
-                    inner:
-                    vec![
+                    inner: vec![
                         (0, TypedValue::Str("b".to_string())),
                         (1, TypedValue::Str("c".to_string())),
                     ]
@@ -238,10 +252,10 @@ mod tests {
 
         let partial_subs = vec![
             Substitutions {
-                inner: vec![(0, TypedValue::Str("student".to_string()))]
+                inner: vec![(0, TypedValue::Str("student".to_string()))],
             },
             Substitutions {
-                inner: vec![(0, TypedValue::Str("professor".to_string()))]
+                inner: vec![(0, TypedValue::Str("professor".to_string()))],
             },
         ];
 
@@ -277,28 +291,27 @@ mod tests {
         fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
         fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
 
-
         let fitting_substitutions = vec![
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("adam".to_string())),
                     (1, TypedValue::Str("cthulu".to_string())),
                     (2, TypedValue::Str("jumala".to_string())),
-                ]
+                ],
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("vanasarvik".to_string())),
                     (1, TypedValue::Str("cthulu".to_string())),
                     (2, TypedValue::Str("jumala".to_string())),
-                ]
+                ],
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("eve".to_string())),
                     (1, TypedValue::Str("jumala".to_string())),
                     (2, TypedValue::Str("adam".to_string())),
-                ]
+                ],
             },
         ];
         let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);

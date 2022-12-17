@@ -1,7 +1,7 @@
-use ordered_float::{OrderedFloat};
+use itertools::Itertools;
+use ordered_float::OrderedFloat;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use itertools::Itertools;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -22,7 +22,7 @@ impl TryInto<u32> for TypedValue {
     fn try_into(self) -> Result<u32, Self::Error> {
         match self {
             TypedValue::UInt(inner) => Ok(inner),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -33,7 +33,7 @@ impl TryInto<String> for TypedValue {
     fn try_into(self) -> Result<String, Self::Error> {
         match self {
             TypedValue::Str(inner) => Ok(inner.to_string()),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -44,7 +44,7 @@ impl TryInto<bool> for TypedValue {
     fn try_into(self) -> Result<bool, Self::Error> {
         match self {
             TypedValue::Bool(inner) => Ok(inner),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -55,8 +55,20 @@ impl TryInto<f64> for TypedValue {
     fn try_into(self) -> Result<f64, Self::Error> {
         match self {
             TypedValue::Float(inner) => Ok(inner.into_inner()),
-            _ => Err(())
+            _ => Err(()),
         }
+    }
+}
+
+impl Into<Box<dyn Ty>> for TypedValue {
+    fn into(self) -> Box<dyn Ty> {
+        return match self {
+            TypedValue::Str(inner) => Box::new(inner),
+            TypedValue::Bool(inner) => Box::new(inner),
+            TypedValue::UInt(inner) => Box::new(inner),
+            TypedValue::Float(inner) => Box::new(inner.into_inner()),
+            _ => panic!("woopsie!"),
+        };
     }
 }
 
@@ -103,7 +115,7 @@ impl Display for TypedValue {
             TypedValue::Bool(inner) => write!(f, "Bool{}", inner),
             TypedValue::UInt(inner) => write!(f, "UInt{}", inner),
             TypedValue::Float(inner) => write!(f, "Float{}", inner),
-            TypedValue::InternedStr(inner) => write!(f, "IStr{}", inner)
+            TypedValue::InternedStr(inner) => write!(f, "IStr{}", inner),
         }
     }
 }
@@ -197,11 +209,7 @@ impl From<&str> for Rule {
 
 impl Display for Rule {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let body = self
-            .body
-            .iter()
-            .map(|atom| atom.to_string())
-            .join(", ");
+        let body = self.body.iter().map(|atom| atom.to_string()).join(", ");
         write!(f, "{} <- [{}]", self.head, body)
     }
 }

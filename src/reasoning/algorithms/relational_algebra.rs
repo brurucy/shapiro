@@ -1,8 +1,14 @@
 use crate::models::index::IndexBacking;
 use crate::models::instance::Database;
-use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue, Term};
+use crate::models::relational_algebra::{
+    Relation, RelationalExpression, SelectionTypedValue, Term,
+};
 
-pub fn select_value<T: IndexBacking>(relation: &mut Relation<T>, column_idx: usize, value: SelectionTypedValue) {
+pub fn select_value<T: IndexBacking>(
+    relation: &mut Relation<T>,
+    column_idx: usize,
+    value: SelectionTypedValue,
+) {
     relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[column_idx] != value.clone().try_into().unwrap() {
             relation.mark_deleted(&k);
@@ -10,7 +16,11 @@ pub fn select_value<T: IndexBacking>(relation: &mut Relation<T>, column_idx: usi
     });
 }
 
-pub fn select_equality<T: IndexBacking>(relation: &mut Relation<T>, left_column_idx: usize, right_column_idx: usize) {
+pub fn select_equality<T: IndexBacking>(
+    relation: &mut Relation<T>,
+    left_column_idx: usize,
+    right_column_idx: usize,
+) {
     relation.ward.clone().into_iter().for_each(|(k, _v)| {
         if k[left_column_idx] != k[right_column_idx] {
             relation.mark_deleted(&k);
@@ -18,30 +28,43 @@ pub fn select_equality<T: IndexBacking>(relation: &mut Relation<T>, left_column_
     });
 }
 
-pub fn product<T: IndexBacking>(left_relation: &Relation<T>, right_relation: &Relation<T>) -> Relation<T>
-    where T : IndexBacking {
+pub fn product<T: IndexBacking>(
+    left_relation: &Relation<T>,
+    right_relation: &Relation<T>,
+) -> Relation<T>
+where
+    T: IndexBacking,
+{
     let mut relation = Relation::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
         left_relation.indexes.len() + right_relation.indexes.len(),
         false,
     );
 
-    left_relation.ward.clone().into_iter().for_each(|(left_k, left_v)| {
-        if left_v {
-            right_relation.ward.clone().into_iter().for_each(|(right_k, right_v)| {
-                if right_v {
-                    relation.insert_typed(
-                        left_k
-                            .clone()
-                            .iter()
-                            .chain(right_k.iter())
-                            .cloned()
-                            .collect(),
-                    )
-                }
-            })
-        }
-    });
+    left_relation
+        .ward
+        .clone()
+        .into_iter()
+        .for_each(|(left_k, left_v)| {
+            if left_v {
+                right_relation
+                    .ward
+                    .clone()
+                    .into_iter()
+                    .for_each(|(right_k, right_v)| {
+                        if right_v {
+                            relation.insert_typed(
+                                left_k
+                                    .clone()
+                                    .iter()
+                                    .chain(right_k.iter())
+                                    .cloned()
+                                    .collect(),
+                            )
+                        }
+                    })
+            }
+        });
 
     return relation;
 }
@@ -58,20 +81,27 @@ pub fn join<T: IndexBacking>(
         false,
     );
 
-    left_relation
-        .indexes[left_index]
-        .index
-        .join(&right_relation.indexes[right_index].index,  |l, r| {
+    left_relation.indexes[left_index].index.join(
+        &right_relation.indexes[right_index].index,
+        |l, r| {
             if let Some(left_row) = left_relation.ward.get_index(l) {
                 if *left_row.1 {
                     if let Some(right_row) = right_relation.ward.get_index(r) {
                         if *right_row.1 {
-                            relation.insert_typed(left_row.0.into_iter().chain(right_row.0.into_iter()).cloned().collect())
+                            relation.insert_typed(
+                                left_row
+                                    .0
+                                    .into_iter()
+                                    .chain(right_row.0.into_iter())
+                                    .cloned()
+                                    .collect(),
+                            )
                         }
                     }
                 }
             }
-        });
+        },
+    );
 
     return relation;
 }
@@ -105,7 +135,9 @@ pub fn evaluate<T: IndexBacking>(
     database: &Database<T>,
     new_symbol: &str,
 ) -> Option<Relation<T>>
-    where T : IndexBacking {
+where
+    T: IndexBacking,
+{
     if let Some(root_addr) = expr.root {
         let root_node = expr.arena[root_addr].clone();
 
@@ -137,10 +169,8 @@ pub fn evaluate<T: IndexBacking>(
                         rayon::join(
                             || {
                                 left_relation.compact_physical(left_column_idx);
-                            }, ||
-                                {
-                                    right_relation.compact_physical(right_column_idx)
-                                }
+                            },
+                            || right_relation.compact_physical(right_column_idx),
                         );
                         let join_result = join(
                             left_relation,
@@ -248,9 +278,11 @@ mod tests {
         assert_eq!(expected_selection, relation);
     }
 
-    use itertools::Itertools;
     use crate::models::index::BTreeIndex;
-    use crate::reasoning::algorithms::relational_algebra::{join, product, select_equality, select_value};
+    use crate::reasoning::algorithms::relational_algebra::{
+        join, product, select_equality, select_value,
+    };
+    use itertools::Itertools;
 
     #[test]
     fn product_test() {
@@ -355,8 +387,8 @@ mod tests {
             ("eve", "adam"),
             ("jumala", "cthulu"),
         ]
-            .into_iter()
-            .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
+        .into_iter()
+        .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
         vec![
             ("adam", "human"),
@@ -365,10 +397,10 @@ mod tests {
             ("jumala", "demiGod"),
             ("cthulu", "demiGod"),
         ]
-            .into_iter()
-            .for_each(|tuple| {
-                instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
-            });
+        .into_iter()
+        .for_each(|tuple| {
+            instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
+        });
 
         let mut expected_relation = Relation::new(&"ancestor", 2, false);
         let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];

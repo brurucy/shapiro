@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::models::datalog::{Atom, Ty};
-use crate::models::index::{IndexBacking};
+use crate::models::index::IndexBacking;
 use crate::reasoning::algorithms::relational_algebra::evaluate;
 
 use super::{
@@ -13,7 +13,9 @@ pub type Database<T> = HashMap<String, Relation<T>>;
 
 #[derive(Clone, PartialEq)]
 pub struct Instance<T>
-where T : IndexBacking{
+where
+    T: IndexBacking,
+{
     pub database: Database<T>,
     pub use_indexes: bool,
 }
@@ -45,8 +47,7 @@ impl<T: IndexBacking> Instance<T> {
         }
     }
     pub fn insert_relation(&mut self, relation: Relation<T>) {
-        self.database
-            .insert(relation.symbol.to_string(), relation);
+        self.database.insert(relation.symbol.to_string(), relation);
     }
     pub fn insert_atom(&mut self, atom: &Atom) {
         let row = (&atom.terms)
@@ -75,7 +76,11 @@ impl<T: IndexBacking> Instance<T> {
             use_indexes,
         };
     }
-    pub fn evaluate(&self, expression: &RelationalExpression, view_name: &str) -> Option<Relation<T>> {
+    pub fn evaluate(
+        &self,
+        expression: &RelationalExpression,
+        view_name: &str,
+    ) -> Option<Relation<T>> {
         return evaluate(expression, &self.database, view_name);
     }
 }

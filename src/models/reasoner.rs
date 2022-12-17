@@ -33,18 +33,18 @@ pub trait Materializer {
     fn materialize(&mut self, program: &Program);
     // given the changes, incrementally maintain the materialization
     fn update(&mut self, changes: Vec<Diff>);
-    // returns whether all materializations are updated
-    fn safe(&self) -> bool;
+    // returns the amount of facts currently materialized(possibly extensional and intensional)
+    fn triple_count(&self) -> usize;
 }
 
 pub trait Queryable {
     fn contains(&mut self, atom: &Atom) -> bool;
 }
 
-pub trait BottomUpEvaluator<T : IndexBacking> {
+pub trait BottomUpEvaluator<T: IndexBacking> {
     fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T>;
 }
 
-pub trait TopDownEvaluator<T : IndexBacking> {
+pub trait TopDownEvaluator<T: IndexBacking> {
     fn evaluate_program_top_down(&mut self, program: Vec<Rule>, query: &Rule) -> Instance<T>;
 }
