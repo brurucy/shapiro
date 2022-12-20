@@ -80,11 +80,11 @@ impl AtomParser for NTripleParser {
 
         let digit_one: String = split_line.next().unwrap().to_string();
         let mut digit_two: String = split_line.next().unwrap().to_string();
-        if let Some(alias) = OWL.get_key(&digit_two) {
+        if let Some(alias) = OWL.get(&digit_two) {
             digit_two = alias.to_string();
         }
         let mut digit_three: String = split_line.next().unwrap().to_string();
-        if let Some(alias) = OWL.get_key(&digit_three) {
+        if let Some(alias) = OWL.get(&digit_three) {
             digit_three = alias.to_string()
         }
 
@@ -108,7 +108,7 @@ impl AtomParser for SpaceSepParser {
 
         let symbol = raw_terms[raw_terms.len() - 1];
 
-        let terms = raw_terms[..raw_terms.len() - 2]
+        let terms = raw_terms[..raw_terms.len() - 1]
             .into_iter()
             .map(|term| Term::Constant(term.to_typed_value()))
             .collect();
@@ -269,6 +269,7 @@ fn main() {
         data_path, program_path, parallel, reasoner, intern, batch_size
     );
     let facts: Vec<Atom> = parser.read_fact_file(&data_path).collect();
+    facts.iter().for_each(|fact| println!("{}", fact));
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
     let mut batch_size: usize = 0;
@@ -301,7 +302,7 @@ fn main() {
             })
             .collect();
 
-        if idx < cutoff {
+        if idx < batch_size {
             initial_materialization.push((true, (sym, terms)))
         } else {
             positive_update.push((true, (sym, terms)));

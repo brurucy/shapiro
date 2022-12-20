@@ -180,10 +180,6 @@ impl<T: IndexBacking> Dynamic for SimpleDatalog<T> {
 
 impl<T: IndexBacking> DynamicTyped for SimpleDatalog<T> {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        if self.materialization.len() > 0 {
-            self.safe = false
-        }
-
         let mut typed_row = row.clone();
         if self.intern {
             typed_row = self.interner.intern_typed_values(typed_row);
@@ -192,10 +188,6 @@ impl<T: IndexBacking> DynamicTyped for SimpleDatalog<T> {
         self.fact_store.insert_typed(table, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: Row) {
-        if self.materialization.len() > 0 {
-            self.safe = false
-        }
-
         let mut typed_row = row.clone();
         if self.intern {
             typed_row = self.interner.intern_typed_values(typed_row);
@@ -282,14 +274,10 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
         let mut retractions: Vec<(&str, Row)> = vec![];
 
         changes.iter().for_each(|(sign, (sym, value))| {
-            let mut typed_row: Row = value
+            let typed_row: Row = value
                 .into_iter()
                 .map(|untyped_value| untyped_value.to_typed_value())
                 .collect();
-
-            if self.intern {
-                typed_row = self.interner.intern_typed_values(typed_row);
-            }
 
             if *sign {
                 additions.push((sym, typed_row));
