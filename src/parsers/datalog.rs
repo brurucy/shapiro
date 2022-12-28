@@ -1,12 +1,15 @@
-use std::collections::BTreeMap;
 use logos::{Lexer, Logos};
+use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
 use crate::models::datalog::Sign::{Negative, Positive};
 use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
-fn parse_lexed_atom<'a>(lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>, interner: &mut BTreeMap<&'a str, u8>) -> Atom {
+fn parse_lexed_atom<'a>(
+    lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>,
+    interner: &mut BTreeMap<&'a str, u8>,
+) -> Atom {
     let mut terms: Vec<Term> = vec![];
     while let Some(token) = lexer.next() {
         match token {

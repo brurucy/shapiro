@@ -1,0 +1,2 @@
+reachable(?x, ?y) <- [edge(?x, ?y)]
+reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]

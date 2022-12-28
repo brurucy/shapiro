@@ -136,8 +136,8 @@ mod tests {
 
         let cases: Vec<(usize, usize)> = vec![(0, 0), (6, 1), (9, 2), (18, 3), (20, 4)];
 
-        cases.into_iter().for_each(|(prefix_sum, idx)| {
-            assert_eq!(fenwick_array.index_of(prefix_sum), idx)
-        })
+        cases
+            .into_iter()
+            .for_each(|(prefix_sum, idx)| assert_eq!(fenwick_array.index_of(prefix_sum), idx))
     }
 }

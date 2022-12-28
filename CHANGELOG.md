@@ -6,15 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+
+## [0.6.0] - 2022-12-28
+### Added
+- A simple benchmarking system
+
+## [0.5.0] - 2022-11-23
+### Added
 - An implementation of the Derive-Rederive algorithm
 - Materialization of programs
 
 ### Changed
-- Refactored all APIs
-
-### Changed
 - `Chibi` and `Simple` now have a `delete` method.
 - `Chibi` and `Simple` are able to incrementally maintain evaluations.
+- Refactored all APIs
 
 ## [0.4.0] - 2022-11-14
 ### Added
@@ -41,7 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skeleton of the project
 - `ChibiDatalog` as the prototypical, simplest-as-possible SLD-based positive datalog
 
-[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/brurucy/shapiro/releases/tag/v0.5.0
 [0.4.0]: https://github.com/brurucy/shapiro/releases/tag/v0.4.0
 [0.3.1]: https://github.com/brurucy/shapiro/releases/tag/v0.3.1	
 [0.3.0]: https://github.com/brurucy/shapiro/releases/tag/v0.3.0

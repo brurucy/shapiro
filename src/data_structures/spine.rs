@@ -1,5 +1,5 @@
+use super::vertebra::Vertebra;
 use crate::data_structures::fenwick_tree::FenwickTree;
-use super::vertebra::{Vertebra};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spine<T>
@@ -15,7 +15,7 @@ impl<T: Clone + Ord> Spine<T> {
     pub fn new() -> Self {
         return Self {
             ..Default::default()
-        }
+        };
     }
     pub fn insert(&mut self, value: T) -> bool {
         let added = false;
@@ -55,7 +55,7 @@ impl<T: Clone + Ord> Spine<T> {
                     self.len += 1;
                     self.index.increase_length(idx)
                 }
-                return added
+                return added;
             }
         }
     }
@@ -76,15 +76,15 @@ impl<T: Clone + Ord> Spine<T> {
                     vertebra = Some(candidate_two_vertebra);
                     position_within_vertebra = 0;
                 } else {
-                    return None
+                    return None;
                 }
             }
         } else {
-            return None
+            return None;
         }
 
         if let Some(value) = vertebra.unwrap().get(position_within_vertebra) {
-            return Some(value)
+            return Some(value);
         }
 
         return None;
@@ -112,9 +112,11 @@ impl<T: Clone + Ord> Spine<T> {
             vertebra_idx = vertebra_idx - 1
         }
 
-        let idx = self.inner[vertebra_idx].inner.partition_point(|item| item.clone() < *target);
+        let idx = self.inner[vertebra_idx]
+            .inner
+            .partition_point(|item| item.clone() < *target);
 
-        return self.inner[vertebra_idx].get(idx)
+        return self.inner[vertebra_idx].get(idx);
     }
     pub fn len(&self) -> usize {
         return self.len;
@@ -122,16 +124,15 @@ impl<T: Clone + Ord> Spine<T> {
 }
 
 impl<T> FromIterator<T> for Spine<T>
-where T : Ord + Clone
+where
+    T: Ord + Clone,
 {
-    fn from_iter<K: IntoIterator<Item=T>>(iter: K) -> Self {
+    fn from_iter<K: IntoIterator<Item = T>>(iter: K) -> Self {
         let mut spine = Spine::new();
-        iter
-            .into_iter()
-            .for_each(|item | {
-                spine.insert(item);
-            });
-        return spine
+        iter.into_iter().for_each(|item| {
+            spine.insert(item);
+        });
+        return spine;
     }
 }
 
@@ -150,8 +151,8 @@ where
 }
 
 impl<'a, T> IntoIterator for &'a Spine<T>
-    where
-        T: Clone + Ord,
+where
+    T: Clone + Ord,
 {
     type Item = &'a T;
 
@@ -167,8 +168,8 @@ impl<'a, T> IntoIterator for &'a Spine<T>
 }
 
 pub struct SpineIterator<'a, T>
-    where
-        T: Clone + Ord,
+where
+    T: Clone + Ord,
 {
     spine: &'a Spine<T>,
     current_idx: usize,
@@ -176,8 +177,8 @@ pub struct SpineIterator<'a, T>
 }
 
 impl<'a, T> Iterator for SpineIterator<'a, T>
-    where
-        T: Clone + Ord,
+where
+    T: Clone + Ord,
 {
     type Item = &'a T;
 
@@ -195,7 +196,7 @@ impl<'a, T> Iterator for SpineIterator<'a, T>
                 return Some(value);
             }
             None
-        }
+        };
     }
 }
 
@@ -253,9 +254,7 @@ mod tests {
 
         expected_output
             .into_iter()
-            .for_each(|item| {
-                assert_eq!(*&spine.get(item - 1).cloned().unwrap(), item)
-            });
+            .for_each(|item| assert_eq!(*&spine.get(item - 1).cloned().unwrap(), item));
     }
 
     #[test]
@@ -273,8 +272,6 @@ mod tests {
 
         expected_output
             .into_iter()
-            .for_each(|item| {
-                assert_eq!(item - 1, spine.binary_search_by(0, |el| item > *el))
-            });
+            .for_each(|item| assert_eq!(item - 1, spine.binary_search_by(0, |el| item > *el)));
     }
 }

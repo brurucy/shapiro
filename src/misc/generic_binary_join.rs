@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
 
-pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left : 'a, Right : 'a>(
+pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
     left_iter: &'a Left,
     right_iter: &'a Right,
     mut f: impl FnMut(V, V),
 ) where
-    &'a Left : 'a + IntoIterator<Item=&'a (K, V)>,
-    &'a Right : 'a + IntoIterator<Item=&'a (K, V)>,
+    &'a Left: 'a + IntoIterator<Item = &'a (K, V)>,
+    &'a Right: 'a + IntoIterator<Item = &'a (K, V)>,
     K: Ord + Clone,
     V: Clone,
 {
