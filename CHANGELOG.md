@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+
+## [0.6.0] - 2022-12-28
+### Added
 - A simple benchmarking system
 
 ## [0.5.0] - 2022-11-23
