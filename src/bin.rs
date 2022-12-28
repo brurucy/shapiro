@@ -279,13 +279,7 @@ fn main() {
         batch_size = cutoff
     }
 
-    let program: Vec<Rule> = parser.read_datalog_file(&program_path).collect();
-    let stringified_program: Vec<String> =
-        program.iter().map(|program| program.to_string()).collect();
-    stringified_program
-        .iter()
-        .for_each(|program| println!("{}", program));
-    evaluator.materialize(&program);
+    evaluator.materialize(&parser.read_datalog_file(&program_path).collect());
 
     let mut initial_materialization: Vec<Diff> = vec![];
     let mut positive_update: Vec<Diff> = vec![];
