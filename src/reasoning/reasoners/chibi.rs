@@ -32,7 +32,6 @@ impl InstanceEvaluator<Vec<ValueRowId>> for Rewriting {
             .clone()
             .into_iter()
             .filter_map(|rule| {
-                //println!("evaluating: {}", rule);
                 return evaluate_rule(&instance, &rule);
             })
             .collect();
@@ -58,7 +57,6 @@ impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
             .clone()
             .into_par_iter()
             .filter_map(|rule| {
-                //println!("evaluating: {}", rule);
                 return evaluate_rule(&instance, &rule);
             })
             .collect();
@@ -207,10 +205,6 @@ impl Materializer for ChibiDatalog {
                 .into_iter()
                 .map(|untyped_value| untyped_value.to_typed_value())
                 .collect();
-
-            if self.intern {
-                typed_row = self.interner.intern_typed_values(typed_row);
-            }
 
             if *sign {
                 additions.push((sym, typed_row));

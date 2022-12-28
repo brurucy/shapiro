@@ -269,7 +269,6 @@ fn main() {
         data_path, program_path, parallel, reasoner, intern, batch_size
     );
     let facts: Vec<Atom> = parser.read_fact_file(&data_path).collect();
-    facts.iter().for_each(|fact| println!("{}", fact));
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
     let mut batch_size: usize = 0;
