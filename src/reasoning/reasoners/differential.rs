@@ -37,7 +37,7 @@ pub fn reason(
         move |worker: &mut Worker<Generic>| {
             let (mut rule_input_session, mut rule_trace, rule_probe) = worker
                 .dataflow_named::<usize, _, _>("rule_ingestion", |local| {
-                    let (mut rule_input, rule_collection) = local.new_collection::<Rule, isize>();
+                    let (mut rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
                     rule_collection.inspect(|x| {
                         rule_output_sink.send((x.0.clone(), x.2)).unwrap();
                         println!("evaluating: {}", x.0)
@@ -52,7 +52,7 @@ pub fn reason(
             let (mut fact_input_session, fact_probe) =
                 worker.dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
                     let (mut fact_input_session, fact_collection) =
-                        local.new_collection::<Atom, isize>();
+                        local.new_collection::<AbomonatedAtom, isize>();
 
                     let data_output_receiver = fact_input_source.clone();
                     let rule_collection = rule_trace.import(local).as_collection(|x, y| x.clone());
@@ -107,7 +107,7 @@ pub fn reason(
                     rule_input_session.close();
 
                     worker.step_while(|| rule_probe.less_than(&(last_rule_ts + 1)));
-                    worker.step_while(|| rule_input_session.less_than(&(last_data_ts + 1)));
+                    worker.step_while(|| fact_probe.less_than(&(last_data_ts + 1)));
                     break;
                 }
             }
