@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use abomonation_derive::Abomonation;
+use crate::models::datalog::TypedValue;
 use crate::reasoning::reasoners::differential::abomonated_parsing::{parse_atom, parse_rule};
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation )]
@@ -9,6 +10,18 @@ pub enum AbomonatedTypedValue {
     Bool(bool),
     UInt(u32),
     InternedStr(usize),
+}
+
+impl From<TypedValue> for AbomonatedTypedValue {
+    fn from(value: TypedValue) -> Self {
+        return match value {
+            TypedValue::Str(inner) => AbomonatedTypedValue::Str(inner),
+            TypedValue::Bool(inner) => AbomonatedTypedValue::Bool(inner),
+            TypedValue::UInt(inner) => AbomonatedTypedValue::UInt(inner),
+            TypedValue::InternedStr(inner) => AbomonatedTypedValue::InternedStr(inner),
+            _ => panic!("floats are not supported by differential reasoner!")
+        }
+    }
 }
 
 impl TryInto<u32> for AbomonatedTypedValue {

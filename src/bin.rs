@@ -1,7 +1,7 @@
 extern crate core;
 
 use crate::Reasoners::{
-    Chibi, SimpleBTree, SimpleHashMap, SimpleImmutableVector, SimpleSpine, SimpleVec,
+    Chibi, Differential, SimpleBTree, SimpleHashMap, SimpleImmutableVector, SimpleSpine, SimpleVec,
 };
 use clap::{Arg, Command};
 use phf::phf_map;
@@ -16,6 +16,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -160,6 +161,7 @@ impl Parser {
 
 pub enum Reasoners {
     Chibi,
+    Differential,
     SimpleHashMap,
     SimpleBTree,
     SimpleVec,
@@ -171,6 +173,7 @@ impl Display for Reasoners {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Chibi => write!(f, "chibi"),
+            Differential => write!(f, "differential"),
             SimpleHashMap => write!(f, "simple-hashmap"),
             SimpleBTree => write!(f, "simple-btree"),
             SimpleVec => write!(f, "simple-vec"),
@@ -198,7 +201,7 @@ fn main() {
         )
         .arg(
             Arg::new("REASONER")
-                .help("Sets the reasoner to be used, chibi or simple")
+                .help("Sets the reasoner to be used, chibi, simple or differential")
                 .required(true)
                 .index(3),
         )
@@ -233,6 +236,7 @@ fn main() {
     let parallel: bool = matches.value_of("PARALLEL").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
+        "differential" => Differential,
         "simple-hashmap" => SimpleHashMap,
         "simple-btree" => SimpleBTree,
         "simple-vec" => SimpleVec,
@@ -256,6 +260,7 @@ fn main() {
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
         Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
+        Differential => Box::new(DifferentialDatalog::new(parallel, intern)),
         SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel, intern)),
         SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel, intern)),
         SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel, intern)),
@@ -264,6 +269,7 @@ fn main() {
         }
         SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel, intern)),
     };
+
     println!(
         "{} {} {} {} {} {}",
         data_path, program_path, parallel, reasoner, intern, batch_size
