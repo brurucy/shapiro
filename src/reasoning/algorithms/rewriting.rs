@@ -1,8 +1,8 @@
 use crate::data_structures::substitutions::Substitutions;
 use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
 use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
+use crate::models::instance::InstanceWithIndex;
+use crate::models::relational_algebra::RelationWithIndex;
 use rayon::prelude::*;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
@@ -54,7 +54,7 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
 }
 
 pub fn generate_all_substitutions<T>(
-    knowledge_base: &Instance<T>,
+    knowledge_base: &InstanceWithIndex<T>,
     target_atom: &Atom,
 ) -> Vec<Substitutions>
 where
@@ -95,7 +95,7 @@ pub fn is_ground(atom: &Atom) -> bool {
 }
 
 pub fn accumulate_substitutions<T>(
-    knowledge_base: &Instance<T>,
+    knowledge_base: &InstanceWithIndex<T>,
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
 ) -> Vec<Substitutions>
@@ -124,7 +124,7 @@ where
 }
 
 pub fn accumulate_body_substitutions<T>(
-    knowledge_base: &Instance<T>,
+    knowledge_base: &InstanceWithIndex<T>,
     body: Body,
 ) -> Vec<Substitutions>
 where
@@ -137,11 +137,11 @@ where
         });
 }
 
-pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T>>
+pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<RelationWithIndex<T>>
 where
     T: IndexBacking,
 {
-    let mut output_instance = Instance::new(false);
+    let mut output_instance = InstanceWithIndex::new(false);
 
     substitutions.into_iter().for_each(|substitutions| {
         let rewrite_attempt = attempt_to_rewrite(&substitutions, head);
@@ -154,7 +154,7 @@ where
     return None;
 }
 
-pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Relation<T>>
+pub fn evaluate_rule<T>(knowledge_base: &InstanceWithIndex<T>, rule: &Rule) -> Option<RelationWithIndex<T>>
 where
     T: IndexBacking,
 {
@@ -169,7 +169,7 @@ mod tests {
     use crate::data_structures::substitutions::Substitutions;
     use crate::models::datalog::{Atom, Rule, TypedValue};
     use crate::models::index::BTreeIndex;
-    use crate::models::instance::Instance;
+    use crate::models::instance::InstanceWithIndex;
     use crate::reasoning::algorithms::rewriting::{
         accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground,
         make_substitutions,
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_ground_atom() {
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+        let mut fact_store: InstanceWithIndex<BTreeIndex> = InstanceWithIndex::new(false);
         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
         fact_store.insert_atom(&Atom::from("edge(a, b)"));
         fact_store.insert_atom(&Atom::from("edge(b, c)"));
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_extend_substitutions() {
         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+        let mut fact_store: InstanceWithIndex<BTreeIndex> = InstanceWithIndex::new(false);
         fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
         fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
 
@@ -284,7 +284,7 @@ mod tests {
         let rule = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
         let rule_body = rule.body;
 
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+        let mut fact_store: InstanceWithIndex<BTreeIndex> = InstanceWithIndex::new(false);
 
         fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
         fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));

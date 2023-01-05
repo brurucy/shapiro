@@ -1,6 +1,6 @@
 use crate::models::datalog::{Atom, Program, Rule, Ty, TypedValue};
 use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
+use crate::models::instance::InstanceWithIndex;
 
 pub trait Flusher {
     // Deletes all marked as deleted
@@ -42,9 +42,9 @@ pub trait Queryable {
 }
 
 pub trait BottomUpEvaluator<T: IndexBacking> {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T>;
+    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> InstanceWithIndex<T>;
 }
 
 pub trait TopDownEvaluator<T: IndexBacking> {
-    fn evaluate_program_top_down(&mut self, program: Vec<Rule>, query: &Rule) -> Instance<T>;
+    fn evaluate_program_top_down(&mut self, program: Vec<Rule>, query: &Rule) -> InstanceWithIndex<T>;
 }

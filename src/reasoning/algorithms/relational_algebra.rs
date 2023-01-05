@@ -1,11 +1,11 @@
 use crate::models::index::IndexBacking;
-use crate::models::instance::Database;
+use crate::models::instance::DatabaseWithIndex;
 use crate::models::relational_algebra::{
-    Relation, RelationalExpression, SelectionTypedValue, Term,
+    RelationWithIndex, RelationalExpression, SelectionTypedValue, Term,
 };
 
 pub fn select_value<T: IndexBacking>(
-    relation: &mut Relation<T>,
+    relation: &mut RelationWithIndex<T>,
     column_idx: usize,
     value: SelectionTypedValue,
 ) {
@@ -17,7 +17,7 @@ pub fn select_value<T: IndexBacking>(
 }
 
 pub fn select_equality<T: IndexBacking>(
-    relation: &mut Relation<T>,
+    relation: &mut RelationWithIndex<T>,
     left_column_idx: usize,
     right_column_idx: usize,
 ) {
@@ -29,13 +29,13 @@ pub fn select_equality<T: IndexBacking>(
 }
 
 pub fn product<T: IndexBacking>(
-    left_relation: &Relation<T>,
-    right_relation: &Relation<T>,
-) -> Relation<T>
+    left_relation: &RelationWithIndex<T>,
+    right_relation: &RelationWithIndex<T>,
+) -> RelationWithIndex<T>
 where
     T: IndexBacking,
 {
-    let mut relation = Relation::new(
+    let mut relation = RelationWithIndex::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
         left_relation.indexes.len() + right_relation.indexes.len(),
         false,
@@ -70,12 +70,12 @@ where
 }
 
 pub fn join<T: IndexBacking>(
-    left_relation: Relation<T>,
-    right_relation: Relation<T>,
+    left_relation: RelationWithIndex<T>,
+    right_relation: RelationWithIndex<T>,
     left_index: usize,
     right_index: usize,
-) -> Relation<T> {
-    let mut relation = Relation::new(
+) -> RelationWithIndex<T> {
+    let mut relation = RelationWithIndex::new(
         &(left_relation.symbol.to_string() + &right_relation.symbol),
         left_relation.indexes.len() + right_relation.indexes.len(),
         false,
@@ -107,11 +107,11 @@ pub fn join<T: IndexBacking>(
 }
 
 pub fn project<T: IndexBacking>(
-    relation: &Relation<T>,
+    relation: &RelationWithIndex<T>,
     column_indexes: &Vec<SelectionTypedValue>,
     new_symbol: &str,
-) -> Relation<T> {
-    let mut new_relation = Relation::new(new_symbol, column_indexes.len(), false);
+) -> RelationWithIndex<T> {
+    let mut new_relation = RelationWithIndex::new(new_symbol, column_indexes.len(), false);
 
     relation.ward.clone().into_iter().for_each(|(row, sign)| {
         if sign {
@@ -132,9 +132,9 @@ pub fn project<T: IndexBacking>(
 
 pub fn evaluate<T: IndexBacking>(
     expr: &RelationalExpression,
-    database: &Database<T>,
+    database: &DatabaseWithIndex<T>,
     new_symbol: &str,
-) -> Option<Relation<T>>
+) -> Option<RelationWithIndex<T>>
 where
     T: IndexBacking,
 {
@@ -229,19 +229,19 @@ where
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::Rule;
-    use crate::models::instance::Instance;
-    use crate::models::relational_algebra::{Relation, RelationalExpression, SelectionTypedValue};
+    use crate::models::instance::InstanceWithIndex;
+    use crate::models::relational_algebra::{RelationWithIndex, RelationalExpression, SelectionTypedValue};
 
     #[test]
     fn select_value_test() {
-        let mut relation: Relation<BTreeIndex> = Relation::new(&"X", 2, false);
+        let mut relation: RelationWithIndex<BTreeIndex> = RelationWithIndex::new(&"X", 2, false);
         let relation_data = vec![(true, 1), (true, 4), (false, 4)];
         relation_data.into_iter().for_each(|tuple| {
             relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
 
         let expected_selection_data = vec![(true, 4), (false, 4)];
-        let mut expected_selection = Relation::new(&"X", 2, false);
+        let mut expected_selection = RelationWithIndex::new(&"X", 2, false);
         expected_selection_data.into_iter().for_each(|tuple| {
             expected_selection.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn select_equality_test() {
-        let mut relation: Relation<BTreeIndex> = Relation::new(&"four", 3, false);
+        let mut relation: RelationWithIndex<BTreeIndex> = RelationWithIndex::new(&"four", 3, false);
         let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
         rel_data.into_iter().for_each(|tuple| {
             relation.insert(vec![
@@ -264,7 +264,7 @@ mod tests {
         });
 
         let expected_selection_data = vec![(true, 4, 4), (false, 4, 4)];
-        let mut expected_selection = Relation::new(&"four", 3, false);
+        let mut expected_selection = RelationWithIndex::new(&"four", 3, false);
         expected_selection_data.into_iter().for_each(|tuple| {
             expected_selection.insert(vec![
                 Box::new(tuple.0),
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn product_test() {
-        let mut left_relation: Relation<BTreeIndex> = Relation::new(&"X", 2, false);
+        let mut left_relation: RelationWithIndex<BTreeIndex> = RelationWithIndex::new(&"X", 2, false);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -298,7 +298,7 @@ mod tests {
             left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
         });
 
-        let mut right_relation = Relation::new(&"Y", 2, false);
+        let mut right_relation = RelationWithIndex::new(&"Y", 2, false);
         let right_data = vec![
             (1001, "Bulbasaur"),
             (1002, "Charmander"),
@@ -309,7 +309,7 @@ mod tests {
             .into_iter()
             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
 
-        let mut expected_product = Relation::new(&"XY", 4, false);
+        let mut expected_product = RelationWithIndex::new(&"XY", 4, false);
 
         left_data
             .into_iter()
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn join_test() {
-        let mut left_relation: Relation<BTreeIndex> = Relation::new(&"X", 2, true);
+        let mut left_relation: RelationWithIndex<BTreeIndex> = RelationWithIndex::new(&"X", 2, true);
         let left_data = vec![
             (1001, "Arlis"),
             (1002, "Robert"),
@@ -342,7 +342,7 @@ mod tests {
         });
         left_relation.compact_physical(0);
 
-        let mut right_relation = Relation::new(&"Y", 2, true);
+        let mut right_relation = RelationWithIndex::new(&"Y", 2, true);
         let right_data = vec![
             (1001, "Bulbasaur"),
             (1002, "Charmander"),
@@ -354,7 +354,7 @@ mod tests {
             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
         right_relation.compact_physical(0);
 
-        let mut expected_join = Relation::new(&"XY", 4, false);
+        let mut expected_join = RelationWithIndex::new(&"XY", 4, false);
         let expected_join_data = vec![
             (1001, "Arlis", 1001, "Bulbasaur"),
             (1002, "Robert", 1002, "Charmander"),
@@ -380,7 +380,7 @@ mod tests {
 
         let expression = RelationalExpression::from(&Rule::from(rule));
 
-        let mut instance: Instance<BTreeIndex> = Instance::new(false);
+        let mut instance: InstanceWithIndex<BTreeIndex> = InstanceWithIndex::new(false);
         vec![
             ("adam", "jumala"),
             ("vanasarvik", "jumala"),
@@ -402,7 +402,7 @@ mod tests {
             instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
         });
 
-        let mut expected_relation = Relation::new(&"ancestor", 2, false);
+        let mut expected_relation = RelationWithIndex::new(&"ancestor", 2, false);
         let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];
         expected_relation_data
             .clone()

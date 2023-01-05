@@ -1,36 +1,36 @@
 use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
+use crate::models::instance::InstanceWithIndex;
+use crate::models::relational_algebra::RelationWithIndex;
 
 pub trait InstanceEvaluator<T>
 where
     T: IndexBacking,
 {
-    fn evaluate(&self, _: &Instance<T>) -> Vec<Relation<T>>;
+    fn evaluate(&self, _: &InstanceWithIndex<T>) -> Vec<RelationWithIndex<T>>;
 }
 
 pub struct Evaluation<'a, T>
 where
     T: IndexBacking,
 {
-    pub input: &'a Instance<T>,
+    pub input: &'a InstanceWithIndex<T>,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub previous_delta: Instance<T>,
-    pub current_delta: Instance<T>,
-    pub output: Instance<T>,
+    pub previous_delta: InstanceWithIndex<T>,
+    pub current_delta: InstanceWithIndex<T>,
+    pub output: InstanceWithIndex<T>,
 }
 
 impl<'a, T> Evaluation<'a, T>
 where
     T: IndexBacking,
 {
-    pub(crate) fn new(instance: &'a Instance<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
+    pub(crate) fn new(instance: &'a InstanceWithIndex<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
             input: instance,
             evaluator,
-            previous_delta: Instance::new(instance.use_indexes),
-            current_delta: Instance::new(instance.use_indexes),
-            output: Instance::new(instance.use_indexes),
+            previous_delta: InstanceWithIndex::new(instance.use_indexes),
+            current_delta: InstanceWithIndex::new(instance.use_indexes),
+            output: InstanceWithIndex::new(instance.use_indexes),
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
@@ -44,7 +44,7 @@ where
             })
         });
 
-        self.current_delta = Instance::new(self.input.use_indexes);
+        self.current_delta = InstanceWithIndex::new(self.input.use_indexes);
 
         let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
 

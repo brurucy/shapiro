@@ -13,14 +13,14 @@ use data_structures::tree::Tree;
 pub type Row = Box<[TypedValue]>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Relation<T: IndexBacking> {
+pub struct RelationWithIndex<T: IndexBacking> {
     pub symbol: String,
     pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
     pub use_indexes: bool,
 }
 
-impl<T: IndexBacking> Relation<T> {
+impl<T: IndexBacking> RelationWithIndex<T> {
     pub(crate) fn insert_typed(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
@@ -132,7 +132,7 @@ impl<T: IndexBacking> Relation<T> {
             arity
         ];
 
-        Relation {
+        RelationWithIndex {
             symbol: symbol.to_string(),
             indexes,
             ward: Default::default(),

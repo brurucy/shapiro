@@ -4,30 +4,92 @@ mod abomonated_vertebra;
 
 use std::thread;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Program, Rule, Sign, Term};
-use crate::models::index::ValueRowId;
-use crate::models::instance::Instance;
+use crate::models::datalog::{Atom, Program, TypedValue};
+use crate::models::instance::{Instance};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use differential_dataflow::input::Input;
 use differential_dataflow::Collection;
 use std::time::{Duration};
-use differential_dataflow::operators::arrange::ArrangeBySelf;
-use differential_dataflow::operators::Threshold;
+use differential_dataflow::algorithms::identifiers::Identifiers;
+use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
+use differential_dataflow::operators::{Consolidate, iterate, Join, JoinCore, Threshold};
 use timely::communication::allocator::Generic;
+use timely::dataflow::Scope;
 use timely::dataflow::scopes::Child;
+use timely::order::Product;
 use timely::worker::Worker;
-use crate::models::reasoner::{Diff, Materializer};
+use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedRule, AbomonatedSign, AbomonatedTerm, AbomonatedTypedValue};
-use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
+use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedVertebra;
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
-pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
+pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedVertebra>;
 
 pub type RuleSink = Sender<(AbomonatedRule, isize)>;
 pub type AtomSink = Sender<(AbomonatedAtom, isize)>;
 
 pub type RuleSource = Receiver<(AbomonatedRule, isize)>;
 pub type AtomSource = Receiver<(AbomonatedAtom, isize)>;
+
+fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedVertebra> {
+    let mut substitution: AbomonatedVertebra = Default::default();
+
+    let left_and_right = left.terms.iter().zip(right.terms.iter());
+
+    for (left_term, right_term) in left_and_right {
+        match (left_term, right_term) {
+            (AbomonatedTerm::Constant(left_constant), AbomonatedTerm::Constant(right_constant)) => {
+                if left_constant != right_constant {
+                    return None;
+                }
+            }
+            (AbomonatedTerm::Variable(left_variable), AbomonatedTerm::Constant(right_constant)) => {
+                if let Some(constant) = substitution.get(*left_variable) {
+                    if constant.clone() != *right_constant {
+                        return None;
+                    }
+                } else {
+                    substitution.insert((left_variable.clone(), right_constant.clone()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return Some(substitution);
+}
+
+fn attempt_to_rewrite(rewrite: &AbomonatedVertebra, atom: &AbomonatedAtom) -> AbomonatedAtom {
+    return AbomonatedAtom {
+        terms: atom
+            .terms
+            .clone()
+            .into_iter()
+            .map(|term| {
+                if let AbomonatedTerm::Variable(identifier) = term.clone() {
+                    if let Some(constant) = rewrite.get(identifier) {
+                        return AbomonatedTerm::Constant(constant.clone());
+                    }
+                }
+                return term;
+            })
+            .collect(),
+        symbol: atom.clone().symbol,
+        sign: atom.clone().sign,
+    };
+}
+
+fn is_ground(atom: &AbomonatedAtom) -> bool {
+    for term in atom.terms.iter() {
+        match term {
+            AbomonatedTerm::Variable(_) => {
+                return false;
+            }
+            _ => {}
+        };
+    }
+    return true;
+}
 
 pub fn reason(
     rule_input_source: RuleSource,
@@ -60,18 +122,121 @@ pub fn reason(
                         local.new_collection::<AbomonatedAtom, isize>();
 
                     let local_fact_output_sink = fact_output_sink.clone();
-                    //let rule_collection = rule_trace.import(local).as_collection(|x, y| x.clone());
-                    (
-                        fact_input_session,
-                        fact_collection
-                            .distinct()
-                            .inspect_batch(move |_t, xs| {
-                                for (atom, time, diff) in xs {
-                                    local_fact_output_sink.send((atom.clone(), *diff)).unwrap()
-                                }
-                            })
-                            .probe(),
-                    )
+                    let rule_collection = rule_trace.import(local).as_collection(|x, y| x.clone());
+
+                    let facts_by_symbol = fact_collection
+                        .map(|ground_fact| (ground_fact.symbol.clone(), ground_fact));
+
+                    let indexed_rules = rule_collection.identifiers();
+                    let mut goals = indexed_rules
+                        .flat_map(|(rule, rule_id)| {
+                            rule
+                                .body
+                                .into_iter()
+                                .enumerate()
+                                .map(move |(atom_id, atom)| {
+                                    ((rule_id, atom_id), atom)
+                                })
+                        });
+
+                    let head = indexed_rules
+                        .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.head));
+
+                    let subs_product = head
+                        .map(|(rule_id, head)| ((rule_id, 0), AbomonatedVertebra::default()));
+
+                    local
+                        .iterative::<usize, _, _>(|inner| {
+                            let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
+                            let data_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
+
+                            let s_old = subs_product_var.consolidate();
+                            let g = goals.enter(inner);
+
+                            let s_old_arr = s_old.arrange_by_key();
+                            let data = data_var.distinct();
+                            let data_arr = data.arrange_by_key();
+
+                            let goal_x_subs = g
+                                .arrange_by_key()
+                                .join_core(&s_old_arr, |key, goal, sub| {
+                                    let rewrite_attempt = &attempt_to_rewrite(sub, goal);
+                                    if !is_ground(rewrite_attempt) {
+                                        let new_key = (key.clone(), goal.clone(), sub.clone());
+                                        return Some((goal.symbol.clone(), (new_key, rewrite_attempt.clone())));
+                                    }
+                                    return None;
+                                });
+
+                            let current_goals = goal_x_subs
+                                .arrange_by_key();
+
+                            let new_substitutions = data_arr
+                                .join_core(&current_goals, |sym, ground_fact, (new_key, rewrite_attempt)| {
+                                    let ground_terms = ground_fact
+                                        .clone()
+                                        .terms
+                                        .into_iter()
+                                        .map(|row_element| AbomonatedTerm::Constant(AbomonatedTypedValue::try_from(row_element.clone()).unwrap()))
+                                        .collect();
+
+                                    let proposed_atom = &AbomonatedAtom {
+                                        terms: ground_terms,
+                                        symbol: rewrite_attempt.symbol.clone(),
+                                        sign: AbomonatedSign::Positive,
+                                    };
+
+                                    let sub = make_substitutions(
+                                        &rewrite_attempt,
+                                        proposed_atom,
+                                    );
+
+                                    match sub {
+                                        None => {
+                                            None
+                                        }
+                                        Some(sub) => {
+                                            Some(((new_key.0, new_key.2.clone()), sub))
+                                        }
+                                    }
+                                });
+
+                            let s_new_arr = new_substitutions
+                                .arrange_by_key();
+
+                            let s_old_arr = s_old
+                                .map(|(iter, sub)| ((iter.clone(), sub.clone()), sub.clone()))
+                                .arrange_by_key();
+
+                            let s_ext = s_old_arr
+                                .join_core(&s_new_arr, |previous_iter, previous: &AbomonatedVertebra, new| {
+                                    let mut previous_sub = previous.clone();
+                                    let new_sub = new.clone();
+                                    previous_sub.inner.extend(new_sub.inner);
+
+                                    Some(((previous_iter.0.0, previous_iter.0.1 + 1), previous_sub))
+                                })
+                                .consolidate();
+
+                            let groundington = head
+                                .enter(inner)
+                                .join(&s_ext.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
+                                .map(|(left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
+                                .filter(|atom| is_ground(atom))
+                                .map(|atom| (atom.symbol.clone(), atom))
+                                .consolidate();
+
+                            subs_product_var.set(&subs_product.enter(inner).concat(&s_ext));
+                            data_var.set(&facts_by_symbol.enter(inner).concat(&groundington)).leave()
+                        })
+                        .consolidate()
+                        .inspect_batch(move |_t, xs| {
+                            for (atom, _time, diff) in xs {
+                                local_fact_output_sink.send((atom.1.clone(), *diff)).unwrap()
+                            }
+                        });
+
+                        (fact_input_session, fact_collection.probe())
                 });
             loop {
                 if !rule_input_source.is_empty() || !fact_input_source.is_empty() {
@@ -106,7 +271,7 @@ pub fn reason(
 }
 
 pub struct DifferentialDatalog {
-    pub fact_store: Instance<Vec<ValueRowId>>,
+    pub fact_store: Instance,
     ddflow: thread::JoinHandle<()>,
     pub rule_input_sink: RuleSink,
     pub rule_output_source: RuleSource,
@@ -138,7 +303,7 @@ impl Default for DifferentialDatalog {
             rule_output_source,
             fact_input_sink,
             fact_output_source,
-            fact_store: Instance::new(false),
+            fact_store: Instance::new(),
             ddflow: handle,
             interner: Default::default(),
             parallel: false,
@@ -155,6 +320,46 @@ impl DifferentialDatalog {
             intern,
             ..Default::default()
         };
+    }
+}
+
+impl DynamicTyped for DifferentialDatalog {
+    fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+        let abomonated_row = typed_row
+            .into_iter()
+            .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
+            .collect();
+        let abomonated_atom: AbomonatedAtom =
+            AbomonatedAtom {
+                terms: abomonated_row,
+                symbol: table.to_string(),
+                sign: AbomonatedSign::Positive,
+            };
+
+        self.fact_input_sink.send((abomonated_atom, 1)).unwrap();
+    }
+
+    fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+        let abomonated_row = typed_row
+            .into_iter()
+            .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
+            .collect();
+        let abomonated_atom: AbomonatedAtom =
+        AbomonatedAtom {
+            terms: abomonated_row,
+            symbol: table.to_string(),
+            sign: AbomonatedSign::Positive,
+        };
+
+        self.fact_input_sink.send((abomonated_atom, -1)).unwrap();
     }
 }
 
@@ -176,21 +381,15 @@ impl Materializer for DifferentialDatalog {
 
     fn update(&mut self, changes: Vec<Diff>) {
         changes.iter().for_each(|(sign, (sym, value))| {
-            let mut terms: Vec<AbomonatedTerm> = value
-                .into_iter()
-                .map(|untyped_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(untyped_value.to_typed_value())))
+            let typed_row: Box<[TypedValue]> = value
+                .iter()
+                .map(|dyn_type| dyn_type.to_typed_value())
                 .collect();
 
-            let atom = AbomonatedAtom {
-                terms,
-                symbol: sym.to_string(),
-                sign: AbomonatedSign::Positive,
-            };
-
             if *sign {
-                self.fact_input_sink.send((atom, 1)).expect("TODO: panic message");
+                self.insert_typed(sym.clone(), typed_row);
             } else {
-                self.fact_input_sink.send((atom, -1)).expect("TODO: panic message");
+                self.delete_typed(sym.clone(), typed_row);
             }
         });
 
@@ -208,7 +407,7 @@ impl Materializer for DifferentialDatalog {
             .fact_store
             .database
             .iter()
-            .map(|(sym, rel)| return rel.ward.len())
+            .map(|(_sym, rel)| return rel.len())
             .sum();
     }
 }

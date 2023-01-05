@@ -3,12 +3,12 @@ use crate::misc::string_interning::Interner;
 use crate::models::datalog::Sign::Positive;
 use crate::models::datalog::{Atom, Program, Rule, Term, Ty, TypedValue};
 use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
+use crate::models::instance::InstanceWithIndex;
 use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
     RelationDropper,
 };
-use crate::models::relational_algebra::{Relation, RelationalExpression, Row};
+use crate::models::relational_algebra::{RelationWithIndex, RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use rayon::prelude::*;
@@ -37,12 +37,12 @@ impl<T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter
 where
     T: IndexBacking,
 {
-    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
+    fn evaluate(&self, instance: &InstanceWithIndex<T>) -> Vec<RelationWithIndex<T>> {
         return self
             .program
             .clone()
             .into_iter()
-            .fold(Instance::new(false), |mut acc, (symbol, expression)| {
+            .fold(InstanceWithIndex::new(false), |mut acc, (symbol, expression)| {
                 let output = instance.evaluate(&expression, &symbol);
                 if let Some(relation) = output {
                     relation.ward.iter().for_each(|(row, active)| {
@@ -83,7 +83,7 @@ impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
 where
     T: IndexBacking,
 {
-    fn evaluate(&self, instance: &Instance<T>) -> Vec<Relation<T>> {
+    fn evaluate(&self, instance: &InstanceWithIndex<T>) -> Vec<RelationWithIndex<T>> {
         return self
             .program
             .clone()
@@ -97,7 +97,7 @@ pub struct SimpleDatalog<T>
 where
     T: IndexBacking,
 {
-    pub fact_store: Instance<T>,
+    pub fact_store: InstanceWithIndex<T>,
     interner: Interner,
     parallel: bool,
     intern: bool,
@@ -111,7 +111,7 @@ where
 {
     fn default() -> Self {
         SimpleDatalog {
-            fact_store: Instance::new(false),
+            fact_store: InstanceWithIndex::new(false),
             interner: Interner::default(),
             parallel: true,
             intern: true,
@@ -209,7 +209,7 @@ impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
 where
     T: IndexBacking,
 {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<T> {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> InstanceWithIndex<T> {
         let mut program = program;
         if self.intern {
             program = program

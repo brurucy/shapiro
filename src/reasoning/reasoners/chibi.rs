@@ -2,12 +2,12 @@ use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Atom, Program, Rule, Ty, TypedValue};
 use crate::models::index::ValueRowId;
-use crate::models::instance::Instance;
+use crate::models::instance::InstanceWithIndex;
 use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
     RelationDropper,
 };
-use crate::models::relational_algebra::{Relation, Row};
+use crate::models::relational_algebra::{RelationWithIndex, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
@@ -26,7 +26,7 @@ impl Rewriting {
 }
 
 impl InstanceEvaluator<Vec<ValueRowId>> for Rewriting {
-    fn evaluate(&self, instance: &Instance<Vec<ValueRowId>>) -> Vec<Relation<Vec<ValueRowId>>> {
+    fn evaluate(&self, instance: &InstanceWithIndex<Vec<ValueRowId>>) -> Vec<RelationWithIndex<Vec<ValueRowId>>> {
         return self
             .program
             .clone()
@@ -51,7 +51,7 @@ impl ParallelRewriting {
 }
 
 impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
-    fn evaluate(&self, instance: &Instance<Vec<ValueRowId>>) -> Vec<Relation<Vec<ValueRowId>>> {
+    fn evaluate(&self, instance: &InstanceWithIndex<Vec<ValueRowId>>) -> Vec<RelationWithIndex<Vec<ValueRowId>>> {
         return self
             .program
             .clone()
@@ -64,7 +64,7 @@ impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
 }
 
 pub struct ChibiDatalog {
-    pub fact_store: Instance<Vec<ValueRowId>>,
+    pub fact_store: InstanceWithIndex<Vec<ValueRowId>>,
     interner: Interner,
     parallel: bool,
     intern: bool,
@@ -74,7 +74,7 @@ pub struct ChibiDatalog {
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
-            fact_store: Instance::new(false),
+            fact_store: InstanceWithIndex::new(false),
             interner: Interner::default(),
             parallel: true,
             intern: true,
@@ -143,7 +143,7 @@ impl Flusher for ChibiDatalog {
 }
 
 impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> Instance<Vec<ValueRowId>> {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> InstanceWithIndex<Vec<ValueRowId>> {
         let mut program = program;
         if self.intern {
             program = program
