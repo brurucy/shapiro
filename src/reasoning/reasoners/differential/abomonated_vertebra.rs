@@ -1,15 +1,15 @@
 use abomonation_derive::Abomonation;
 use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTypedValue;
 
-pub type AbomonatedSubstitutions = (u8, AbomonatedTypedValue);
+pub type AbomonatedSubstitution = (u8, AbomonatedTypedValue);
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Abomonation, Hash)]
-pub struct AbomonatedVertebra
+pub struct AbomonatedSubstitutions
 {
-    pub inner: Vec<AbomonatedSubstitutions>,
+    pub inner: Vec<AbomonatedSubstitution>,
 }
 
-impl AbomonatedVertebra {
+impl AbomonatedSubstitutions {
     pub fn new() -> Self {
         return Self {
             inner: Vec::new(),
@@ -25,7 +25,7 @@ impl AbomonatedVertebra {
         return None
     }
 
-    pub fn insert(&mut self, value: AbomonatedSubstitutions) -> Option<AbomonatedSubstitutions> {
+    pub fn insert(&mut self, value: AbomonatedSubstitution) -> Option<AbomonatedSubstitution> {
         let idx = self.inner.partition_point(|item| item.0 < value.0);
         if let Some(value_at_idx) = self.inner.get(idx) {
             if value_at_idx.0 != value.0 {
@@ -51,7 +51,7 @@ impl AbomonatedVertebra {
     }
 }
 
-impl Default for AbomonatedVertebra {
+impl Default for AbomonatedSubstitutions {
     fn default() -> Self {
         return Self {
             inner: Vec::new(),
@@ -62,11 +62,11 @@ impl Default for AbomonatedVertebra {
 #[cfg(test)]
 mod tests {
     use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTypedValue;
-    use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedVertebra;
+    use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
 
     #[test]
     fn test_insert() {
-        let mut subs = AbomonatedVertebra::new();
+        let mut subs = AbomonatedSubstitutions::new();
 
         let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
         let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_get() {
-        let mut subs = AbomonatedVertebra::new();
+        let mut subs = AbomonatedSubstitutions::new();
 
         let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
         let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
@@ -97,11 +97,11 @@ mod tests {
 
     #[test]
     fn test_extend() {
-        let mut subs_left = AbomonatedVertebra::new();
+        let mut subs_left = AbomonatedSubstitutions::new();
         let zeroth_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
         subs_left.insert(zeroth_sub);
 
-        let mut subs_right = AbomonatedVertebra::new();
+        let mut subs_right = AbomonatedSubstitutions::new();
         let first_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
         subs_right.insert(first_sub);
 

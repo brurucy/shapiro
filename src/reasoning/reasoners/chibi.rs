@@ -201,7 +201,7 @@ impl Materializer for ChibiDatalog {
         let mut retractions: Vec<(&str, Row)> = vec![];
 
         changes.iter().for_each(|(sign, (sym, value))| {
-            let mut typed_row: Row = value
+            let typed_row: Row = value
                 .into_iter()
                 .map(|untyped_value| untyped_value.to_typed_value())
                 .collect();
@@ -248,7 +248,7 @@ impl Materializer for ChibiDatalog {
             .fact_store
             .database
             .iter()
-            .map(|(sym, rel)| return rel.ward.len())
+            .map(|(_sym, rel)| return rel.ward.len())
             .sum();
     }
 }

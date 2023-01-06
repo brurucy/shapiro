@@ -325,7 +325,7 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
             .fact_store
             .database
             .iter()
-            .map(|(sym, rel)| return rel.ward.len())
+            .map(|(_sym, rel)| return rel.ward.len())
             .sum();
     }
 }

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use abomonation_derive::Abomonation;
-use crate::models::datalog::TypedValue;
+use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
 use crate::reasoning::reasoners::differential::abomonated_parsing::{parse_atom, parse_rule};
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation )]
@@ -20,6 +20,17 @@ impl From<TypedValue> for AbomonatedTypedValue {
             TypedValue::UInt(inner) => AbomonatedTypedValue::UInt(inner),
             TypedValue::InternedStr(inner) => AbomonatedTypedValue::InternedStr(inner),
             _ => panic!("floats are not supported by differential reasoner!")
+        }
+    }
+}
+
+impl Into<TypedValue> for AbomonatedTypedValue {
+    fn into(self) -> TypedValue {
+        match self {
+            AbomonatedTypedValue::Str(inner) => TypedValue::Str(inner),
+            AbomonatedTypedValue::Bool(inner) => TypedValue::Bool(inner),
+            AbomonatedTypedValue::UInt(inner) => TypedValue::UInt(inner),
+            AbomonatedTypedValue::InternedStr(inner) => TypedValue::InternedStr(inner),
         }
     }
 }
@@ -117,7 +128,7 @@ impl Display for AbomonatedTerm {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AbomonatedTerm::Constant(value) => write!(f, "{}", value),
-            AbomonatedTerm::Variable(value) => write!(f, "{}", value),
+            AbomonatedTerm::Variable(value) => write!(f, "?{}", value),
         }
     }
 }
@@ -156,6 +167,30 @@ impl From<&str> for AbomonatedAtom {
     }
 }
 
+impl From<Atom> for AbomonatedAtom {
+    fn from(atom: Atom) -> AbomonatedAtom {
+        let terms = atom
+            .terms
+            .into_iter()
+            .map(|term| {
+                match term {
+                    Term::Constant(inner) => AbomonatedTerm::Constant(AbomonatedTypedValue::from(inner)),
+                    Term::Variable(inner) => AbomonatedTerm::Variable(inner)
+                }
+            })
+            .collect();
+        
+        return AbomonatedAtom {
+            terms,
+            symbol: atom.symbol,
+            sign: match atom.sign {
+                Sign::Positive => AbomonatedSign::Positive,
+                Sign::Negative => AbomonatedSign::Negative
+            },
+        }
+    }
+}
+
 impl Hash for AbomonatedAtom {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.symbol.hash(state);
@@ -177,6 +212,18 @@ pub struct AbomonatedRule {
 impl From<&str> for AbomonatedRule {
     fn from(str: &str) -> Self {
         return parse_rule(str);
+    }
+}
+
+impl From<Rule> for AbomonatedRule {
+    fn from(rule: Rule) -> Self {
+        let head = AbomonatedAtom::from(rule.head);
+        let body = rule.body.iter().map(|atom| AbomonatedAtom::from(atom.clone())).collect();
+
+        return AbomonatedRule {
+            head,
+            body,
+        }
     }
 }
 

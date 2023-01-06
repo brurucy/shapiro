@@ -4,7 +4,7 @@ mod abomonated_vertebra;
 
 use std::thread;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Program, TypedValue};
+use crate::models::datalog::{Program, TypedValue};
 use crate::models::instance::{Instance};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use differential_dataflow::input::Input;
@@ -20,10 +20,10 @@ use timely::order::Product;
 use timely::worker::Worker;
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedRule, AbomonatedSign, AbomonatedTerm, AbomonatedTypedValue};
-use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedVertebra;
+use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
-pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedVertebra>;
+pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
 
 pub type RuleSink = Sender<(AbomonatedRule, isize)>;
 pub type AtomSink = Sender<(AbomonatedAtom, isize)>;
@@ -31,15 +31,15 @@ pub type AtomSink = Sender<(AbomonatedAtom, isize)>;
 pub type RuleSource = Receiver<(AbomonatedRule, isize)>;
 pub type AtomSource = Receiver<(AbomonatedAtom, isize)>;
 
-fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedVertebra> {
-    let mut substitution: AbomonatedVertebra = Default::default();
+fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
+    let mut substitution: AbomonatedSubstitutions = Default::default();
 
     let left_and_right = left.terms.iter().zip(right.terms.iter());
 
     for (left_term, right_term) in left_and_right {
         match (left_term, right_term) {
             (AbomonatedTerm::Constant(left_constant), AbomonatedTerm::Constant(right_constant)) => {
-                if left_constant != right_constant {
+                if *left_constant != *right_constant {
                     return None;
                 }
             }
@@ -59,7 +59,7 @@ fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<A
     return Some(substitution);
 }
 
-fn attempt_to_rewrite(rewrite: &AbomonatedVertebra, atom: &AbomonatedAtom) -> AbomonatedAtom {
+fn attempt_to_rewrite(rewrite: &AbomonatedSubstitutions, atom: &AbomonatedAtom) -> AbomonatedAtom {
     return AbomonatedAtom {
         terms: atom
             .terms
@@ -104,11 +104,12 @@ pub fn reason(
                 .dataflow_named::<usize, _, _>("rule_ingestion", |local| {
                     let local_rule_output_sink = rule_output_sink.clone();
 
-                    let (mut rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
+                    let (rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
                     rule_collection.inspect(move |x| {
+                        println!("{}", x.0);
                         local_rule_output_sink.send((x.0.clone(), x.2)).unwrap();
-                        println!("evaluating: {}", x.0);
                     });
+
                     (
                         rule_input,
                         rule_collection.arrange_by_self().trace,
@@ -118,17 +119,17 @@ pub fn reason(
 
             let (mut fact_input_session, fact_probe) =
                 worker.dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
-                    let (mut fact_input_session, fact_collection) =
+                    let (fact_input_session, fact_collection) =
                         local.new_collection::<AbomonatedAtom, isize>();
 
                     let local_fact_output_sink = fact_output_sink.clone();
-                    let rule_collection = rule_trace.import(local).as_collection(|x, y| x.clone());
+                    let rule_collection = rule_trace.import(local).as_collection(|x, _y| x.clone());
 
                     let facts_by_symbol = fact_collection
                         .map(|ground_fact| (ground_fact.symbol.clone(), ground_fact));
 
                     let indexed_rules = rule_collection.identifiers();
-                    let mut goals = indexed_rules
+                    let goals = indexed_rules
                         .flat_map(|(rule, rule_id)| {
                             rule
                                 .body
@@ -143,7 +144,7 @@ pub fn reason(
                         .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.head));
 
                     let subs_product = head
-                        .map(|(rule_id, head)| ((rule_id, 0), AbomonatedVertebra::default()));
+                        .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
 
                     local
                         .iterative::<usize, _, _>(|inner| {
@@ -172,7 +173,7 @@ pub fn reason(
                                 .arrange_by_key();
 
                             let new_substitutions = data_arr
-                                .join_core(&current_goals, |sym, ground_fact, (new_key, rewrite_attempt)| {
+                                .join_core(&current_goals, |_sym, ground_fact, (new_key, rewrite_attempt)| {
                                     let ground_terms = ground_fact
                                         .clone()
                                         .terms
@@ -180,7 +181,7 @@ pub fn reason(
                                         .map(|row_element| AbomonatedTerm::Constant(AbomonatedTypedValue::try_from(row_element.clone()).unwrap()))
                                         .collect();
 
-                                    let proposed_atom = &AbomonatedAtom {
+                                    let proposed_atom = AbomonatedAtom {
                                         terms: ground_terms,
                                         symbol: rewrite_attempt.symbol.clone(),
                                         sign: AbomonatedSign::Positive,
@@ -188,7 +189,7 @@ pub fn reason(
 
                                     let sub = make_substitutions(
                                         &rewrite_attempt,
-                                        proposed_atom,
+                                        &proposed_atom,
                                     );
 
                                     match sub {
@@ -209,7 +210,7 @@ pub fn reason(
                                 .arrange_by_key();
 
                             let s_ext = s_old_arr
-                                .join_core(&s_new_arr, |previous_iter, previous: &AbomonatedVertebra, new| {
+                                .join_core(&s_new_arr, |previous_iter, previous: &AbomonatedSubstitutions, new| {
                                     let mut previous_sub = previous.clone();
                                     let new_sub = new.clone();
                                     previous_sub.inner.extend(new_sub.inner);
@@ -221,7 +222,7 @@ pub fn reason(
                             let groundington = head
                                 .enter(inner)
                                 .join(&s_ext.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
-                                .map(|(left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
+                                .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
                                 .filter(|atom| is_ground(atom))
                                 .map(|atom| (atom.symbol.clone(), atom))
                                 .consolidate();
@@ -239,7 +240,7 @@ pub fn reason(
                         (fact_input_session, fact_collection.probe())
                 });
             loop {
-                if !rule_input_source.is_empty() || !fact_input_source.is_empty() {
+                //if !rule_input_source.is_empty() || !fact_input_source.is_empty() {
                     // Rule
                     rule_input_source.try_iter().for_each(|triple| {
                         rule_input_session.update(triple.0, triple.1);
@@ -248,9 +249,9 @@ pub fn reason(
                     rule_input_session.advance_to(*rule_input_session.epoch() + 1);
                     rule_input_session.flush();
 
-                    worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                        rule_probe.less_than(rule_input_session.time())
-                    });
+                    // worker.step_or_park_while(Some(Duration::from_millis(50)), || {
+                    //     rule_probe.less_than(rule_input_session.time())
+                    // });
 
                     // Data
                     fact_input_source.try_iter().for_each(|triple| {
@@ -261,9 +262,9 @@ pub fn reason(
                     fact_input_session.flush();
 
                     worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                        fact_probe.less_than(fact_input_session.time())
+                        fact_probe.less_than(fact_input_session.time()) || rule_probe.less_than(rule_input_session.time())
                     });
-                }
+                //}
             }
         },
     )
@@ -272,7 +273,7 @@ pub fn reason(
 
 pub struct DifferentialDatalog {
     pub fact_store: Instance,
-    ddflow: thread::JoinHandle<()>,
+    _ddflow: thread::JoinHandle<()>,
     pub rule_input_sink: RuleSink,
     pub rule_output_source: RuleSource,
     pub fact_input_sink: AtomSink,
@@ -304,7 +305,7 @@ impl Default for DifferentialDatalog {
             fact_input_sink,
             fact_output_source,
             fact_store: Instance::new(),
-            ddflow: handle,
+            _ddflow: handle,
             interner: Default::default(),
             parallel: false,
             intern: false,
@@ -333,8 +334,7 @@ impl DynamicTyped for DifferentialDatalog {
             .into_iter()
             .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
             .collect();
-        let abomonated_atom: AbomonatedAtom =
-            AbomonatedAtom {
+        let abomonated_atom = AbomonatedAtom {
                 terms: abomonated_row,
                 symbol: table.to_string(),
                 sign: AbomonatedSign::Positive,
@@ -352,8 +352,7 @@ impl DynamicTyped for DifferentialDatalog {
             .into_iter()
             .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
             .collect();
-        let abomonated_atom: AbomonatedAtom =
-        AbomonatedAtom {
+        let abomonated_atom = AbomonatedAtom {
             terms: abomonated_row,
             symbol: table.to_string(),
             sign: AbomonatedSign::Positive,
@@ -371,11 +370,25 @@ impl Materializer for DifferentialDatalog {
                 possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
             }
             self.materialization.push(possibly_interned_rule.clone());
-            self.rule_input_sink.send((AbomonatedRule::from(&possibly_interned_rule.to_string()[..]), 1)).unwrap();
+            self.rule_input_sink.send((AbomonatedRule::from(possibly_interned_rule), 1)).unwrap();
         });
 
         while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(50)) {
-            self.fact_store.insert_atom(&Atom::from(&fresh_intensional_atom.0.to_string()[..]))
+            let boxed_vec = fresh_intensional_atom
+                .0
+                .terms
+                .iter()
+                .map(|abomonated_term| {
+                    match abomonated_term {
+                        AbomonatedTerm::Constant(inner) => {
+                            inner.clone().into()
+                        }
+                        AbomonatedTerm::Variable(_) => unreachable!()
+                    }
+                })
+                .collect();
+
+            self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec);
         }
     }
 
@@ -394,10 +407,24 @@ impl Materializer for DifferentialDatalog {
         });
 
         while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(50)) {
+            let boxed_vec = fresh_intensional_atom
+                .0
+                .terms
+                .iter()
+                .map(|abomonated_term| {
+                    match abomonated_term {
+                        AbomonatedTerm::Constant(inner) => {
+                            inner.clone().into()
+                        }
+                        AbomonatedTerm::Variable(_) => unreachable!()
+                    }
+                })
+                .collect();
+
             if fresh_intensional_atom.1 > 0 {
-                self.fact_store.insert_atom(&Atom::from(&fresh_intensional_atom.0.to_string()[..]))
+                self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
             } else {
-                self.fact_store.delete_atom(&Atom::from(&fresh_intensional_atom.0.to_string()[..]))
+                self.fact_store.delete_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
             }
         }
     }

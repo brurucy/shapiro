@@ -270,10 +270,6 @@ fn main() {
         SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel, intern)),
     };
 
-    println!(
-        "{} {} {} {} {} {}",
-        data_path, program_path, parallel, reasoner, intern, batch_size
-    );
     let facts: Vec<Atom> = parser.read_fact_file(&data_path).collect();
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
@@ -283,6 +279,11 @@ fn main() {
     } else {
         batch_size = cutoff
     }
+
+    println!(
+        "data: {}\nprogram: {}\nparallel: {}\nreasoner: {}\nintern: {}\nbatch_size: {}",
+        data_path, program_path, parallel, reasoner, intern, batch_size
+    );
 
     evaluator.materialize(&parser.read_datalog_file(&program_path).collect());
 
