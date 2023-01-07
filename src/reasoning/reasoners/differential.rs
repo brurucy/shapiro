@@ -6,7 +6,7 @@ use std::thread;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, TypedValue};
 use crate::models::instance::{Instance};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, select, Sender, unbounded};
 use differential_dataflow::input::Input;
 use differential_dataflow::Collection;
 use std::time::{Duration};
@@ -31,6 +31,9 @@ pub type AtomSink = Sender<(AbomonatedAtom, isize)>;
 pub type RuleSource = Receiver<(AbomonatedRule, isize)>;
 pub type AtomSource = Receiver<(AbomonatedAtom, isize)>;
 
+pub type NotificationSink = Sender<()>;
+pub type NotificationSource = Receiver<()>;
+
 fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
     let mut substitution: AbomonatedSubstitutions = Default::default();
 
@@ -43,6 +46,7 @@ fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<A
                     return None;
                 }
             }
+
             (AbomonatedTerm::Variable(left_variable), AbomonatedTerm::Constant(right_constant)) => {
                 if let Some(constant) = substitution.inner.get(*left_variable) {
                     if constant.clone() != *right_constant {
@@ -231,7 +235,8 @@ pub fn reason(
                         })
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
-                            for (atom, _time, diff) in xs {
+                            for (atom, time, diff) in xs {
+                                println!("latest frontier: {}", time);
                                 local_fact_output_sink.send((atom.1.clone(), *diff)).unwrap()
                             }
                         });
@@ -239,31 +244,32 @@ pub fn reason(
                         (fact_input_session, fact_collection.probe())
                 });
             loop {
-                //if !rule_input_source.is_empty() || !fact_input_source.is_empty() {
-                    // Rule
-                    rule_input_source.try_iter().for_each(|triple| {
-                        rule_input_session.update(triple.0, triple.1);
-                    });
+                rule_input_source.try_iter().for_each(|triple| {
+                    rule_input_session.update(triple.0, triple.1);
+                });
 
-                    rule_input_session.advance_to(*rule_input_session.epoch() + 1);
-                    rule_input_session.flush();
+                rule_input_session.advance_to(*rule_input_session.epoch() + 1);
+                rule_input_session.flush();
 
-                    worker.step_or_park_while(Some(Duration::from_millis(50)), || {
+                fact_input_source.try_iter().for_each(|triple| {
+                    fact_input_session.update(triple.0, triple.1);
+                });
+
+                fact_input_session.advance_to(*fact_input_session.epoch() + 1);
+                fact_input_session.flush();
+
+                worker.step_or_park_while(Some(Duration::from_millis(50)), || {
+                    fact_probe.less_than(fact_input_session.time()) ||
                         rule_probe.less_than(rule_input_session.time())
-                    });
+                });
 
-                    // Data
-                    fact_input_source.try_iter().for_each(|triple| {
-                        fact_input_session.update(triple.0, triple.1);
-                    });
+                rule_probe.with_frontier(|frontier| println!("probe frontier: {:?}", frontier));
 
-                    fact_input_session.advance_to(*fact_input_session.epoch() + 1);
-                    fact_input_session.flush();
-
-                    worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                        fact_probe.less_than(fact_input_session.time())
-                    });
-                //}
+                // println!("fact probe lt/le: {}/{}\nrule probe lt/le: {}/{}",
+                //          fact_probe.less_than(fact_input_session.time()),
+                //          fact_probe.less_equal(fact_input_session.time()),
+                //          rule_probe.less_than(rule_input_session.time()),
+                //          rule_probe.less_equal(rule_input_session.time()))
             }
         },
     )
@@ -290,6 +296,8 @@ impl Default for DifferentialDatalog {
 
         let (rule_output_sink, rule_output_source) = unbounded();
         let (fact_output_sink, fact_output_source) = unbounded();
+
+        //let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
             reason(rule_input_source,
@@ -372,7 +380,7 @@ impl Materializer for DifferentialDatalog {
             self.rule_input_sink.send((AbomonatedRule::from(possibly_interned_rule), 1)).unwrap();
         });
 
-        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(50)) {
+        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(10)) {
             let boxed_vec = fresh_intensional_atom
                 .0
                 .terms
@@ -405,7 +413,7 @@ impl Materializer for DifferentialDatalog {
             }
         });
 
-        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(100)) {
+        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(2000)) {
             let boxed_vec = fresh_intensional_atom
                 .0
                 .terms
