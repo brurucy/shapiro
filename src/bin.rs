@@ -185,7 +185,7 @@ impl Display for Reasoners {
 
 fn main() {
     let matches = Command::new("shapiro-bencher")
-        .version("0.6.0")
+        .version("0.7.0")
         .about("Benches the time taken to reason over simple space-separated facts or .nt files")
         .arg(
             Arg::new("DATA_PATH")

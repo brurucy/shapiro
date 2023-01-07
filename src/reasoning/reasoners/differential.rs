@@ -20,7 +20,7 @@ use timely::order::Product;
 use timely::worker::Worker;
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedRule, AbomonatedSign, AbomonatedTerm, AbomonatedTypedValue};
-use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
+use crate::reasoning::reasoners::differential::abomonated_vertebra::{AbomonatedSubstitutions};
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
 pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
@@ -44,12 +44,12 @@ fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<A
                 }
             }
             (AbomonatedTerm::Variable(left_variable), AbomonatedTerm::Constant(right_constant)) => {
-                if let Some(constant) = substitution.get(*left_variable) {
+                if let Some(constant) = substitution.inner.get(*left_variable) {
                     if constant.clone() != *right_constant {
                         return None;
                     }
                 } else {
-                    substitution.insert((left_variable.clone(), right_constant.clone()));
+                    substitution.inner.insert((left_variable.clone(), right_constant.clone()));
                 }
             }
             _ => {}
@@ -67,7 +67,7 @@ fn attempt_to_rewrite(rewrite: &AbomonatedSubstitutions, atom: &AbomonatedAtom) 
             .into_iter()
             .map(|term| {
                 if let AbomonatedTerm::Variable(identifier) = term.clone() {
-                    if let Some(constant) = rewrite.get(identifier) {
+                    if let Some(constant) = rewrite.inner.get(identifier) {
                         return AbomonatedTerm::Constant(constant.clone());
                     }
                 }
@@ -106,7 +106,6 @@ pub fn reason(
 
                     let (rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
                     rule_collection.inspect(move |x| {
-                        println!("{}", x.0);
                         local_rule_output_sink.send((x.0.clone(), x.2)).unwrap();
                     });
 
@@ -117,8 +116,8 @@ pub fn reason(
                     )
                 });
 
-            let (mut fact_input_session, fact_probe) =
-                worker.dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
+            let (mut fact_input_session, fact_probe) = worker
+                .dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
                     let (fact_input_session, fact_collection) =
                         local.new_collection::<AbomonatedAtom, isize>();
 
@@ -213,7 +212,7 @@ pub fn reason(
                                 .join_core(&s_new_arr, |previous_iter, previous: &AbomonatedSubstitutions, new| {
                                     let mut previous_sub = previous.clone();
                                     let new_sub = new.clone();
-                                    previous_sub.inner.extend(new_sub.inner);
+                                    previous_sub.inner.extend(&new_sub.inner);
 
                                     Some(((previous_iter.0.0, previous_iter.0.1 + 1), previous_sub))
                                 })
@@ -249,9 +248,9 @@ pub fn reason(
                     rule_input_session.advance_to(*rule_input_session.epoch() + 1);
                     rule_input_session.flush();
 
-                    // worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                    //     rule_probe.less_than(rule_input_session.time())
-                    // });
+                    worker.step_or_park_while(Some(Duration::from_millis(50)), || {
+                        rule_probe.less_than(rule_input_session.time())
+                    });
 
                     // Data
                     fact_input_source.try_iter().for_each(|triple| {
@@ -262,7 +261,7 @@ pub fn reason(
                     fact_input_session.flush();
 
                     worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                        fact_probe.less_than(fact_input_session.time()) || rule_probe.less_than(rule_input_session.time())
+                        fact_probe.less_than(fact_input_session.time())
                     });
                 //}
             }
@@ -406,7 +405,7 @@ impl Materializer for DifferentialDatalog {
             }
         });
 
-        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(50)) {
+        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(100)) {
             let boxed_vec = fresh_intensional_atom
                 .0
                 .terms
