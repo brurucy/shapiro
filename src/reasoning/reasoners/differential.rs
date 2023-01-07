@@ -6,7 +6,7 @@ use std::thread;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, TypedValue};
 use crate::models::instance::{Instance};
-use crossbeam_channel::{Receiver, select, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use differential_dataflow::input::Input;
 use differential_dataflow::Collection;
 use std::time::{Duration};
@@ -25,11 +25,11 @@ use crate::reasoning::reasoners::differential::abomonated_vertebra::{AbomonatedS
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
 pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
 
-pub type RuleSink = Sender<(AbomonatedRule, isize)>;
-pub type AtomSink = Sender<(AbomonatedAtom, isize)>;
+pub type RuleSink = Sender<(AbomonatedRule, usize, isize)>;
+pub type AtomSink = Sender<(AbomonatedAtom, usize, isize)>;
 
-pub type RuleSource = Receiver<(AbomonatedRule, isize)>;
-pub type AtomSource = Receiver<(AbomonatedAtom, isize)>;
+pub type RuleSource = Receiver<(AbomonatedRule, usize, isize)>;
+pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 
 pub type NotificationSink = Sender<()>;
 pub type NotificationSource = Receiver<()>;
@@ -110,7 +110,7 @@ pub fn reason(
 
                     let (rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
                     rule_collection.inspect(move |x| {
-                        local_rule_output_sink.send((x.0.clone(), x.2)).unwrap();
+                        local_rule_output_sink.send((x.0.clone(), x.1, x.2)).unwrap();
                     });
 
                     (
@@ -236,34 +236,52 @@ pub fn reason(
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
                             for (atom, time, diff) in xs {
-                                println!("latest frontier: {}", time);
-                                local_fact_output_sink.send((atom.1.clone(), *diff)).unwrap()
+                                local_fact_output_sink.send((atom.1.clone(), *time, *diff)).unwrap()
                             }
                         });
 
                         (fact_input_session, fact_collection.probe())
                 });
-            loop {
-                rule_input_source.try_iter().for_each(|triple| {
-                    rule_input_session.update(triple.0, triple.1);
-                });
+            if worker.index() == 0 {
+                let mut fact_input_source = fact_input_source.iter().peekable();
+                let mut rule_input_source = rule_input_source.iter().peekable();
+                let mut fact_epoch = 0;
+                let mut rule_epoch = 0;
+                loop {
+                    while let Some(fact) = rule_input_source.next_if(|cond| {
+                        cond.1 == rule_epoch
+                    }) {
+                        rule_input_session.update(fact.0, fact.2);
+                    }
 
-                rule_input_session.advance_to(*rule_input_session.epoch() + 1);
-                rule_input_session.flush();
+                    if let Some((_atom, time, _diff)) = rule_input_source.peek() {
+                        if rule_epoch < *time {
+                            rule_epoch = *time;
+                            rule_input_session.advance_to(rule_epoch);
+                        }
+                    }
+                    rule_input_session.flush();
 
-                fact_input_source.try_iter().for_each(|triple| {
-                    fact_input_session.update(triple.0, triple.1);
-                });
+                    while let Some(fact) = fact_input_source.next_if(|cond| {
+                        cond.1 == fact_epoch
+                    }) {
+                        fact_input_session.update(fact.0, fact.2);
+                    }
 
-                fact_input_session.advance_to(*fact_input_session.epoch() + 1);
-                fact_input_session.flush();
-
-                worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                    fact_probe.less_than(fact_input_session.time()) ||
-                        rule_probe.less_than(rule_input_session.time())
-                });
-
-                rule_probe.with_frontier(|frontier| println!("probe frontier: {:?}", frontier));
+                    if let Some((_atom, time, _diff)) = fact_input_source.peek() {
+                        if fact_epoch < *time {
+                            fact_epoch = *time;
+                            fact_input_session.advance_to(fact_epoch);
+                        }
+                    }
+                    fact_input_session.flush();
+                    // timeout not needed when channel blocking iterator is used (on both channels!)
+                    worker.step_or_park_while(Some(Duration::from_millis(50)), || {
+                        fact_probe.less_than(&fact_epoch) ||
+                            rule_probe.less_than(&rule_epoch)
+                    });
+                }
+                //rule_probe.with_frontier(|frontier| println!("probe frontier: {:?}", frontier));
 
                 // println!("fact probe lt/le: {}/{}\nrule probe lt/le: {}/{}",
                 //          fact_probe.less_than(fact_input_session.time()),
