@@ -5,7 +5,7 @@ use crate::Reasoners::{
 };
 use clap::{Arg, Command};
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, Rule, Sign, Term, Ty, TypedValue};
+use shapiro::models::datalog::{Atom, Rule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -96,7 +96,7 @@ impl AtomParser for NTripleParser {
                 Term::Constant(TypedValue::Str(digit_three)),
             ],
             symbol: "T".to_string(),
-            sign: Sign::Positive,
+            sign: true,
         };
     }
 }
@@ -117,7 +117,7 @@ impl AtomParser for SpaceSepParser {
         return Atom {
             terms,
             symbol: symbol.to_string(),
-            sign: Sign::Positive,
+            sign: true,
         };
     }
 }

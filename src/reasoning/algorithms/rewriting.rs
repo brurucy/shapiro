@@ -1,5 +1,5 @@
 use crate::data_structures::substitutions::Substitutions;
-use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
+use crate::models::datalog::{Atom, Body, Rule, Term};
 use crate::models::index::IndexBacking;
 use crate::models::instance::InstanceWithIndex;
 use crate::models::relational_algebra::RelationWithIndex;
@@ -75,7 +75,7 @@ where
                 &Atom {
                     terms: term_vec,
                     symbol: target_atom.symbol.to_string(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
             );
         })

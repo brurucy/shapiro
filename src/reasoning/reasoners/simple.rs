@@ -1,6 +1,5 @@
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::Sign::Positive;
 use crate::models::datalog::{Atom, Program, Rule, Term, Ty, TypedValue};
 use crate::models::index::IndexBacking;
 use crate::models::instance::InstanceWithIndex;
@@ -139,7 +138,7 @@ where
                 .iter()
                 .map(|ty| Term::Constant(ty.to_typed_value()))
                 .collect(),
-            sign: Positive,
+            sign: true,
         };
         if self.intern {
             atom = self.interner.intern_atom(&atom)

@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
-use crate::models::datalog::Sign::{Negative, Positive};
 use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
 fn parse_lexed_atom<'a>(
@@ -38,7 +37,7 @@ fn parse_lexed_atom<'a>(
     return Atom {
         terms,
         symbol: "".to_string(),
-        sign: Positive,
+        sign: true,
     };
 }
 
@@ -47,13 +46,13 @@ pub fn parse_atom(atom: &str) -> Atom {
     let mut atom = Atom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Positive,
+        sign: true,
     };
     let mut interner: BTreeMap<&str, u8> = BTreeMap::new();
 
     while let Some(token) = lexer.next() {
         match token {
-            DatalogToken::Negation => atom.sign = Negative,
+            DatalogToken::Negation => atom.sign = false,
             DatalogToken::Str(predicate_symbol) => {
                 let parsed_atom = parse_lexed_atom(&mut lexer, &mut interner);
                 atom.symbol = predicate_symbol.to_string();
@@ -71,7 +70,7 @@ pub fn parse_rule(rule: &str) -> Rule {
     let mut head = Atom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Positive,
+        sign: true,
     };
     let mut body: Vec<Atom> = vec![];
     let mut look_behind: DatalogToken = DatalogToken::Error;
@@ -94,7 +93,7 @@ pub fn parse_rule(rule: &str) -> Rule {
                         continue;
                     }
                     if look_behind == DatalogToken::Negation {
-                        parsed_atom.sign = Negative;
+                        parsed_atom.sign = false;
                     }
                     body.push(parsed_atom)
                 }
@@ -108,7 +107,7 @@ pub fn parse_rule(rule: &str) -> Rule {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
+    use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
     #[test]
     fn test_parse_atom() {
@@ -127,7 +126,7 @@ mod tests {
                 Term::Constant(TypedValue::Bool(true)),
             ],
             symbol: "X".to_string(),
-            sign: Sign::Positive,
+            sign: true,
         };
         let expected_parsed_atom_2 = Atom {
             terms: vec![
@@ -136,7 +135,7 @@ mod tests {
                 Term::Constant(TypedValue::Bool(false)),
             ],
             symbol: "Y".to_string(),
-            sign: Sign::Negative,
+            sign: true,
         };
         let expected_parsed_atom_3 = Atom {
             terms: vec![
@@ -145,7 +144,7 @@ mod tests {
                 Term::Constant(TypedValue::UInt(5)),
             ],
             symbol: "Z".to_string(),
-            sign: Sign::Positive,
+            sign: true,
         };
 
         assert_eq!(parsed_atom_1, expected_parsed_atom_1);
@@ -165,7 +164,7 @@ mod tests {
                     Term::Constant(TypedValue::UInt(5)),
                 ],
                 symbol: "Z".to_string(),
-                sign: Sign::Positive,
+                sign: true,
             },
             body: vec![
                 Atom {
@@ -175,7 +174,7 @@ mod tests {
                         Term::Constant(TypedValue::Bool(true)),
                     ],
                     symbol: "X".to_string(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![
@@ -184,7 +183,7 @@ mod tests {
                         Term::Constant(TypedValue::Bool(false)),
                     ],
                     symbol: "Y".to_string(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
             ],
         };

@@ -1,10 +1,9 @@
-use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use abomonation_derive::Abomonation;
-use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
-use crate::reasoning::reasoners::differential::abomonated_parsing::{parse_atom, parse_rule};
+use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
-#[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation )]
+// This duplication is necessary in order not to poison the original implementation
+#[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTypedValue {
     Str(String),
     Bool(bool),
@@ -68,45 +67,6 @@ impl TryInto<bool> for AbomonatedTypedValue {
     }
 }
 
-pub trait Ty {
-    fn to_typed_value(&self) -> AbomonatedTypedValue;
-}
-
-impl Ty for String {
-    fn to_typed_value(&self) -> AbomonatedTypedValue {
-        return AbomonatedTypedValue::Str(self.to_string());
-    }
-}
-
-impl Ty for &str {
-    fn to_typed_value(&self) -> AbomonatedTypedValue {
-        return AbomonatedTypedValue::Str(self.to_string());
-    }
-}
-
-impl Ty for u32 {
-    fn to_typed_value(&self) -> AbomonatedTypedValue {
-        return AbomonatedTypedValue::UInt(self.clone());
-    }
-}
-
-impl Ty for bool {
-    fn to_typed_value(&self) -> AbomonatedTypedValue {
-        return AbomonatedTypedValue::Bool(self.clone());
-    }
-}
-
-impl Display for AbomonatedTypedValue {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self {
-            AbomonatedTypedValue::Str(inner) => write!(f, "Str{}", inner),
-            AbomonatedTypedValue::Bool(inner) => write!(f, "Bool{}", inner),
-            AbomonatedTypedValue::UInt(inner) => write!(f, "UInt{}", inner),
-            AbomonatedTypedValue::InternedStr(inner) => write!(f, "IStr{}", inner)
-        }
-    }
-}
-
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTerm {
     Constant(AbomonatedTypedValue),
@@ -124,48 +84,7 @@ impl Into<AbomonatedTypedValue> for AbomonatedTerm {
     }
 }
 
-impl Display for AbomonatedTerm {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AbomonatedTerm::Constant(value) => write!(f, "{}", value),
-            AbomonatedTerm::Variable(value) => write!(f, "?{}", value),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash, Abomonation)]
-pub enum AbomonatedSign {
-    Positive,
-    Negative,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord, Abomonation)]
-pub struct AbomonatedAtom {
-    pub terms: Vec<AbomonatedTerm>,
-    pub symbol: String,
-    pub sign: AbomonatedSign,
-}
-
-impl Display for AbomonatedAtom {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let terms: String = self
-            .terms
-            .clone()
-            .into_iter()
-            .map(|term| term.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        let atom_representation: String = format!("({})", terms);
-
-        write!(f, "{}{}", self.symbol, atom_representation)
-    }
-}
-
-impl From<&str> for AbomonatedAtom {
-    fn from(str: &str) -> Self {
-        return parse_atom(str);
-    }
-}
+pub type AbomonatedAtom = (String, bool, Vec<AbomonatedTerm>);
 
 impl From<Atom> for AbomonatedAtom {
     fn from(atom: Atom) -> AbomonatedAtom {
@@ -180,61 +99,17 @@ impl From<Atom> for AbomonatedAtom {
             })
             .collect();
         
-        return AbomonatedAtom {
-            terms,
-            symbol: atom.symbol,
-            sign: match atom.sign {
-                Sign::Positive => AbomonatedSign::Positive,
-                Sign::Negative => AbomonatedSign::Negative
-            },
-        }
+        return (atom.symbol, atom.sign, terms)
     }
 }
 
-impl Hash for AbomonatedAtom {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.symbol.hash(state);
-        self.sign.hash(state);
-        for term in &self.terms {
-            term.hash(state)
-        }
-    }
-}
-
-pub type AbomonatedBody = Vec<AbomonatedAtom>;
-
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Abomonation)]
-pub struct AbomonatedRule {
-    pub head: AbomonatedAtom,
-    pub body: AbomonatedBody,
-}
-
-impl From<&str> for AbomonatedRule {
-    fn from(str: &str) -> Self {
-        return parse_rule(str);
-    }
-}
+pub type AbomonatedRule = (AbomonatedAtom, Vec<AbomonatedAtom>);
 
 impl From<Rule> for AbomonatedRule {
     fn from(rule: Rule) -> Self {
         let head = AbomonatedAtom::from(rule.head);
         let body = rule.body.iter().map(|atom| AbomonatedAtom::from(atom.clone())).collect();
 
-        return AbomonatedRule {
-            head,
-            body,
-        }
-    }
-}
-
-impl Display for AbomonatedRule {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let body = self
-            .body
-            .iter()
-            .map(|atom| atom.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "{} <- [{}]", self.head, body)
+        return (head, body)
     }
 }

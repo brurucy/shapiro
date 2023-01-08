@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::models::datalog::Sign::Negative;
-use crate::models::datalog::{Rule, Sign};
 use petgraph::graphmap::DiGraphMap;
 use petgraph::prelude::GraphMap;
 use petgraph::{algo, Directed};
+use crate::models::datalog::Rule;
 
-type RuleGraph<'a> = GraphMap<&'a Rule, Sign, Directed>;
+type RuleGraph<'a> = GraphMap<&'a Rule, bool, Directed>;
 
 pub fn generate_rule_dependency_graph<'a>(program: &Vec<Rule>) -> RuleGraph {
     let mut output = DiGraphMap::new();
@@ -34,7 +33,7 @@ pub fn stratify<'a>(rule_graph: &'a RuleGraph) -> (bool, Vec<Vec<&'a Rule>>) {
         }
         for rule in scc {
             for atom in &rule.body {
-                if relations.contains(&atom.symbol) && atom.sign == Negative {
+                if relations.contains(&atom.symbol) && !atom.sign {
                     return (false, sccs);
                 }
             }
@@ -53,7 +52,7 @@ pub fn sort_program(program: &Vec<Rule>) -> Vec<Rule> {
 #[cfg(test)]
 mod tests {
     use crate::misc::rule_graph::generate_rule_dependency_graph;
-    use crate::models::datalog::{Atom, Rule, Sign};
+    use crate::models::datalog::{Atom, Rule};
     use std::collections::HashSet;
 
     #[test]
@@ -71,18 +70,18 @@ mod tests {
             head: Atom {
                 terms: vec![],
                 symbol: s.clone(),
-                sign: Sign::Positive,
+                sign: true,
             },
             body: vec![
                 Atom {
                     terms: vec![],
                     symbol: r_prime_1.clone(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![],
                     symbol: r.clone(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
             ],
         };
@@ -91,18 +90,18 @@ mod tests {
             head: Atom {
                 terms: vec![],
                 symbol: t.clone(),
-                sign: Sign::Positive,
+                sign: true,
             },
             body: vec![
                 Atom {
                     terms: vec![],
                     symbol: r_prime_2.clone(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![],
                     symbol: r.clone(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
             ],
         };
@@ -111,18 +110,18 @@ mod tests {
             head: Atom {
                 terms: vec![],
                 symbol: u.clone(),
-                sign: Sign::Positive,
+                sign: true,
             },
             body: vec![
                 Atom {
                     terms: vec![],
                     symbol: r_prime_3.clone(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![],
                     symbol: t.clone(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
             ],
         };
@@ -131,23 +130,23 @@ mod tests {
             head: Atom {
                 terms: vec![],
                 symbol: v.clone(),
-                sign: Sign::Positive,
+                sign: true,
             },
             body: vec![
                 Atom {
                     terms: vec![],
                     symbol: r_prime_4.clone(),
-                    sign: Sign::Positive,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![],
                     symbol: s.clone(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
                 Atom {
                     terms: vec![],
                     symbol: u.clone(),
-                    sign: Sign::Negative,
+                    sign: true,
                 },
             ],
         };
@@ -155,9 +154,9 @@ mod tests {
         let not_recursive_program = vec![r_1.clone(), r_2.clone(), r_3.clone(), r_4.clone()];
 
         let graph = generate_rule_dependency_graph(&not_recursive_program);
-        let edges: HashSet<(&Rule, &Rule, &Sign)> = graph.all_edges().into_iter().collect();
-        assert_eq!(edges.contains(&(&r_2, &r_3, &Sign::Negative)), true);
-        assert_eq!(edges.contains(&(&r_3, &r_4, &Sign::Negative)), true);
-        assert_eq!(edges.contains(&(&r_1, &r_4, &Sign::Negative)), true);
+        let edges: HashSet<(&Rule, &Rule, &bool)> = graph.all_edges().into_iter().collect();
+        assert_eq!(edges.contains(&(&r_2, &r_3, &false)), true);
+        assert_eq!(edges.contains(&(&r_3, &r_4, &false)), true);
+        assert_eq!(edges.contains(&(&r_1, &r_4, &false)), true);
     }
 }

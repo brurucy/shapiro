@@ -147,19 +147,12 @@ impl Display for Term {
     }
 }
 
-// A Sign represents whether the Atom is a negation or not. At the moment it is not used.
-#[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash)]
-pub enum Sign {
-    Positive,
-    Negative,
-}
-
 // An Atom is a collection of Terms with a Symbol.
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Atom {
     pub terms: Vec<Term>,
     pub symbol: String,
-    pub sign: Sign,
+    pub sign: bool,
 }
 
 impl Display for Atom {

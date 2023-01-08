@@ -1,4 +1,4 @@
-use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
+use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 use crate::models::relational_algebra::Row;
 use lasso::{Key, Rodeo};
 
@@ -20,7 +20,7 @@ impl Interner {
         return Atom {
             terms: new_terms.collect(),
             symbol: atom.symbol.clone(),
-            sign: Sign::Positive,
+            sign: true,
         };
     }
 
