@@ -6,14 +6,17 @@ use std::thread;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, TypedValue};
 use crate::models::instance::{Instance};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, select, Sender, unbounded};
 use differential_dataflow::input::Input;
 use differential_dataflow::Collection;
 use std::time::{Duration};
 use differential_dataflow::algorithms::identifiers::Identifiers;
+use differential_dataflow::lattice::Lattice;
 use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{Consolidate, iterate, Join, JoinCore, Threshold};
+use lazy_static::lazy_static;
 use timely::communication::allocator::Generic;
+use timely::dataflow::operators::{Broadcast, Probe};
 use timely::dataflow::Scope;
 use timely::dataflow::scopes::Child;
 use timely::order::Product;
@@ -31,8 +34,8 @@ pub type AtomSink = Sender<(AbomonatedAtom, usize, isize)>;
 pub type RuleSource = Receiver<(AbomonatedRule, usize, isize)>;
 pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 
-pub type NotificationSink = Sender<()>;
-pub type NotificationSource = Receiver<()>;
+pub type NotificationSink = Sender<usize>;
+pub type NotificationSource = Receiver<usize>;
 
 fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
     let mut substitution: AbomonatedSubstitutions = Default::default();
@@ -100,10 +103,12 @@ pub fn reason(
     fact_input_source: AtomSource,
     rule_output_sink: RuleSink,
     fact_output_sink: AtomSink,
+    notification_sink: NotificationSink,
 ) -> () {
     timely::execute(
         timely::Config::process(8),
         move |worker: &mut Worker<Generic>| {
+            let local_notification_sink = notification_sink.clone();
             let (mut rule_input_session, mut rule_trace, rule_probe) = worker
                 .dataflow_named::<usize, _, _>("rule_ingestion", |local| {
                     let local_rule_output_sink = rule_output_sink.clone();
@@ -149,7 +154,7 @@ pub fn reason(
                     let subs_product = head
                         .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
 
-                    local
+                    let output = local
                         .iterative::<usize, _, _>(|inner| {
                             let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
                             let data_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
@@ -238,9 +243,12 @@ pub fn reason(
                             for (atom, time, diff) in xs {
                                 local_fact_output_sink.send((atom.1.clone(), *time, *diff)).unwrap()
                             }
-                        });
+                        })
+                        .filter(|_| false)
+                        .inner
+                        .broadcast();
 
-                        (fact_input_session, fact_collection.probe())
+                        (fact_input_session, output.probe())
                 });
             if worker.index() == 0 {
                 let mut fact_input_source = fact_input_source.iter().peekable();
@@ -257,7 +265,7 @@ pub fn reason(
                     if let Some((_atom, time, _diff)) = rule_input_source.peek() {
                         if rule_epoch < *time {
                             rule_epoch = *time;
-                            rule_input_session.advance_to(rule_epoch);
+                            rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                         }
                     }
                     rule_input_session.flush();
@@ -271,15 +279,19 @@ pub fn reason(
                     if let Some((_atom, time, _diff)) = fact_input_source.peek() {
                         if fact_epoch < *time {
                             fact_epoch = *time;
-                            fact_input_session.advance_to(fact_epoch);
+                            fact_input_session.advance_to(fact_epoch.join(&rule_epoch));
                         }
                     }
                     fact_input_session.flush();
+
+                    rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
+                    rule_input_session.flush();
                     // timeout not needed when channel blocking iterator is used (on both channels!)
                     worker.step_or_park_while(Some(Duration::from_millis(50)), || {
-                        fact_probe.less_than(&fact_epoch) ||
-                            rule_probe.less_than(&rule_epoch)
+                        fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
+
+                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
                 }
                 //rule_probe.with_frontier(|frontier| println!("probe frontier: {:?}", frontier));
 
@@ -295,12 +307,14 @@ pub fn reason(
 }
 
 pub struct DifferentialDatalog {
+    epoch: usize,
     pub fact_store: Instance,
     _ddflow: thread::JoinHandle<()>,
     pub rule_input_sink: RuleSink,
     pub rule_output_source: RuleSource,
     pub fact_input_sink: AtomSink,
     pub fact_output_source: AtomSource,
+    pub notification_source: NotificationSource,
     pub interner: Interner,
     parallel: bool,
     intern: bool,
@@ -315,20 +329,25 @@ impl Default for DifferentialDatalog {
         let (rule_output_sink, rule_output_source) = unbounded();
         let (fact_output_sink, fact_output_source) = unbounded();
 
+        let (notification_sink, notification_source) = unbounded();
+
         //let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
             reason(rule_input_source,
                    fact_input_source,
                    rule_output_sink,
-                   fact_output_sink)
+                   fact_output_sink,
+                   notification_sink)
         });
 
         DifferentialDatalog {
+            epoch: 0,
             rule_input_sink,
             rule_output_source,
             fact_input_sink,
             fact_output_source,
+            notification_source,
             fact_store: Instance::new(),
             _ddflow: handle,
             interner: Default::default(),
@@ -346,6 +365,23 @@ impl DifferentialDatalog {
             intern,
             ..Default::default()
         };
+    }
+    fn noop_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
+        let mut typed_row = row.clone();
+        if self.intern {
+            typed_row = self.interner.intern_typed_values(typed_row);
+        }
+        let abomonated_row = typed_row
+            .into_iter()
+            .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
+            .collect();
+        let abomonated_atom = AbomonatedAtom {
+            terms: abomonated_row,
+            symbol: table.to_string(),
+            sign: AbomonatedSign::Positive,
+        };
+
+        self.fact_input_sink.send((abomonated_atom, self.epoch, 0)).unwrap();
     }
 }
 
@@ -365,7 +401,7 @@ impl DynamicTyped for DifferentialDatalog {
                 sign: AbomonatedSign::Positive,
             };
 
-        self.fact_input_sink.send((abomonated_atom, 1)).unwrap();
+        self.fact_input_sink.send((abomonated_atom, self.epoch, 1)).unwrap();
     }
 
     fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
@@ -379,11 +415,12 @@ impl DynamicTyped for DifferentialDatalog {
             .collect();
         let abomonated_atom = AbomonatedAtom {
             terms: abomonated_row,
+            // TODO Intern symbol
             symbol: table.to_string(),
             sign: AbomonatedSign::Positive,
         };
 
-        self.fact_input_sink.send((abomonated_atom, -1)).unwrap();
+        self.fact_input_sink.send((abomonated_atom, self.epoch, -1)).unwrap();
     }
 }
 
@@ -395,26 +432,31 @@ impl Materializer for DifferentialDatalog {
                 possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
             }
             self.materialization.push(possibly_interned_rule.clone());
-            self.rule_input_sink.send((AbomonatedRule::from(possibly_interned_rule), 1)).unwrap();
+            self.rule_input_sink.send((AbomonatedRule::from(possibly_interned_rule), self.epoch, 1)).unwrap();
         });
+        self.epoch += 1;
+        let noop_rule = AbomonatedRule::from("NOOP(?x) <- [PANIC(?x)]");
+        self.rule_input_sink.send((noop_rule, self.epoch, 0)).unwrap();
 
-        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(10)) {
-            let boxed_vec = fresh_intensional_atom
-                .0
-                .terms
-                .iter()
-                .map(|abomonated_term| {
-                    match abomonated_term {
-                        AbomonatedTerm::Constant(inner) => {
-                            inner.clone().into()
-                        }
-                        AbomonatedTerm::Variable(_) => unreachable!()
-                    }
-                })
-                .collect();
+        //self.update(vec![]);
 
-            self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec);
-        }
+        // while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(10)) {
+        //     let boxed_vec = fresh_intensional_atom
+        //         .0
+        //         .terms
+        //         .iter()
+        //         .map(|abomonated_term| {
+        //             match abomonated_term {
+        //                 AbomonatedTerm::Constant(inner) => {
+        //                     inner.clone().into()
+        //                 }
+        //                 AbomonatedTerm::Variable(_) => unreachable!()
+        //             }
+        //         })
+        //         .collect();
+        //
+        //     self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec);
+        // }
     }
 
     fn update(&mut self, changes: Vec<Diff>) {
@@ -430,26 +472,67 @@ impl Materializer for DifferentialDatalog {
                 self.delete_typed(sym.clone(), typed_row);
             }
         });
+        self.epoch += 1;
+        let noop_row = vec![TypedValue::Bool(false)].into_boxed_slice();
+        self.noop_typed("noop", noop_row);
 
-        while let Ok(fresh_intensional_atom) = self.fact_output_source.recv_timeout(Duration::from_millis(2000)) {
-            let boxed_vec = fresh_intensional_atom
-                .0
-                .terms
-                .iter()
-                .map(|abomonated_term| {
-                    match abomonated_term {
-                        AbomonatedTerm::Constant(inner) => {
-                            inner.clone().into()
-                        }
-                        AbomonatedTerm::Variable(_) => unreachable!()
+        let noop_rule = AbomonatedRule::from("NOOP(?x) <- [PANIC(?x)]");
+        self.rule_input_sink.send((noop_rule, self.epoch, 0)).unwrap();
+        loop {
+            select! {
+                recv(self.notification_source) -> last_epoch => {
+                    let last_epoch_uw = last_epoch.unwrap();
+
+                    if last_epoch_uw == self.epoch {
+                        //sleep(Duration::from_millis(5000));
+                        self.fact_output_source.try_iter().for_each(|fresh_intensional_atom| {
+                            let boxed_vec = fresh_intensional_atom
+                                .0
+                                .terms
+                                .iter()
+                                .map(|abomonated_term| {
+                                    match abomonated_term {
+                                        AbomonatedTerm::Constant(inner) => {
+                                            inner.clone().into()
+                                        }
+                                        AbomonatedTerm::Variable(_) => unreachable!()
+                                    }
+                                })
+                                .collect();
+
+                            if fresh_intensional_atom.2 > 0 {
+                                self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
+                            } else {
+                                self.fact_store.delete_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
+                            }
+                        });
+
+                        return;
                     }
-                })
-                .collect();
+                }
+                recv(self.fact_output_source) -> fact => {
+                    let fresh_intensional_atom = fact.unwrap();
 
-            if fresh_intensional_atom.1 > 0 {
-                self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
-            } else {
-                self.fact_store.delete_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
+                    let boxed_vec = fresh_intensional_atom
+                    .0
+                    .terms
+                    .iter()
+                    .map(|abomonated_term| {
+                        match abomonated_term {
+                            AbomonatedTerm::Constant(inner) => {
+                                inner.clone().into()
+                            }
+                            AbomonatedTerm::Variable(_) => unreachable!()
+                        }
+                    })
+                    .collect();
+
+                    if fresh_intensional_atom.2 > 0 {
+                        self.fact_store.insert_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
+                    } else {
+                        self.fact_store.delete_typed(&fresh_intensional_atom.0.symbol, boxed_vec)
+                    }
+                },
             }
         }
     }
