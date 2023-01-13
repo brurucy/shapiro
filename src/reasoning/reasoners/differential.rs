@@ -104,7 +104,7 @@ pub fn reason(
     notification_sink: NotificationSink,
 ) -> () {
     timely::execute(
-        timely::Config::process(6),
+        timely::Config::process(8),
         move |worker: &mut Worker<Generic>| {
             let local_notification_sink = notification_sink.clone();
             let (mut rule_input_session, mut rule_trace, rule_probe) = worker
@@ -129,7 +129,10 @@ pub fn reason(
                         local.new_collection::<AbomonatedAtom, isize>();
 
                     let local_fact_output_sink = fact_output_sink.clone();
-                    let rule_collection = rule_trace.import(local).as_collection(|x, _y| x.clone());
+                    //let rule_collection = rule_trace.import(local).as_collection(|x, _y| x.clone());
+                    let rule_collection = rule_trace
+                        .import(local)
+                        .as_collection(|x, _y| x.clone());
 
                     let facts_by_symbol = fact_collection
                         .map(|ground_fact| (ground_fact.0.clone(), ground_fact));

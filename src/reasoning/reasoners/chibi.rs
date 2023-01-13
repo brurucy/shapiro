@@ -105,7 +105,7 @@ impl Dynamic for ChibiDatalog {
     }
 
     fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let mut typed_row = row.iter().map(|ty| ty.to_typed_value()).collect();
+        let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
 
         if self.intern {
             typed_row = self.interner.intern_typed_values(typed_row);
