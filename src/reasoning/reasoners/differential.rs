@@ -129,17 +129,16 @@ pub fn reason(
                         local.new_collection::<AbomonatedAtom, isize>();
 
                     let local_fact_output_sink = fact_output_sink.clone();
-                    //let rule_collection = rule_trace.import(local).as_collection(|x, _y| x.clone());
+
                     let rule_collection = rule_trace
                         .import(local)
                         .as_collection(|x, _y| x.clone());
 
                     let facts_by_masked = fact_collection
                         .flat_map(|ground_fact| {
-                            permute_mask(&mask(&ground_fact))
+                            permute_mask(mask(&ground_fact))
                                 .into_iter()
-                                .map(|masked_atom| (masked_atom, ground_fact.clone()))
-                                .collect::<Vec<_>>()
+                                .map(move |masked_atom| (masked_atom, ground_fact.clone()))
                         });
 
                     let indexed_rules = rule_collection.identifiers();
@@ -181,9 +180,6 @@ pub fn reason(
                                     }
                                     return None;
                                 });
-                                // .inspect(|out| {
-                                //     println!("{:?}", (out.0));
-                                // });
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key();
@@ -209,43 +205,30 @@ pub fn reason(
                                             None
                                         }
                                         Some(sub) => {
-                                            Some(((new_key.0, new_key.2.clone()), sub))
+                                            let (previous_iter, new) = ((new_key.0, new_key.2.clone()), sub);
+                                            let (_iter, previous) = previous_iter;
+                                            let mut previous_sub = previous;
+                                            let new_sub = new;
+                                            previous_sub.inner.extend(&new_sub.inner);
+
+                                            Some(((previous_iter.0.0, previous_iter.0.1 + 1), previous_sub))
                                         }
                                     }
                                 });
 
-                            let s_new_arr = new_substitutions
-                                .arrange_by_key();
-
-                            let s_old = subs_product_var.consolidate();
-                            let s_old_arr = s_old
-                                .map(|(iter, sub)| ((iter.clone(), sub.clone()), sub.clone()))
-                                .arrange_by_key();
-
-                            let s_ext = s_old_arr
-                                .join_core(&s_new_arr, |previous_iter, previous: &AbomonatedSubstitutions, new| {
-                                    let mut previous_sub = previous.clone();
-                                    let new_sub = new.clone();
-                                    previous_sub.inner.extend(&new_sub.inner);
-
-                                    Some(((previous_iter.0.0, previous_iter.0.1 + 1), previous_sub))
-                                })
-                                .consolidate();
-
                             let groundington = heads
                                 .enter(inner)
-                                .join(&s_ext.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
+                                .join(&new_substitutions.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
                                 .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
                                 .filter(|atom| is_ground(atom))
                                 .consolidate()
                                 .flat_map(|ground_fact| {
-                                    permute_mask(&mask(&ground_fact))
+                                    permute_mask(mask(&ground_fact))
                                         .into_iter()
-                                        .map(|masked_atom| (masked_atom, ground_fact.clone()))
-                                        .collect::<Vec<_>>()
+                                        .map(move |masked_atom| (masked_atom, ground_fact.clone()))
                                 });
 
-                            subs_product_var.set(&subs_product.enter(inner).concat(&s_ext));
+                            subs_product_var.set(&subs_product.enter(inner).concat(&new_substitutions));
                             facts_var.set(&facts_by_masked.enter(inner).concat(&groundington)).leave()
                         })
                         .consolidate()

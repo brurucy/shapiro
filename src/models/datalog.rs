@@ -2,6 +2,7 @@ use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 
 use crate::parsers::datalog::{parse_atom, parse_rule};
 
@@ -12,7 +13,7 @@ pub enum TypedValue {
     Bool(bool),
     UInt(u32),
     // Internal type, lives only inside the reasoner
-    InternedStr(usize),
+    InternedStr(NonZeroU32),
     Float(OrderedFloat<f64>),
 }
 

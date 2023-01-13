@@ -11,7 +11,7 @@ impl Interner {
         let new_terms = atom.terms.iter().map(|term| match term {
             Term::Constant(inner) => match inner {
                 TypedValue::Str(inner) => Term::Constant(TypedValue::InternedStr(
-                    self.rodeo.get_or_intern(inner.as_str()).into_usize(),
+                    self.rodeo.get_or_intern(inner.as_str()).into_inner(),
                 )),
                 not_str => Term::Constant(not_str.clone()),
             },
@@ -29,7 +29,7 @@ impl Interner {
             .iter()
             .map(|typed_value| match typed_value {
                 TypedValue::Str(inner) => {
-                    TypedValue::InternedStr(self.rodeo.get_or_intern(inner).into_usize())
+                    TypedValue::InternedStr(self.rodeo.get_or_intern(inner).into_inner())
                 }
                 not_str => not_str.clone(),
             })

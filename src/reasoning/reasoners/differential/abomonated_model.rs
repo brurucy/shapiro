@@ -1,7 +1,9 @@
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
+use std::num::NonZeroU32;
 use abomonation_derive::Abomonation;
 use itertools::Itertools;
+use arrayvec::ArrayVec;
 use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
 // This duplication is necessary in order not to poison the original implementation
@@ -10,7 +12,7 @@ pub enum AbomonatedTypedValue {
     Str(String),
     Bool(bool),
     UInt(u32),
-    InternedStr(usize),
+    InternedStr(NonZeroU32),
 }
 
 impl Display for AbomonatedTypedValue {
@@ -124,17 +126,17 @@ pub fn mask(aboatom: &AbomonatedAtom) -> MaskedAtom {
     return (sym, out);
 }
 
-pub fn permute_mask(masked_atom: &MaskedAtom) -> Vec<MaskedAtom> {
+pub fn permute_mask(masked_atom: MaskedAtom) -> impl Iterator<Item=MaskedAtom> {
     let sym = masked_atom.0.to_string();
     let arity = masked_atom.1.len();
 
-    let out = masked_atom
+    masked_atom
         .1
-        .iter()
+        .into_iter()
         .enumerate()
-        .filter(|(idx, possibly_some)| **possibly_some != None)
+        .filter(|(idx, possibly_some)| *possibly_some != None)
         .powerset()
-        .map(|x| {
+        .map(move |x| {
             let mut vec = vec![None; arity];
 
             x
@@ -145,9 +147,6 @@ pub fn permute_mask(masked_atom: &MaskedAtom) -> Vec<MaskedAtom> {
 
             return (sym.to_string(), vec);
         })
-        .collect();
-
-    out
 }
 
 impl From<Atom> for AbomonatedAtom {
@@ -183,7 +182,7 @@ mod tests {
     use crate::models::datalog::Atom;
     use crate::models::index::BTreeIndex;
     use crate::models::instance::InstanceWithIndex;
-    use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedTypedValue, mask, permute_mask};
+    use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedTypedValue, mask, MaskedAtom, permute_mask};
     use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTerm::Constant;
 
     #[test]
@@ -191,8 +190,8 @@ mod tests {
         let rule_atom_0 = AbomonatedAtom::from(Atom::from("T(?X, ?Y, PLlab)"));
         let ground_atom_0 = AbomonatedAtom::from(Atom::from("T(student, takesClassesFrom, PLlab"));
 
-        let mut permutations_rule_atom_0 = permute_mask(&mask(&rule_atom_0));
-        let mut permutations_ground_atom_0 = permute_mask(&mask(&ground_atom_0));
+        let mut permutations_rule_atom_0: Vec<MaskedAtom> = permute_mask(mask(&rule_atom_0)).collect();
+        let mut permutations_ground_atom_0: Vec<MaskedAtom> = permute_mask(mask(&ground_atom_0)).collect();
         permutations_rule_atom_0.sort();
         permutations_ground_atom_0.sort();
 

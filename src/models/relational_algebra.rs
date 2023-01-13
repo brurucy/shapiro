@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU32;
 
 use crate::data_structures::hashmap::IndexedHashMap;
 use crate::models::datalog::Ty;
@@ -147,7 +148,7 @@ pub enum SelectionTypedValue {
     Bool(bool),
     UInt(u32),
     Column(usize),
-    InternedStr(usize),
+    InternedStr(NonZeroU32),
     Float(OrderedFloat<f64>),
 }
 
