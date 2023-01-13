@@ -22,7 +22,7 @@ use timely::order::Product;
 use timely::worker::Worker;
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue};
+use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, mask, permute_mask};
 use crate::reasoning::reasoners::differential::abomonated_vertebra::{AbomonatedSubstitutions};
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
@@ -134,8 +134,13 @@ pub fn reason(
                         .import(local)
                         .as_collection(|x, _y| x.clone());
 
-                    let facts_by_symbol = fact_collection
-                        .map(|ground_fact| (ground_fact.0.clone(), ground_fact));
+                    let facts_by_masked = fact_collection
+                        .flat_map(|ground_fact| {
+                            permute_mask(&mask(&ground_fact))
+                                .into_iter()
+                                .map(|masked_atom| (masked_atom, ground_fact.clone()))
+                                .collect::<Vec<_>>()
+                        });
 
                     let indexed_rules = rule_collection.identifiers();
                     let goals = indexed_rules
@@ -158,14 +163,13 @@ pub fn reason(
                     let output = local
                         .iterative::<usize, _, _>(|inner| {
                             let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
-                            let facts_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
+                            let facts_var = iterate::Variable::new_from(facts_by_masked.enter(inner), Product::new(Default::default(), 1));
 
-                            let s_old = subs_product_var.consolidate();
                             let g = goals.enter(inner);
 
-                            let s_old_arr = s_old.arrange_by_key();
+                            let s_old_arr = subs_product_var.arrange_by_key();
                             let facts = facts_var.distinct();
-                            let facts_arr = facts.arrange_by_key();
+                            let facts_by_masked_arr = facts.arrange_by_key();
 
                             let goal_x_subs = g
                                 .arrange_by_key()
@@ -173,19 +177,19 @@ pub fn reason(
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
                                     if !is_ground(rewrite_attempt) {
                                         let new_key = (key.clone(), goal.clone(), sub.clone());
-                                        return Some((goal.0.clone(), (new_key, rewrite_attempt.clone())));
+                                        return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())))
                                     }
                                     return None;
-                                })
-                                .inspect(|out| {
-                                    println!("{:?}", (out.0));
                                 });
+                                // .inspect(|out| {
+                                //     println!("{:?}", (out.0));
+                                // });
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key();
 
-                            let new_substitutions = facts_arr
-                                .join_core(&current_goals, |_sym, ground_fact, (new_key, rewrite_attempt)| {
+                            let new_substitutions = facts_by_masked_arr
+                                .join_core(&current_goals, |_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, old_sub)| {
                                     let ground_terms = ground_fact
                                         .clone()
                                         .2
@@ -213,6 +217,7 @@ pub fn reason(
                             let s_new_arr = new_substitutions
                                 .arrange_by_key();
 
+                            let s_old = subs_product_var.consolidate();
                             let s_old_arr = s_old
                                 .map(|(iter, sub)| ((iter.clone(), sub.clone()), sub.clone()))
                                 .arrange_by_key();
@@ -232,11 +237,16 @@ pub fn reason(
                                 .join(&s_ext.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
                                 .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
                                 .filter(|atom| is_ground(atom))
-                                .map(|atom| (atom.0.clone(), atom))
-                                .consolidate();
+                                .consolidate()
+                                .flat_map(|ground_fact| {
+                                    permute_mask(&mask(&ground_fact))
+                                        .into_iter()
+                                        .map(|masked_atom| (masked_atom, ground_fact.clone()))
+                                        .collect::<Vec<_>>()
+                                });
 
                             subs_product_var.set(&subs_product.enter(inner).concat(&s_ext));
-                            facts_var.set(&facts_by_symbol.enter(inner).concat(&groundington)).leave()
+                            facts_var.set(&facts_by_masked.enter(inner).concat(&groundington)).leave()
                         })
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
