@@ -149,23 +149,23 @@ pub fn reason(
                                 })
                         });
 
-                    let head = indexed_rules
+                    let heads = indexed_rules
                         .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.0));
 
-                    let subs_product = head
+                    let subs_product = heads
                         .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
 
                     let output = local
                         .iterative::<usize, _, _>(|inner| {
                             let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
-                            let data_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
+                            let facts_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
 
                             let s_old = subs_product_var.consolidate();
                             let g = goals.enter(inner);
 
                             let s_old_arr = s_old.arrange_by_key();
-                            let data = data_var.distinct();
-                            let data_arr = data.arrange_by_key();
+                            let facts = facts_var.distinct();
+                            let facts_arr = facts.arrange_by_key();
 
                             let goal_x_subs = g
                                 .arrange_by_key()
@@ -176,12 +176,15 @@ pub fn reason(
                                         return Some((goal.0.clone(), (new_key, rewrite_attempt.clone())));
                                     }
                                     return None;
+                                })
+                                .inspect(|out| {
+                                    println!("{:?}", (out.0));
                                 });
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key();
 
-                            let new_substitutions = data_arr
+                            let new_substitutions = facts_arr
                                 .join_core(&current_goals, |_sym, ground_fact, (new_key, rewrite_attempt)| {
                                     let ground_terms = ground_fact
                                         .clone()
@@ -224,7 +227,7 @@ pub fn reason(
                                 })
                                 .consolidate();
 
-                            let groundington = head
+                            let groundington = heads
                                 .enter(inner)
                                 .join(&s_ext.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
                                 .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
@@ -233,7 +236,7 @@ pub fn reason(
                                 .consolidate();
 
                             subs_product_var.set(&subs_product.enter(inner).concat(&s_ext));
-                            data_var.set(&facts_by_symbol.enter(inner).concat(&groundington)).leave()
+                            facts_var.set(&facts_by_symbol.enter(inner).concat(&groundington)).leave()
                         })
                         .consolidate()
                         .inspect_batch(move |_t, xs| {

@@ -1,4 +1,6 @@
+use std::fmt::{Display, Formatter};
 use abomonation_derive::Abomonation;
+use itertools::Itertools;
 use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTypedValue;
 
 pub type AbomonatedSubstitution = (u8, AbomonatedTypedValue);
@@ -69,6 +71,12 @@ impl Default for AbomonatedVertebra {
         return Self {
             inner: Vec::new(),
         };
+    }
+}
+
+impl Display for AbomonatedVertebra {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner.iter().map(|(v, c)| format!("(?{}: Const({}))", v, c)).join(" "))
     }
 }
 
