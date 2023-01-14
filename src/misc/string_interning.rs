@@ -3,7 +3,7 @@ use crate::models::relational_algebra::Row;
 use lasso::{Key, Rodeo};
 
 pub struct Interner {
-    rodeo: Rodeo,
+    pub rodeo: Rodeo,
 }
 
 impl Interner {

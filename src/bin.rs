@@ -88,14 +88,30 @@ impl AtomParser for NTripleParser {
         if let Some(alias) = OWL.get(&digit_three) {
             digit_three = alias.to_string()
         }
+        let symbol = match &digit_two[..] {
+            "rdf:type" => "Type",
+            "rdfs:subPropertyOf" => "SubPropertyOf",
+            "rdfs:subClassOf" => "SubClassOf",
+            "rdfs:domain" => "Domain",
+            "rdfs:range" => "Range",
+            _ => "Property"
+        };
 
-        return Atom {
-            terms: vec![
+        let terms = match symbol {
+            "Property" => vec![
                 Term::Constant(TypedValue::Str(digit_one)),
                 Term::Constant(TypedValue::Str(digit_two)),
                 Term::Constant(TypedValue::Str(digit_three)),
             ],
-            symbol: "T".to_string(),
+            _ => vec![
+                Term::Constant(TypedValue::Str(digit_one)),
+                Term::Constant(TypedValue::Str(digit_three)),
+            ]
+        };
+
+        return Atom {
+            terms,
+            symbol: symbol.to_string(),
             sign: true,
         };
     }

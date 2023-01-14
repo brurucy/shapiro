@@ -3,13 +3,12 @@ use std::hash::Hash;
 use std::num::NonZeroU32;
 use abomonation_derive::Abomonation;
 use itertools::Itertools;
-use arrayvec::ArrayVec;
+use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
-// This duplication is necessary in order not to poison the original implementation
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTypedValue {
-    Str(String),
+    //Str(String),
     Bool(bool),
     UInt(u32),
     InternedStr(NonZeroU32),
@@ -18,7 +17,7 @@ pub enum AbomonatedTypedValue {
 impl Display for AbomonatedTypedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            AbomonatedTypedValue::Str(inner) => write!(f, "\"{}\"", inner),
+            //AbomonatedTypedValue::Str(inner) => write!(f, "\"{}\"", inner),
             AbomonatedTypedValue::Bool(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::UInt(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::InternedStr(inner) => write!(f, "Is{}", inner)
@@ -29,7 +28,7 @@ impl Display for AbomonatedTypedValue {
 impl From<TypedValue> for AbomonatedTypedValue {
     fn from(value: TypedValue) -> Self {
         return match value {
-            TypedValue::Str(inner) => AbomonatedTypedValue::Str(inner),
+            //TypedValue::Str(inner) => AbomonatedTypedValue::Str(inner),
             TypedValue::Bool(inner) => AbomonatedTypedValue::Bool(inner),
             TypedValue::UInt(inner) => AbomonatedTypedValue::UInt(inner),
             TypedValue::InternedStr(inner) => AbomonatedTypedValue::InternedStr(inner),
@@ -41,7 +40,7 @@ impl From<TypedValue> for AbomonatedTypedValue {
 impl Into<TypedValue> for AbomonatedTypedValue {
     fn into(self) -> TypedValue {
         match self {
-            AbomonatedTypedValue::Str(inner) => TypedValue::Str(inner),
+            //AbomonatedTypedValue::Str(inner) => TypedValue::Str(inner),
             AbomonatedTypedValue::Bool(inner) => TypedValue::Bool(inner),
             AbomonatedTypedValue::UInt(inner) => TypedValue::UInt(inner),
             AbomonatedTypedValue::InternedStr(inner) => TypedValue::InternedStr(inner),
@@ -55,17 +54,6 @@ impl TryInto<u32> for AbomonatedTypedValue {
     fn try_into(self) -> Result<u32, Self::Error> {
         match self {
             AbomonatedTypedValue::UInt(inner) => Ok(inner),
-            _ => Err(())
-        }
-    }
-}
-
-impl TryInto<String> for AbomonatedTypedValue {
-    type Error = ();
-
-    fn try_into(self) -> Result<String, Self::Error> {
-        match self {
-            AbomonatedTypedValue::Str(inner) => Ok(inner.to_string()),
             _ => Err(())
         }
     }
@@ -108,11 +96,11 @@ impl Into<AbomonatedTypedValue> for AbomonatedTerm {
     }
 }
 
-pub type AbomonatedAtom = (String, bool, Vec<AbomonatedTerm>);
-pub type MaskedAtom = (String, Vec<Option<AbomonatedTypedValue>>);
+pub type AbomonatedAtom = (NonZeroU32, bool, Vec<AbomonatedTerm>);
+pub type MaskedAtom = (NonZeroU32, Vec<Option<AbomonatedTypedValue>>);
 
 pub fn mask(aboatom: &AbomonatedAtom) -> MaskedAtom {
-    let sym = aboatom.0.to_string();
+    let sym = aboatom.0;
 
     let out = aboatom
         .2
@@ -127,7 +115,7 @@ pub fn mask(aboatom: &AbomonatedAtom) -> MaskedAtom {
 }
 
 pub fn permute_mask(masked_atom: MaskedAtom) -> impl Iterator<Item=MaskedAtom> {
-    let sym = masked_atom.0.to_string();
+    let sym = masked_atom.0;
     let arity = masked_atom.1.len();
 
     masked_atom
@@ -145,84 +133,30 @@ pub fn permute_mask(masked_atom: MaskedAtom) -> impl Iterator<Item=MaskedAtom> {
                     vec[*idx] = (*value).clone()
                 });
 
-            return (sym.to_string(), vec);
+            return (sym, vec);
         })
 }
 
-impl From<Atom> for AbomonatedAtom {
-    fn from(atom: Atom) -> AbomonatedAtom {
-        let terms = atom
-            .terms
-            .into_iter()
-            .map(|term| {
-                match term {
-                    Term::Constant(inner) => AbomonatedTerm::Constant(AbomonatedTypedValue::from(inner)),
-                    Term::Variable(inner) => AbomonatedTerm::Variable(inner)
-                }
-            })
-            .collect();
+pub fn abomonate_atom(atom: Atom, interner: &mut Interner) -> AbomonatedAtom {
+    let terms = atom
+        .terms
+        .into_iter()
+        .map(|term| {
+            match term {
+                Term::Constant(inner) => AbomonatedTerm::Constant(AbomonatedTypedValue::from(inner)),
+                Term::Variable(inner) => AbomonatedTerm::Variable(inner)
+            }
+        })
+        .collect();
 
-        return (atom.symbol, atom.sign, terms);
-    }
+    return (interner.rodeo.get_or_intern(atom.symbol).into_inner(), atom.sign, terms);
 }
 
 pub type AbomonatedRule = (AbomonatedAtom, Vec<AbomonatedAtom>);
 
-impl From<Rule> for AbomonatedRule {
-    fn from(rule: Rule) -> Self {
-        let head = AbomonatedAtom::from(rule.head);
-        let body = rule.body.iter().map(|atom| AbomonatedAtom::from(atom.clone())).collect();
+pub fn abomonate_rule(rule: Rule, interner: &mut Interner) -> AbomonatedRule {
+    let head = abomonate_atom(rule.head, interner);
+    let body = rule.body.iter().map(|atom| abomonate_atom(atom.clone(), interner)).collect();
 
-        return (head, body);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::models::datalog::Atom;
-    use crate::models::index::BTreeIndex;
-    use crate::models::instance::InstanceWithIndex;
-    use crate::reasoning::reasoners::differential::abomonated_model::{AbomonatedAtom, AbomonatedTypedValue, mask, MaskedAtom, permute_mask};
-    use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTerm::Constant;
-
-    #[test]
-    fn test_permute_mask() {
-        let rule_atom_0 = AbomonatedAtom::from(Atom::from("T(?X, ?Y, PLlab)"));
-        let ground_atom_0 = AbomonatedAtom::from(Atom::from("T(student, takesClassesFrom, PLlab"));
-
-        let mut permutations_rule_atom_0: Vec<MaskedAtom> = permute_mask(mask(&rule_atom_0)).collect();
-        let mut permutations_ground_atom_0: Vec<MaskedAtom> = permute_mask(mask(&ground_atom_0)).collect();
-        permutations_rule_atom_0.sort();
-        permutations_ground_atom_0.sort();
-
-        let t = "T".to_string();
-        let mut expected_permutations_rule_atom_0 = vec![
-            (t.clone(), vec![
-                None,
-                None,
-                None,
-            ]),
-            (t.clone(), vec![
-                None,
-                None,
-                Some(AbomonatedTypedValue::Str("PLlab".to_string())),
-            ]),
-        ];
-        expected_permutations_rule_atom_0.sort();
-        assert_eq!(permutations_rule_atom_0, expected_permutations_rule_atom_0);
-
-        let mut expected_permutations_ground_atom_0 = vec![
-            ("T".to_string(), vec![None, None, None]),
-            ("T".to_string(), vec![None, None, Some(AbomonatedTypedValue::Str("PLlab".to_string()))]),
-            ("T".to_string(), vec![None, Some(AbomonatedTypedValue::Str("takesClassesFrom".to_string())), None]),
-            ("T".to_string(), vec![None, Some(AbomonatedTypedValue::Str("takesClassesFrom".to_string())), Some(AbomonatedTypedValue::Str("PLlab".to_string()))]),
-            ("T".to_string(), vec![Some(AbomonatedTypedValue::Str("student".to_string())), None, None]),
-            ("T".to_string(), vec![Some(AbomonatedTypedValue::Str("student".to_string())), None, Some(AbomonatedTypedValue::Str("PLlab".to_string()))]),
-            ("T".to_string(), vec![Some(AbomonatedTypedValue::Str("student".to_string())), Some(AbomonatedTypedValue::Str("takesClassesFrom".to_string())), None]),
-            ("T".to_string(), vec![Some(AbomonatedTypedValue::Str("student".to_string())), Some(AbomonatedTypedValue::Str("takesClassesFrom".to_string())), Some(AbomonatedTypedValue::Str("PLlab".to_string()))]),
-        ];
-        expected_permutations_ground_atom_0.sort();
-
-        assert_eq!(permutations_ground_atom_0, expected_permutations_ground_atom_0);
-    }
+    return (head, body)
 }

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
+use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
 fn parse_lexed_atom<'a>(
