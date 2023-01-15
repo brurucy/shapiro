@@ -1,6 +1,6 @@
 use crate::data_structures::hashmap::IndexedHashMap;
 use crate::data_structures::spine::Spine;
-use crate::misc::generic_binary_join::generic_join_for_each;
+use crate::misc::joins::sort_merge_join;
 use crate::models::datalog::TypedValue;
 use im::{HashMap, Vector};
 use rayon::prelude::*;
@@ -25,7 +25,7 @@ impl IndexBacking for BTreeIndex {
         return self.insert(value);
     }
     fn join(&self, other: &BTreeIndex, f: impl FnMut(usize, usize)) {
-        generic_join_for_each(self, other, f);
+        sort_merge_join(self, other, f);
     }
 }
 
@@ -34,7 +34,7 @@ impl IndexBacking for SpineIndex {
         return self.insert(value);
     }
     fn join(&self, other: &SpineIndex, f: impl FnMut(usize, usize)) {
-        generic_join_for_each(self, other, f);
+        sort_merge_join(self, other, f);
     }
 }
 
@@ -52,7 +52,7 @@ impl IndexBacking for VecIndex {
                 right.par_sort_unstable();
             },
         );
-        generic_join_for_each(&left, &right, f);
+        sort_merge_join(&left, &right, f);
     }
 }
 
@@ -71,7 +71,7 @@ impl IndexBacking for ImmutableVectorIndex {
                 right.sort();
             },
         );
-        generic_join_for_each(&left, &right, f);
+        sort_merge_join(&left, &right, f);
     }
 }
 

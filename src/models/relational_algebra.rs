@@ -3,29 +3,43 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::datalog::Ty;
+use crate::models::datalog::{SugaredAtom, Ty};
 use ordered_float::OrderedFloat;
 
-use super::datalog::{self, Atom, Rule, TypedValue};
+use super::datalog::{self, Atom, SugaredRule, TypedValue};
 use crate::data_structures;
 use crate::models::index::{Index, IndexBacking};
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
+pub trait Container {
+    fn insert(&mut self, row: Row);
+    fn remove(&mut self, row: Row);
+}
+
+pub trait Relation {
+    // Select mutates
+    fn select_value(&mut self, column_idx: usize, value: &SelectionTypedValue);
+    fn select_equality(&mut self, left_column_idx: usize, right_column_idx: usize);
+    fn product(&self, other: &Self) -> Self;
+    fn join(&self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self;
+    fn project(&self, new_column_indexes_and_values: Vec<SelectionTypedValue>, new_symbol: String) -> Self;
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct RelationWithIndex<T: IndexBacking> {
+pub struct RelationWithOneIndexBacking<T: IndexBacking> {
     pub symbol: String,
     pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
-    pub use_indexes: bool,
+    pub index: bool,
 }
 
-impl<T: IndexBacking> RelationWithIndex<T> {
-    pub(crate) fn insert_typed(&mut self, row: Row) {
+impl<T : IndexBacking> Container for RelationWithOneIndexBacking<T> {
+    fn insert(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
-            if self.use_indexes {
+            if self.index {
                 row.into_iter()
                     .enumerate()
                     .for_each(|(column_idx, column_value)| {
@@ -41,6 +55,13 @@ impl<T: IndexBacking> RelationWithIndex<T> {
             }
         }
     }
+
+    fn remove(&mut self, row: Row) {
+        unimplemented!()
+    }
+}
+
+impl<T: IndexBacking> RelationWithOneIndexBacking<T> {
     pub fn mark_deleted(&mut self, row: &Row) {
         if let Some(sign) = self.ward.get_mut(row) {
             *sign = false
@@ -117,14 +138,7 @@ impl<T: IndexBacking> RelationWithIndex<T> {
         self.ward.retain(|_k, v| *v);
     }
 
-    pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
-        let typed_row: Vec<TypedValue> = row
-            .into_iter()
-            .map(|element| element.to_typed_value())
-            .collect();
-        self.insert_typed(typed_row.into_boxed_slice())
-    }
-    pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
+    pub fn new(symbol: String, arity: usize) -> Self {
         let indexes = vec![
             Index {
                 index: T::default(),
@@ -133,11 +147,11 @@ impl<T: IndexBacking> RelationWithIndex<T> {
             arity
         ];
 
-        RelationWithIndex {
-            symbol: symbol.to_string(),
+        RelationWithOneIndexBacking {
+            symbol,
             indexes,
             ward: Default::default(),
-            use_indexes,
+            index: false,
         }
     }
 }
@@ -204,7 +218,7 @@ impl Display for SelectionTypedValue {
 pub enum Term {
     Selection(usize, SelectionTypedValue),
     Projection(Vec<SelectionTypedValue>),
-    Relation(Atom),
+    Relation(SugaredAtom),
     Product,
     Join(usize, usize),
 }
@@ -364,7 +378,7 @@ pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpressi
     return expr_local;
 }
 
-fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
+fn rule_body_to_expression(rule: &SugaredRule) -> RelationalExpression {
     let rule_body = rule.body.clone();
 
     let mut expression = RelationalExpression::new();
@@ -479,7 +493,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
             relations.clone().into_iter().enumerate().for_each(
                 |(idx_inner, (term_inner, term_inner_inner_idx, inner_node_idx))| {
                     if idx_inner > idx_outer {
-                        if let datalog::Term::Variable(_symbol) = term_outer.clone() {
+                        if let datalog::Term::Variable(_relation_id) = term_outer.clone() {
                             if term_outer == term_inner {
                                 let newvar = datalog::Term::Variable(*next_id);
                                 *next_id += 1;
@@ -507,7 +521,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
     return expression;
 }
 
-fn project_head(rule: &Rule) -> Term {
+fn project_head(rule: &SugaredRule) -> Term {
     let rule_body_terms: Vec<datalog::Term> = rule
         .body
         .clone()
@@ -537,8 +551,8 @@ fn project_head(rule: &Rule) -> Term {
     return Term::Projection(projected_head_indexes.clone());
 }
 
-impl From<&Rule> for RelationalExpression {
-    fn from(rule: &Rule) -> Self {
+impl From<&SugaredRule> for RelationalExpression {
+    fn from(rule: &SugaredRule) -> Self {
         // This is necessary in order to create fresh relations.
         let head_term_count = rule.head.terms.len();
         let body_term_count: usize = rule
@@ -567,13 +581,13 @@ impl From<&Rule> for RelationalExpression {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::Rule;
+    use crate::models::datalog::SugaredRule;
     use crate::models::relational_algebra::RelationalExpression;
 
     #[test]
     fn test_rule_to_expression() {
         let rule =
-            Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
+            SugaredRule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
 
         let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?0, ?2), ⋈_0=0(T(?10, ?1), σ_1=hardcore(U(?12, ?9))))))";
 
@@ -583,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_rule_to_expression_complex() {
-        let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
+        let rule = SugaredRule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
         let expected_expression =
             "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";

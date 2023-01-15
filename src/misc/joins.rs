@@ -1,6 +1,23 @@
 use std::cmp::Ordering;
 
-pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
+pub fn nested_loop_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
+    left_iter: &'a Left,
+    right_iter: &'a Right,
+    mut f: impl FnMut(V, V),
+) where
+    &'a Left: 'a + IntoIterator<Item = &'a (K, V)>,
+    &'a Right: 'a + IntoIterator<Item = &'a (K, V)>,
+    K: Ord + Clone,
+    V: Clone,
+{
+    left_iter.into_iter().for_each(|left_row_idx| {
+        right_iter.into_iter().for_each(|right_row_idx| {
+            f(*left_row_idx, *right_row_idx);
+        })
+    })
+}
+
+pub fn sort_merge_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
     left_iter: &'a Left,
     right_iter: &'a Right,
     mut f: impl FnMut(V, V),
@@ -77,7 +94,7 @@ pub fn generic_join_for_each<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::misc::generic_binary_join::generic_join_for_each;
+    use crate::misc::joins::sort_merge_join;
 
     #[test]
     fn test_generic_join() {
@@ -86,7 +103,7 @@ mod tests {
 
         let mut actual_product = vec![];
 
-        generic_join_for_each(&left, &right, |l, r| {
+        sort_merge_join(&left, &right, |l, r| {
             actual_product.push((l.clone(), r.clone()))
         });
 

@@ -1,3 +1,4 @@
-pub mod generic_binary_join;
+pub mod joins;
 pub mod rule_graph;
 pub mod string_interning;
+pub mod helpers;

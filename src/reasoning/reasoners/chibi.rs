@@ -1,32 +1,32 @@
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Program, Rule, Ty, TypedValue};
+use crate::models::datalog::{Program, SugaredAtom, SugaredRule, Ty, TypedValue};
 use crate::models::index::ValueRowId;
-use crate::models::instance::InstanceWithIndex;
+use crate::models::instance::{SimpleDatabase};
 use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
     RelationDropper,
 };
-use crate::models::relational_algebra::{RelationWithIndex, Row};
+use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use rayon::prelude::*;
 
 pub struct Rewriting {
-    pub program: Vec<Rule>,
+    pub program: Program,
 }
 
 impl Rewriting {
-    fn new(program: &Vec<Rule>) -> Self {
+    fn new(program: &Program) -> Self {
         return Rewriting {
             program: program.clone(),
         };
     }
 }
 
-impl InstanceEvaluator<Vec<ValueRowId>> for Rewriting {
-    fn evaluate(&self, instance: &InstanceWithIndex<Vec<ValueRowId>>) -> Vec<RelationWithIndex<Vec<ValueRowId>>> {
+impl InstanceEvaluator<SimpleDatabase> for Rewriting {
+    fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
         return self
             .program
             .clone()
@@ -39,19 +39,19 @@ impl InstanceEvaluator<Vec<ValueRowId>> for Rewriting {
 }
 
 pub struct ParallelRewriting {
-    pub program: Vec<Rule>,
+    pub program: Vec<SugaredRule>,
 }
 
 impl ParallelRewriting {
-    fn new(program: &Vec<Rule>) -> Self {
+    fn new(program: &Vec<SugaredRule>) -> Self {
         return ParallelRewriting {
             program: program.clone(),
         };
     }
 }
 
-impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
-    fn evaluate(&self, instance: &InstanceWithIndex<Vec<ValueRowId>>) -> Vec<RelationWithIndex<Vec<ValueRowId>>> {
+impl InstanceEvaluator<SimpleDatabase> for ParallelRewriting {
+    fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
         return self
             .program
             .clone()
@@ -64,7 +64,7 @@ impl InstanceEvaluator<Vec<ValueRowId>> for ParallelRewriting {
 }
 
 pub struct ChibiDatalog {
-    pub fact_store: InstanceWithIndex<Vec<ValueRowId>>,
+    pub fact_store: SimpleDatabase,
     interner: Interner,
     parallel: bool,
     intern: bool,
@@ -74,8 +74,8 @@ pub struct ChibiDatalog {
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
-            fact_store: InstanceWithIndex::new(false),
-            interner: Interner::default(),
+            fact_store: Default::default(),
+            interner: Default::default(),
             parallel: true,
             intern: true,
             materialization: vec![],
@@ -143,7 +143,7 @@ impl Flusher for ChibiDatalog {
 }
 
 impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<Rule>) -> InstanceWithIndex<Vec<ValueRowId>> {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> SimpleDatabase {
         let mut program = program;
         if self.intern {
             program = program
@@ -254,8 +254,8 @@ impl Materializer for ChibiDatalog {
 }
 
 impl Queryable for ChibiDatalog {
-    fn contains(&mut self, atom: &Atom) -> bool {
-        let rel = self.fact_store.view(&atom.symbol);
+    fn contains(&mut self, atom: &SugaredAtom) -> bool {
+        let rel = self.fact_store.view(&atom.relation_id);
         let mut boolean_query = atom
             .terms
             .iter()

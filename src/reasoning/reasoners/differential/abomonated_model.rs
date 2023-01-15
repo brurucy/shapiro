@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use abomonation_derive::Abomonation;
 use itertools::Itertools;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Rule, Term, TypedValue};
+use crate::models::datalog::{Atom, Rule, SugaredRule, Term, TypedValue};
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTypedValue {
@@ -17,7 +17,6 @@ pub enum AbomonatedTypedValue {
 impl Display for AbomonatedTypedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            //AbomonatedTypedValue::Str(inner) => write!(f, "\"{}\"", inner),
             AbomonatedTypedValue::Bool(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::UInt(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::InternedStr(inner) => write!(f, "Is{}", inner)
@@ -32,7 +31,7 @@ impl From<TypedValue> for AbomonatedTypedValue {
             TypedValue::Bool(inner) => AbomonatedTypedValue::Bool(inner),
             TypedValue::UInt(inner) => AbomonatedTypedValue::UInt(inner),
             TypedValue::InternedStr(inner) => AbomonatedTypedValue::InternedStr(inner),
-            _ => panic!("floats are not supported by differential reasoner!")
+            _ => panic!("floats and strings are not supported by differential reasoner!")
         };
     }
 }
@@ -137,7 +136,7 @@ pub fn permute_mask(masked_atom: MaskedAtom) -> impl Iterator<Item=MaskedAtom> {
         })
 }
 
-pub fn abomonate_atom(atom: Atom, interner: &mut Interner) -> AbomonatedAtom {
+pub fn abomonate_atom(atom: Atom) -> AbomonatedAtom {
     let terms = atom
         .terms
         .into_iter()
@@ -149,14 +148,14 @@ pub fn abomonate_atom(atom: Atom, interner: &mut Interner) -> AbomonatedAtom {
         })
         .collect();
 
-    return (interner.rodeo.get_or_intern(atom.symbol).into_inner(), atom.sign, terms);
+    return (atom.relation_id, atom.sign, terms);
 }
 
 pub type AbomonatedRule = (AbomonatedAtom, Vec<AbomonatedAtom>);
 
-pub fn abomonate_rule(rule: Rule, interner: &mut Interner) -> AbomonatedRule {
-    let head = abomonate_atom(rule.head, interner);
-    let body = rule.body.iter().map(|atom| abomonate_atom(atom.clone(), interner)).collect();
+pub fn abomonate_rule(rule: Rule) -> AbomonatedRule {
+    let head = abomonate_atom(rule.head);
+    let body = rule.body.iter().map(|atom| abomonate_atom(atom.clone())).collect();
 
     return (head, body)
 }

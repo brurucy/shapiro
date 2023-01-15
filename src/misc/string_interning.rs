@@ -1,14 +1,14 @@
-use crate::models::datalog::{Atom, Rule, Term, TypedValue};
+use crate::models::datalog::{Atom, Rule, SugaredAtom, SugaredRule, Term, TypedValue};
 use crate::models::relational_algebra::Row;
-use lasso::{Key, Rodeo};
+use lasso::Rodeo;
 
 pub struct Interner {
     pub rodeo: Rodeo,
 }
 
 impl Interner {
-    pub(crate) fn intern_atom(&mut self, atom: &Atom) -> Atom {
-        let new_terms = atom.terms.iter().map(|term| match term {
+    pub(crate) fn intern_atom(&mut self, sugared_atom: &SugaredAtom) -> Atom {
+        let new_terms = sugared_atom.terms.iter().map(|term| match term {
             Term::Constant(inner) => match inner {
                 TypedValue::Str(inner) => Term::Constant(TypedValue::InternedStr(
                     self.rodeo.get_or_intern(inner.as_str()).into_inner(),
@@ -17,9 +17,12 @@ impl Interner {
             },
             variable => variable.clone(),
         });
+
+        let relation_id = self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner();
+
         return Atom {
             terms: new_terms.collect(),
-            symbol: atom.symbol.clone(),
+            relation_id,
             sign: true,
         };
     }
@@ -36,13 +39,13 @@ impl Interner {
             .collect();
     }
 
-    pub(crate) fn intern_rule(&mut self, rule: &Rule) -> Rule {
-        let mut new_rule = rule.clone();
-        new_rule.head = self.intern_atom(&new_rule.head);
-        new_rule.body = new_rule
+    pub(crate) fn intern_rule(&mut self, rule: &SugaredRule) -> Rule {
+        let mut new_rule: Rule = Default::default();
+        new_rule.head = self.intern_atom(&rule.head);
+        new_rule.body = rule
             .body
             .iter()
-            .map(|body_atom| self.intern_atom(body_atom))
+            .map(|body_atom| self.intern_atom(&body_atom))
             .collect();
 
         return new_rule;

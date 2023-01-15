@@ -1,4 +1,4 @@
-use crate::models::datalog::Rule;
+use crate::models::datalog::SugaredRule;
 use crate::models::index::IndexBacking;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
 use crate::models::relational_algebra::Row;
@@ -7,7 +7,7 @@ use ahash::{HashSet, HashSetExt};
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
 
-pub fn make_overdeletion_program(program: &Vec<Rule>) -> Vec<Rule> {
+pub fn make_overdeletion_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
     let mut overdeletion_program = vec![];
 
     program.iter().for_each(|rule| {
@@ -26,7 +26,7 @@ pub fn make_overdeletion_program(program: &Vec<Rule>) -> Vec<Rule> {
     overdeletion_program
 }
 
-pub fn make_alternative_derivation_program(program: &Vec<Rule>) -> Vec<Rule> {
+pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
     let mut alternative_derivation_program = vec![];
 
     program.iter().for_each(|rule| {
@@ -37,7 +37,7 @@ pub fn make_alternative_derivation_program(program: &Vec<Rule>) -> Vec<Rule> {
         alt_rule.head.symbol = alt_symbol;
 
         let mut new_del_atom = alt_rule.head.clone();
-        new_del_atom.symbol = del_symbol;
+        new_del_atom.relation_id = del_symbol;
 
         alt_rule.body.insert(0, new_del_atom);
         alternative_derivation_program.push(alt_rule)
@@ -46,7 +46,7 @@ pub fn make_alternative_derivation_program(program: &Vec<Rule>) -> Vec<Rule> {
     alternative_derivation_program
 }
 
-pub fn delete_rederive<K, T>(instance: &mut T, program: &Vec<Rule>, updates: Vec<(&str, Row)>)
+pub fn delete_rederive<K, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<(&str, Row)>)
 where
     K: IndexBacking,
     T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K> + RelationDropper,
@@ -98,7 +98,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule, Ty};
+    use crate::models::datalog::{Atom, SugaredRule, Ty};
     use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
@@ -109,22 +109,22 @@ mod tests {
     #[test]
     fn test_make_overdeletion_program() {
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
         ];
 
         let actual_overdeletion_program = make_overdeletion_program(&program);
 
         let exp_overdeletion_program = vec![
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?y) <- [{}edge(?x, ?y)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [{}reach(?x, ?y), edge(?y, ?z)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [reach(?x, ?y), {}edge(?y, ?z)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
@@ -136,17 +136,17 @@ mod tests {
     #[test]
     fn test_make_alternative_derivation_program() {
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
         ];
 
         let actual_alt_program = make_alternative_derivation_program(&program);
         let exp_alt_program = vec![
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?y) <- [{}reach(?x, ?y), edge(?x, ?y)]",
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]",
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),
@@ -178,8 +178,8 @@ mod tests {
         });
 
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
         ];
 
         chibi.materialize(&program);

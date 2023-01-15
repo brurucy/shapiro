@@ -1,148 +1,106 @@
-use std::collections::HashMap;
-use im::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::datalog::{Atom, Ty};
 use crate::models::index::IndexBacking;
-use crate::models::relational_algebra::Row;
+use crate::models::relational_algebra::{Container, Row};
 use crate::reasoning::algorithms::relational_algebra::evaluate;
 
 use super::{
     datalog::TypedValue,
-    relational_algebra::{RelationWithIndex, RelationalExpression},
+    relational_algebra::{RelationWithOneIndexBacking, RelationalExpression},
 };
 
-pub type SimpleDatabase = HashMap<String, HashSet<Row>>;
-pub type DatabaseWithIndex<T> = HashMap<String, RelationWithIndex<T>>;
+pub type Relation = HashSet<Row, ahash::RandomState>;
+pub type Storage = HashMap<u32, Relation>;
+pub type StorageWithIndex<T> = HashMap<u32, RelationWithOneIndexBacking<T>>;
 
-pub struct Instance
-{
-    pub database: SimpleDatabase,
+pub trait Database {
+    fn insert_at(&mut self, relation_id: u32, row: Row);
+    fn delete_at(&mut self, relation_id: u32, row: Row);
 }
 
-impl Instance {
-    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let typed_row = row.into_iter().map(|element| element.to_typed_value()).collect();
-        if let Some(relation) = self.database.get_mut(table) {
-            relation.insert(typed_row);
-        } else {
-            let mut new_relation = HashSet::new();
-            new_relation.insert(typed_row);
-            self.database.insert(table.to_string(),new_relation);
-        }
-    }
-    pub(crate) fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        if let Some(relation) = self.database.get_mut(table) {
+pub trait WithIndexes {
+    fn index_column(&mut self, relation_id: u32, column_idx: usize);
+}
+
+pub struct SimpleDatabase
+{
+    pub storage: Storage,
+}
+
+impl Database for SimpleDatabase {
+    fn insert_at(&mut self, relation_id: u32, row: Row) {
+        if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.insert(row);
         } else {
-            let mut new_relation = HashSet::new();
+            let mut new_relation: Relation = Default::default();
             new_relation.insert(row);
-            self.database
-                .insert(table.to_string(), new_relation);
+            self.storage.insert(relation_id, new_relation);
         }
     }
-    pub(crate) fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        if let Some(relation) = self.database.get_mut(table) {
+
+    fn delete_at(&mut self, relation_id: u32, row: Row) {
+        if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.remove(&row);
         }
     }
-    pub fn insert_atom(&mut self, atom: &Atom) {
-        let row = (&atom.terms)
-            .into_iter()
-            .map(|term| term.clone().into())
-            .collect();
-        self.insert_typed(&atom.symbol.to_string(), row)
+}
+
+impl Default for SimpleDatabase {
+    fn default() -> Self {
+        return Self {
+            storage: Default::default(),
+        }
     }
-    pub fn delete_atom(&mut self, atom: &Atom) {
-        let row = (&atom.terms)
-            .into_iter()
-            .map(|term| term.clone().into())
-            .collect();
-        self.delete_typed(&atom.symbol.to_string(), row)
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SimpleDatabaseWithIndex<T>
+where
+    T: IndexBacking,
+{
+    pub storage: StorageWithIndex<T>,
+}
+
+impl<T> Database for SimpleDatabaseWithIndex<T> {
+    fn insert_at(&mut self, relation_id: u32, row: Row) {
+        if let Some(relation) = self.storage.get_mut(&relation_id) {
+            relation.insert(row);
+        } else {
+            let mut new_relation = RelationWithOneIndexBacking::new(relation_id, row.len());
+            new_relation.insert(row);
+            self.storage.insert(relation_id, new_relation);
+        }
     }
-    pub fn view(&self, table: &str) -> Vec<Box<[TypedValue]>> {
-        return if let Some(relation) = self.database.get(table) {
-            relation.into_iter().map(|row| row.clone()).collect()
+
+    fn delete_at(&mut self, relation_id: u32, row: Row) {
+        if let Some(relation) = self.storage.get_mut(&relation_id) {
+            relation.mark_deleted(&row)
+        }
+    }
+}
+
+impl<T: IndexBacking> SimpleDatabaseWithIndex<T> {
+    pub fn insert_relation(&mut self, relation: RelationWithOneIndexBacking<T>) {
+        self.storage.insert(relation.relation_id, relation);
+    }
+    pub fn view(&self, relation_id: u32) -> Vec<Box<[TypedValue]>> {
+        return if let Some(relation) = self.storage.get(&relation_id) {
+            relation.ward.clone().into_iter().map(|(k, _v)| k).collect()
         } else {
             vec![]
         };
     }
     pub fn new() -> Self {
         return Self {
-            database: HashMap::new(),
-        };
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct InstanceWithIndex<T>
-where
-    T: IndexBacking,
-{
-    pub database: DatabaseWithIndex<T>,
-    pub use_indexes: bool,
-}
-
-impl<T: IndexBacking> InstanceWithIndex<T> {
-    pub fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        if let Some(relation) = self.database.get_mut(table) {
-            relation.insert(row)
-        } else {
-            let mut new_relation = RelationWithIndex::new(table, row.len(), self.use_indexes);
-            new_relation.insert(row);
-            self.database
-                .insert(new_relation.symbol.clone(), new_relation);
-        }
-    }
-    pub(crate) fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        if let Some(relation) = self.database.get_mut(table) {
-            relation.insert_typed(row)
-        } else {
-            let mut new_relation = RelationWithIndex::new(table, row.len(), self.use_indexes);
-            new_relation.insert_typed(row);
-            self.database
-                .insert(new_relation.symbol.clone(), new_relation);
-        }
-    }
-    pub(crate) fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        if let Some(relation) = self.database.get_mut(table) {
-            relation.mark_deleted(&row)
-        }
-    }
-    pub fn insert_relation(&mut self, relation: RelationWithIndex<T>) {
-        self.database.insert(relation.symbol.to_string(), relation);
-    }
-    pub fn insert_atom(&mut self, atom: &Atom) {
-        let row = (&atom.terms)
-            .into_iter()
-            .map(|term| term.clone().into())
-            .collect();
-        self.insert_typed(&atom.symbol.to_string(), row)
-    }
-    pub fn delete_atom(&mut self, atom: &Atom) {
-        let row = (&atom.terms)
-            .into_iter()
-            .map(|term| term.clone().into())
-            .collect();
-        self.delete_typed(&atom.symbol.to_string(), row)
-    }
-    pub fn view(&self, table: &str) -> Vec<Box<[TypedValue]>> {
-        return if let Some(relation) = self.database.get(table) {
-            relation.ward.clone().into_iter().map(|(k, _v)| k).collect()
-        } else {
-            vec![]
-        };
-    }
-    pub fn new(use_indexes: bool) -> Self {
-        return Self {
-            database: HashMap::new(),
-            use_indexes,
+            storage: HashMap::new(),
         };
     }
     pub fn evaluate(
         &self,
         expression: &RelationalExpression,
         view_name: &str,
-    ) -> Option<RelationWithIndex<T>> {
-        return evaluate(expression, &self.database, view_name);
+    ) -> Option<RelationWithOneIndexBacking<T>> {
+        return evaluate(expression, &self.storage, view_name);
     }
 }

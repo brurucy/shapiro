@@ -4,7 +4,7 @@ mod abomonated_vertebra;
 use std::clone::Clone;
 use std::thread;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, TypedValue};
+use crate::models::datalog::{Program, SugaredProgram, SugaredRule, TypedValue};
 use crate::models::instance::{Instance};
 use crossbeam_channel::{Receiver, select, Sender, unbounded};
 use differential_dataflow::input::Input;
@@ -407,17 +407,15 @@ fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: i
 }
 
 impl Materializer for DifferentialDatalog {
-    fn materialize(&mut self, program: &Program) {
+    fn materialize(&mut self, program: &SugaredProgram) {
         program.iter().for_each(|rule| {
-            let mut possibly_interned_rule = rule.clone();
-            if self.intern {
-                possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
-            }
-            self.materialization.push(possibly_interned_rule.clone());
-            self.rule_input_sink.send((abomonate_rule(possibly_interned_rule, &mut self.interner), self.epoch, 1)).unwrap();
+            let mut interned_rule = self.interner.intern_rule(rule);
+
+            self.materialization.push(interned_rule.clone());
+            self.rule_input_sink.send((abomonate_rule(interned_rule), self.epoch, 1)).unwrap();
         });
         self.epoch += 1;
-        let noop_rule: AbomonatedRule =  (
+        let noop_rule: AbomonatedRule = (
             (self.interner.rodeo.get_or_intern(NOOP_DUMMY_LHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)]),
             vec![
                 (self.interner.rodeo.get_or_intern(NOOP_DUMMY_RHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)])

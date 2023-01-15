@@ -5,7 +5,7 @@ use crate::Reasoners::{
 };
 use clap::{Arg, Command};
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, Rule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{Atom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -111,7 +111,7 @@ impl AtomParser for NTripleParser {
 
         return Atom {
             terms,
-            symbol: symbol.to_string(),
+            relation_id: symbol.to_string(),
             sign: true,
         };
     }
@@ -132,7 +132,7 @@ impl AtomParser for SpaceSepParser {
 
         return Atom {
             terms,
-            symbol: symbol.to_string(),
+            relation_id: symbol.to_string(),
             sign: true,
         };
     }
@@ -153,7 +153,7 @@ fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static st
 }
 
 impl Parser {
-    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item = Atom> + '_ {
+    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item =Atom> + '_ {
         match read_file(filename) {
             Ok(file) => {
                 return file
@@ -165,9 +165,9 @@ impl Parser {
             }
         }
     }
-    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item = Rule> + '_ {
+    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item =SugaredRule> + '_ {
         match read_file(filename) {
-            Ok(file) => return file.into_iter().map(|line| Rule::from(line.as_str())),
+            Ok(file) => return file.into_iter().map(|line| SugaredRule::from(line.as_str())),
             Err(e) => {
                 panic!("{}", e)
             }
@@ -308,7 +308,7 @@ fn main() {
     let mut negative_update: Vec<Diff> = vec![];
 
     facts.iter().enumerate().for_each(|(idx, atom)| {
-        let sym = atom.symbol.as_str();
+        let sym = atom.relation_id.as_str();
         let terms: Vec<Box<dyn Ty>> = atom
             .terms
             .iter()

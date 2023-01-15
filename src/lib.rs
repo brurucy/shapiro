@@ -9,7 +9,7 @@ pub mod reasoning;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule};
+    use crate::models::datalog::{Atom, SugaredRule};
     use crate::models::index::BTreeIndex;
     use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
@@ -24,8 +24,8 @@ mod tests {
         reasoner.insert("edge", vec![Box::new(4), Box::new(5)]);
 
         let query = vec![
-            Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
+            SugaredRule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
         ];
 
         reasoner.materialize(&query);
@@ -78,8 +78,8 @@ mod tests {
         reasoner.insert("edge", vec![Box::new(4), Box::new(5)]);
 
         let query = vec![
-            Rule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
+            SugaredRule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reachable(?x, ?z) <- [edge(?x, ?y), reachable(?y, ?z)]"),
         ];
 
         reasoner.materialize(&query);

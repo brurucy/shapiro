@@ -1,50 +1,42 @@
-use crate::models::index::IndexBacking;
-use crate::models::instance::InstanceWithIndex;
-use crate::models::relational_algebra::RelationWithIndex;
+use crate::models::instance::{Database};
 
 pub trait InstanceEvaluator<T>
 where
-    T: IndexBacking,
+    T: Database,
 {
-    fn evaluate(&self, _: &InstanceWithIndex<T>) -> Vec<RelationWithIndex<T>>;
+    fn evaluate(&self, _: &T) -> T;
 }
 
-pub struct Evaluation<'a, T>
-where
-    T: IndexBacking,
-{
-    pub input: &'a InstanceWithIndex<T>,
+pub struct Evaluation<'a, T : Database> {
+    pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub previous_delta: InstanceWithIndex<T>,
-    pub current_delta: InstanceWithIndex<T>,
-    pub output: InstanceWithIndex<T>,
+    pub previous_delta: T,
+    pub current_delta: T,
+    pub output: T,
 }
 
 impl<'a, T> Evaluation<'a, T>
-where
-    T: IndexBacking,
 {
-    pub(crate) fn new(instance: &'a InstanceWithIndex<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
+    pub(crate) fn new(database: &'a T, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
-            input: instance,
+            input: database,
             evaluator,
-            previous_delta: InstanceWithIndex::new(instance.use_indexes),
-            current_delta: InstanceWithIndex::new(instance.use_indexes),
-            output: InstanceWithIndex::new(instance.use_indexes),
+            previous_delta: Default::default(),
+            current_delta: Default::default(),
+            output: Default::default(),
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
         self.previous_delta = self.current_delta.clone();
         let mut input_plus_previous_delta = self.input.clone();
         self.previous_delta.database.iter().for_each(|relation| {
-            relation.1.ward.iter().for_each(|(row, active)| {
-                if *active {
-                    input_plus_previous_delta.insert_typed(&relation.0, row.clone())
-                }
-            })
+            // relation.1.ward.iter().for_each(|(row, active)| {
+            //     if *active {
+                     input_plus_previous_delta.insert_typed(*relation.0, row.clone())
+            //    }
         });
 
-        self.current_delta = InstanceWithIndex::new(self.input.use_indexes);
+        self.current_delta = Database::default();
 
         let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
 
@@ -52,8 +44,8 @@ where
             relation.ward.iter().for_each(|(row, active)| {
                 if *active {
                     self.current_delta
-                        .insert_typed(&relation.symbol, row.clone());
-                    self.output.insert_typed(&relation.symbol, row.clone());
+                        .insert_typed(relation.relation_id, row.clone());
+                    self.output.insert_typed(relation.relation_id, row.clone());
                 }
             })
         });
