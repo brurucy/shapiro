@@ -7,7 +7,7 @@ use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
     RelationDropper,
 };
-use crate::models::relational_algebra::{RelationWithOneIndexBacking, RelationalExpression, Row};
+use crate::models::relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use rayon::prelude::*;
@@ -36,7 +36,7 @@ impl<T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter
 where
     T: IndexBacking,
 {
-    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<RelationWithOneIndexBacking<T>> {
+    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<SimpleRelationWithOneIndexBacking<T>> {
         return self
             .program
             .clone()
@@ -82,7 +82,7 @@ impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
 where
     T: IndexBacking,
 {
-    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<RelationWithOneIndexBacking<T>> {
+    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<SimpleRelationWithOneIndexBacking<T>> {
         return self
             .program
             .clone()

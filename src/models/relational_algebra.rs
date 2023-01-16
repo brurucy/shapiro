@@ -14,8 +14,8 @@ use data_structures::tree::Tree;
 pub type Row = Box<[TypedValue]>;
 
 pub trait Container {
-    fn insert(&mut self, row: Row);
-    fn remove(&mut self, row: Row);
+    fn insert_row(&mut self, row: Row);
+    fn remove_row(&mut self, row: Row);
 }
 
 pub trait Relation {
@@ -25,18 +25,19 @@ pub trait Relation {
     fn product(&self, other: &Self) -> Self;
     fn join(&self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self;
     fn project(&self, new_column_indexes_and_values: Vec<SelectionTypedValue>, new_symbol: String) -> Self;
+    fn symbol(&self) -> String;
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RelationWithOneIndexBacking<T: IndexBacking> {
+pub struct SimpleRelationWithOneIndexBacking<T: IndexBacking> {
     pub symbol: String,
     pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
     pub index: bool,
 }
 
-impl<T : IndexBacking> Container for RelationWithOneIndexBacking<T> {
-    fn insert(&mut self, row: Row) {
+impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
+    fn insert_row(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
             if self.index {
@@ -56,12 +57,12 @@ impl<T : IndexBacking> Container for RelationWithOneIndexBacking<T> {
         }
     }
 
-    fn remove(&mut self, row: Row) {
-        unimplemented!()
+    fn remove_row(&mut self, row: Row) {
+        todo!()
     }
 }
 
-impl<T: IndexBacking> RelationWithOneIndexBacking<T> {
+impl<T: IndexBacking> SimpleRelationWithOneIndexBacking<T> {
     pub fn mark_deleted(&mut self, row: &Row) {
         if let Some(sign) = self.ward.get_mut(row) {
             *sign = false
@@ -147,7 +148,7 @@ impl<T: IndexBacking> RelationWithOneIndexBacking<T> {
             arity
         ];
 
-        RelationWithOneIndexBacking {
+        SimpleRelationWithOneIndexBacking {
             symbol,
             indexes,
             ward: Default::default(),

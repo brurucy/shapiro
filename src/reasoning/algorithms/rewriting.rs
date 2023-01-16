@@ -1,6 +1,6 @@
 use crate::data_structures::substitutions::Substitutions;
 use crate::models::datalog::{Atom, Rule, Term};
-use crate::models::instance::{Relation, SimpleDatabase};
+use crate::models::instance::{HashSetBacking, SimpleDatabase};
 use rayon::prelude::*;
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
@@ -127,7 +127,7 @@ pub fn accumulate_body_substitutions(
         });
 }
 
-pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation> {
+pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<HashSetBacking> {
     let mut output_instance: SimpleDatabase = Default::default();
 
     substitutions.into_iter().for_each(|substitutions| {
@@ -141,7 +141,7 @@ pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Rel
     return None;
 }
 
-pub fn evaluate_rule<T>(knowledge_base: &SimpleDatabase, rule: &Rule) -> Option<Relation> {
+pub fn evaluate_rule<T>(knowledge_base: &SimpleDatabase, rule: &Rule) -> Option<HashSetBacking> {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, &rule.body),

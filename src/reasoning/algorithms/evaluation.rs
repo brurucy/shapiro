@@ -7,7 +7,12 @@ where
     fn evaluate(&self, _: &T) -> T;
 }
 
-pub struct Evaluation<'a, T : Database> {
+pub trait Set {
+    fn union(&self, other: &Self) -> Self;
+    fn difference(&self, other: &Self) -> Self;
+}
+
+pub struct Evaluation<'a, T : Database + Clone + Set> {
     pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
     pub previous_delta: T,
@@ -15,7 +20,7 @@ pub struct Evaluation<'a, T : Database> {
     pub output: T,
 }
 
-impl<'a, T> Evaluation<'a, T>
+impl<'a, T : Database + Clone + Set> Evaluation<'a, T>
 {
     pub(crate) fn new(database: &'a T, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
@@ -28,27 +33,12 @@ impl<'a, T> Evaluation<'a, T>
     }
     fn semi_naive_immediate_consequence(&mut self) {
         self.previous_delta = self.current_delta.clone();
-        let mut input_plus_previous_delta = self.input.clone();
-        self.previous_delta.database.iter().for_each(|relation| {
-            // relation.1.ward.iter().for_each(|(row, active)| {
-            //     if *active {
-                     input_plus_previous_delta.insert_typed(*relation.0, row.clone())
-            //    }
-        });
-
-        self.current_delta = Database::default();
+        let input_plus_previous_delta = self.input.union(&self.previous_delta);
 
         let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
+        self.current_delta = evaluation.difference(&input_plus_previous_delta);
 
-        evaluation.iter().for_each(|relation| {
-            relation.ward.iter().for_each(|(row, active)| {
-                if *active {
-                    self.current_delta
-                        .insert_typed(relation.relation_id, row.clone());
-                    self.output.insert_typed(relation.relation_id, row.clone());
-                }
-            })
-        });
+        self.output.union(&self.current_delta);
     }
     pub fn semi_naive(&mut self) {
         loop {

@@ -1,31 +1,32 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::models::datalog::{Atom, Ty};
 use crate::models::index::IndexBacking;
-use crate::models::relational_algebra::{Container, Row};
+use crate::models::relational_algebra::{Row};
 use crate::reasoning::algorithms::relational_algebra::evaluate;
 
 use super::{
     datalog::TypedValue,
-    relational_algebra::{RelationWithOneIndexBacking, RelationalExpression},
+    relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression},
 };
 
-pub type Relation = HashSet<Row, ahash::RandomState>;
-pub type Storage = HashMap<u32, Relation>;
-pub type StorageWithIndex<T> = HashMap<u32, RelationWithOneIndexBacking<T>>;
+pub type HashSetBacking = HashSet<Row, ahash::RandomState>;
+pub type SimpleStorage = HashMap<u32, HashSetBacking>;
+pub type StorageWithIndex<T> = HashMap<u32, SimpleRelationWithOneIndexBacking<T>>;
 
-pub trait Database {
+pub trait Database: Default + Eq {
     fn insert_at(&mut self, relation_id: u32, row: Row);
     fn delete_at(&mut self, relation_id: u32, row: Row);
+    fn create_relation(&mut self, symbol: String, relation_id: u32);
 }
 
 pub trait WithIndexes {
     fn index_column(&mut self, relation_id: u32, column_idx: usize);
 }
 
+#[derive(Eq, PartialEq)]
 pub struct SimpleDatabase
 {
-    pub storage: Storage,
+    pub storage: SimpleStorage,
 }
 
 impl Database for SimpleDatabase {
@@ -33,7 +34,7 @@ impl Database for SimpleDatabase {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.insert(row);
         } else {
-            let mut new_relation: Relation = Default::default();
+            let mut new_relation: HashSetBacking = Default::default();
             new_relation.insert(row);
             self.storage.insert(relation_id, new_relation);
         }
@@ -43,6 +44,11 @@ impl Database for SimpleDatabase {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.remove(&row);
         }
+    }
+
+    fn create_relation(&mut self, symbol: String, relation_id: u32) {
+        let mut new_relation: HashSetBacking = Default::default();
+        self.storage.insert(relation_id, new_relation);
     }
 }
 
@@ -54,20 +60,19 @@ impl Default for SimpleDatabase {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct SimpleDatabaseWithIndex<T>
 where
-    T: IndexBacking,
+    T: IndexBacking + Eq + PartialEq,
 {
     pub storage: StorageWithIndex<T>,
 }
 
-impl<T> Database for SimpleDatabaseWithIndex<T> {
+impl<T : IndexBacking + Eq + PartialEq> Database for SimpleDatabaseWithIndex<T> {
     fn insert_at(&mut self, relation_id: u32, row: Row) {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.insert(row);
         } else {
-            let mut new_relation = RelationWithOneIndexBacking::new(relation_id, row.len());
             new_relation.insert(row);
             self.storage.insert(relation_id, new_relation);
         }
@@ -78,10 +83,14 @@ impl<T> Database for SimpleDatabaseWithIndex<T> {
             relation.mark_deleted(&row)
         }
     }
+
+    fn create_relation(&mut self, symbol: String, relation_id: u32) {
+        let mut new_relation = Sim::new(relation_id, row.len());
+    }
 }
 
-impl<T: IndexBacking> SimpleDatabaseWithIndex<T> {
-    pub fn insert_relation(&mut self, relation: RelationWithOneIndexBacking<T>) {
+impl<T: IndexBacking + Eq + PartialEq> SimpleDatabaseWithIndex<T> {
+    pub fn insert_relation(&mut self, relation: SimpleRelationWithOneIndexBacking<T>) {
         self.storage.insert(relation.relation_id, relation);
     }
     pub fn view(&self, relation_id: u32) -> Vec<Box<[TypedValue]>> {
@@ -100,7 +109,15 @@ impl<T: IndexBacking> SimpleDatabaseWithIndex<T> {
         &self,
         expression: &RelationalExpression,
         view_name: &str,
-    ) -> Option<RelationWithOneIndexBacking<T>> {
+    ) -> Option<SimpleRelationWithOneIndexBacking<T>> {
         return evaluate(expression, &self.storage, view_name);
+    }
+}
+
+impl<T : IndexBacking + Eq + PartialEq> Default for SimpleDatabaseWithIndex<T> {
+    fn default() -> Self {
+        return Self {
+            storage: HashMap::new(),
+        }
     }
 }
