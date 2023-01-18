@@ -12,11 +12,11 @@ use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use rayon::prelude::*;
 
-pub struct RuleToRelationalExpressionConverter {
-    pub program: Vec<(&'_ str, RelationalExpression)>,
+pub struct RuleToRelationalExpressionConverter<'a> {
+    pub program: Vec<(&'a str, RelationalExpression)>,
 }
 
-impl RuleToRelationalExpressionConverter {
+impl<'a> RuleToRelationalExpressionConverter<'a> {
     fn new(program: &Vec<SugaredRule>) -> Self {
         return RuleToRelationalExpressionConverter {
             program: program
@@ -32,7 +32,7 @@ impl RuleToRelationalExpressionConverter {
     }
 }
 
-impl<T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter
+impl<'a, T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter<'a>
 where
     T: IndexBacking,
 {
@@ -41,7 +41,7 @@ where
             .program
             .clone()
             .into_iter()
-            .fold(SimpleDatabaseWithIndex::new(false), |mut acc, (symbol, expression)| {
+            .fold(SimpleDatabaseWithIndex::new(), |mut acc, (symbol, expression)| {
                 let output = instance.evaluate(&expression, &symbol);
                 if let Some(relation) = output {
                     relation.ward.iter().for_each(|(row, active)| {
@@ -96,7 +96,7 @@ pub struct SimpleDatalog<T>
 where
     T: IndexBacking,
 {
-    pub fact_store: SimpleDatabaseWithIndex<T>,
+    pub storage: SimpleDatabaseWithIndex<T>,
     interner: Interner,
     parallel: bool,
     intern: bool,
@@ -110,7 +110,7 @@ where
 {
     fn default() -> Self {
         SimpleDatalog {
-            fact_store: SimpleDatabaseWithIndex::new(false),
+            storage: SimpleDatabaseWithIndex::new(),
             interner: Interner::default(),
             parallel: true,
             intern: true,
@@ -145,7 +145,7 @@ impl<T: IndexBacking> Dynamic for SimpleDatalog<T> {
             typed_row = self.interner.intern_typed_values(typed_row);
         }
 
-        self.fact_store.insert_typed(table, typed_row)
+        self.storage.insert_typed(table, typed_row)
     }
 
     fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
@@ -159,7 +159,7 @@ impl<T: IndexBacking> Dynamic for SimpleDatalog<T> {
             typed_row = self.interner.intern_typed_values(typed_row);
         }
 
-        self.fact_store.delete_typed(table, typed_row)
+        self.storage.delete_typed(table, typed_row)
     }
 }
 
@@ -170,7 +170,7 @@ impl<T: IndexBacking> DynamicTyped for SimpleDatalog<T> {
             typed_row = self.interner.intern_typed_values(typed_row);
         }
 
-        self.fact_store.insert_typed(table, typed_row)
+        self.storage.insert_typed(table, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: Row) {
         let mut typed_row = row.clone();
@@ -178,13 +178,13 @@ impl<T: IndexBacking> DynamicTyped for SimpleDatalog<T> {
             typed_row = self.interner.intern_typed_values(typed_row);
         }
 
-        self.fact_store.delete_typed(table, typed_row)
+        self.storage.delete_typed(table, typed_row)
     }
 }
 
 impl<T: IndexBacking> Flusher for SimpleDatalog<T> {
     fn flush(&mut self, table: &str) {
-        if let Some(relation) = self.fact_store.storage.get_mut(table) {
+        if let Some(relation) = self.storage.storage.get_mut(table) {
             relation.compact();
         }
     }
@@ -201,7 +201,7 @@ where
             .collect();
 
         let mut evaluation = Evaluation::new(
-            &self.fact_store,
+            &self.storage,
             Box::new(RuleToRelationalExpressionConverter::new(interned_program)),
         );
         if self.parallel {
@@ -220,7 +220,7 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
         });
 
         let mut evaluation = Evaluation::new(
-            &self.fact_store,
+            &self.storage,
             Box::new(RuleToRelationalExpressionConverter::new(&sort_program(
                 &self.materialization,
             ))),
@@ -271,7 +271,7 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
                 self.insert_typed(sym, row.clone());
             });
             let mut evaluation = Evaluation::new(
-                &self.fact_store,
+                &self.storage,
                 Box::new(RuleToRelationalExpressionConverter::new(&sort_program(
                     &self.materialization,
                 ))),
@@ -298,7 +298,7 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
 
     fn triple_count(&self) -> usize {
         return self
-            .fact_store
+            .storage
             .storage
             .iter()
             .map(|(_sym, rel)| return rel.ward.len())
@@ -308,7 +308,7 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
 
 impl<T: IndexBacking> Queryable for SimpleDatalog<T> {
     fn contains(&mut self, atom: &Atom) -> bool {
-        let rel = self.fact_store.view(&atom.relation_id);
+        let rel = self.storage.view(&atom.relation_id);
         let mut boolean_query = atom
             .terms
             .iter()
@@ -325,7 +325,7 @@ impl<T: IndexBacking> Queryable for SimpleDatalog<T> {
 
 impl<T: IndexBacking> RelationDropper for SimpleDatalog<T> {
     fn drop_relation(&mut self, table: &str) {
-        self.fact_store.storage.remove(table);
+        self.storage.storage.remove(table);
     }
 }
 
@@ -341,15 +341,15 @@ mod tests {
     #[test]
     fn test_simple_datalog() {
         let mut reasoner: SimpleDatalog<BTreeIndex> = Default::default();
-        reasoner.fact_store.insert_typed(
+        reasoner.storage.insert_typed(
             "edge",
             Box::new(["a".to_typed_value(), "b".to_typed_value()]),
         );
-        reasoner.fact_store.insert_typed(
+        reasoner.storage.insert_typed(
             "edge",
             Box::new(["b".to_typed_value(), "c".to_typed_value()]),
         );
-        reasoner.fact_store.insert_typed(
+        reasoner.storage.insert_typed(
             "edge",
             Box::new(["b".to_typed_value(), "d".to_typed_value()]),
         );

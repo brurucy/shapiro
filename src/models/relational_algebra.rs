@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
 use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::datalog::{SugaredAtom, Ty};
+use crate::models::datalog::SugaredAtom;
 use ordered_float::OrderedFloat;
 
-use super::datalog::{self, Atom, SugaredRule, TypedValue};
+use super::datalog::{self, SugaredRule, TypedValue};
 use crate::data_structures;
 use crate::models::index::{Index, IndexBacking};
 use data_structures::tree::Tree;
@@ -58,7 +58,7 @@ impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
     }
 
     fn remove_row(&mut self, row: Row) {
-        todo!()
+        self.mark_deleted(&row);
     }
 }
 

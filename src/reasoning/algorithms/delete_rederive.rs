@@ -1,8 +1,8 @@
 use crate::models::datalog::SugaredRule;
-use crate::models::index::IndexBacking;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
+use crate::models::instance::Database;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
@@ -46,10 +46,11 @@ pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<Su
     alternative_derivation_program
 }
 
-pub fn delete_rederive<K, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<(&str, Row)>)
+pub type TypedDiff<'a> = (&'a str, Row);
+
+pub fn delete_rederive<'a, K : Database, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
 where
-    K: IndexBacking,
-    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K> + RelationDropper,
+    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<'a> + RelationDropper,
 {
     let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
@@ -59,17 +60,17 @@ where
         relations_to_be_dropped.insert(del_sym.to_string());
         relations_to_be_flushed.insert(symbol.to_string());
     });
+    // Overdeletion and Rederivation programs
+    let overdeletion_program = make_overdeletion_program(program);
+    let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - overdeletion
-    let delete = make_overdeletion_program(program);
-    let ods = instance.evaluate_program_bottom_up(delete);
-    ods.database.iter().for_each(|(del_sym, relation)| {
+    let overdeletions = instance.evaluate_program_bottom_up(overdeletion_program);
+    overdeletions.into_iter().for_each(|(del_sym, row)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-        relation.ward.iter().for_each(|(data, _active)| {
-            instance.insert_typed(&del_sym, data.clone());
-            relations_to_be_dropped.insert(del_sym.to_string());
-            instance.delete_typed(sym, data.clone());
-            relations_to_be_flushed.insert(sym.to_string());
-        });
+        instance.insert_typed(&del_sym, row.clone());
+        relations_to_be_dropped.insert(del_sym.to_string());
+        instance.delete_typed(sym, row);
+        relations_to_be_flushed.insert(sym.to_string());
     });
 
     updates
@@ -81,14 +82,10 @@ where
     });
 
     // Stage 2 - rederivation
-    let rederive = make_alternative_derivation_program(program);
-
-    let alts = instance.evaluate_program_bottom_up(rederive);
-    alts.database.iter().for_each(|(alt_sym, relation)| {
+    let rederivations = instance.evaluate_program_bottom_up(rederivation_program);
+    rederivations.into_iter().for_each(|(alt_sym, row)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        relation.ward.iter().for_each(|(data, _active)| {
-            instance.insert_typed(&sym, data.clone());
-        });
+        instance.insert_typed(&sym, row);
     });
 
     relations_to_be_dropped.iter().for_each(|del_sym| {

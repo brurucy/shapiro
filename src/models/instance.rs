@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::models::index::IndexBacking;
 use crate::models::relational_algebra::{Row};
+use crate::reasoning::algorithms::evaluation::Set;
 use crate::reasoning::algorithms::relational_algebra::evaluate;
 
 use super::{
@@ -16,7 +17,7 @@ pub type StorageWithIndex<T> = HashMap<u32, SimpleRelationWithOneIndexBacking<T>
 pub trait Database: Default + Eq {
     fn insert_at(&mut self, relation_id: u32, row: Row);
     fn delete_at(&mut self, relation_id: u32, row: Row);
-    fn create_relation(&mut self, symbol: String, relation_id: u32);
+    fn create_relation(&mut self, symbol: String, relation_id: u32, arity: usize);
 }
 
 pub trait WithIndexes {
@@ -46,11 +47,60 @@ impl Database for SimpleDatabase {
         }
     }
 
-    fn create_relation(&mut self, symbol: String, relation_id: u32) {
+    fn create_relation(&mut self, symbol: String, relation_id: u32, arity: usize) {
         let mut new_relation: HashSetBacking = Default::default();
         self.storage.insert(relation_id, new_relation);
     }
 }
+
+impl Set for SimpleDatabase {
+    fn union(&self, other: &Self) -> Self {
+        let mut out = SimpleDatabase::default();
+        self
+            .storage
+            .iter()
+            .for_each(|(relation_id, relation)| {
+                relation
+                    .into_iter()
+                    .for_each(|row| {
+                        out.insert_at(*relation_id, row.clone())
+                    })
+            });
+        other
+            .storage
+            .iter()
+            .for_each(|(relation_id, relation)| {
+                relation
+                    .into_iter()
+                    .for_each(|row| {
+                        out.insert_at(*relation_id, row.clone())
+                    })
+            });
+
+        return out
+    }
+
+    fn difference(&self, other: &Self) -> Self {
+        let mut out = SimpleDatabase::default();
+        self
+            .storage
+            .iter()
+            .for_each(|(relation_id, relation)| {
+                if let Some(other_relation) = other.storage.get(relation_id) {
+                    relation
+                        .into_iter()
+                        .for_each(|row| {
+                            if !other_relation.contains(row) {
+                                out.insert_at(*relation_id, row.clone())
+                            }
+                        })
+                }
+            });
+
+        out
+    }
+}
+
 
 impl Default for SimpleDatabase {
     fn default() -> Self {
@@ -72,9 +122,6 @@ impl<T : IndexBacking + Eq + PartialEq> Database for SimpleDatabaseWithIndex<T> 
     fn insert_at(&mut self, relation_id: u32, row: Row) {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.insert(row);
-        } else {
-            new_relation.insert(row);
-            self.storage.insert(relation_id, new_relation);
         }
     }
 
@@ -84,15 +131,13 @@ impl<T : IndexBacking + Eq + PartialEq> Database for SimpleDatabaseWithIndex<T> 
         }
     }
 
-    fn create_relation(&mut self, symbol: String, relation_id: u32) {
-        let mut new_relation = Sim::new(relation_id, row.len());
+    fn create_relation(&mut self, symbol: String, relation_id: u32, arity: usize) {
+        let mut new_relation = SimpleRelationWithOneIndexBacking::new(symbol, arity);
+        self.storage.insert(relation_id, new_relation);
     }
 }
 
 impl<T: IndexBacking + Eq + PartialEq> SimpleDatabaseWithIndex<T> {
-    pub fn insert_relation(&mut self, relation: SimpleRelationWithOneIndexBacking<T>) {
-        self.storage.insert(relation.relation_id, relation);
-    }
     pub fn view(&self, relation_id: u32) -> Vec<Box<[TypedValue]>> {
         return if let Some(relation) = self.storage.get(&relation_id) {
             relation.ward.clone().into_iter().map(|(k, _v)| k).collect()

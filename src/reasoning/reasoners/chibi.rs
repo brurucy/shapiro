@@ -1,8 +1,9 @@
+use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, SugaredAtom, SugaredRule, Ty, TypedValue};
+use crate::models::datalog::{Program, Rule, SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::index::ValueRowId;
-use crate::models::instance::{SimpleDatabase};
+use crate::models::instance::{Database, SimpleDatabase};
 use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
     RelationDropper,
@@ -39,11 +40,11 @@ impl InstanceEvaluator<SimpleDatabase> for Rewriting {
 }
 
 pub struct ParallelRewriting {
-    pub program: Vec<SugaredRule>,
+    pub program: Vec<Rule>,
 }
 
 impl ParallelRewriting {
-    fn new(program: &Vec<SugaredRule>) -> Self {
+    fn new(program: &Vec<Rule>) -> Self {
         return ParallelRewriting {
             program: program.clone(),
         };
@@ -67,8 +68,8 @@ pub struct ChibiDatalog {
     pub fact_store: SimpleDatabase,
     interner: Interner,
     parallel: bool,
-    intern: bool,
-    materialization: Program,
+    program: Program,
+    sugared_program: SugaredProgram,
 }
 
 impl Default for ChibiDatalog {
@@ -77,17 +78,16 @@ impl Default for ChibiDatalog {
             fact_store: Default::default(),
             interner: Default::default(),
             parallel: true,
-            intern: true,
-            materialization: vec![],
+            program: vec![],
+            sugared_program: vec![],
         }
     }
 }
 
 impl ChibiDatalog {
-    pub fn new(parallel: bool, intern: bool) -> Self {
+    pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
-            intern,
             ..Default::default()
         };
     }
@@ -142,44 +142,65 @@ impl Flusher for ChibiDatalog {
     }
 }
 
-impl BottomUpEvaluator<Vec<ValueRowId>> for ChibiDatalog {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> SimpleDatabase {
-        let mut program = program;
-        if self.intern {
-            program = program
-                .iter()
-                .map(|rule| self.interner.intern_rule(rule))
-                .collect();
-        }
+impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {
+    type IntoIter = std::vec::IntoIter<(&'a str, Row)>;
+
+    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Self::IntoIter {
+        let sugared_program = program;
+
+        let savory_program = &sort_program(&sugared_program)
+            .iter()
+            .map(|rule| self.interner.intern_rule(rule))
+            .collect();
+
         let mut evaluation = Evaluation::new(
             &self.fact_store,
-            Box::new(Rewriting::new(&sort_program(&program))),
+            Box::new(Rewriting::new(savory_program)),
         );
         if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRewriting::new(&program));
+            evaluation.evaluator = Box::new(ParallelRewriting::new(&savory_program));
         }
-        evaluation.semi_naive();
 
-        return evaluation.output;
+        return evaluation
+            .output
+            .storage
+            .into_iter()
+            .flat_map(|(relation_id, hashset)| {
+                let spur = Spur::try_from_usize(relation_id as usize).unwrap();
+                let sym = self.interner.rodeo.resolve(&spur);
+
+                hashset
+                    .into_iter()
+                    .map(|row| (sym, row))
+            })
+            // This sort of defeats the purpose :D but oh well
+            .collect()
+            .into_iter()
     }
 }
 
 impl Materializer for ChibiDatalog {
-    fn materialize(&mut self, program: &Program) {
-        program.iter().for_each(|rule| {
-            let mut possibly_interned_rule = rule.clone();
-            if self.intern {
-                possibly_interned_rule = self.interner.intern_rule(&possibly_interned_rule);
-            }
-            self.materialization.push(possibly_interned_rule);
-        });
+    fn materialize(&mut self, program: &SugaredProgram) {
+        program
+            .iter()
+            .for_each(|sugared_rule| {
+                self.sugared_program.push(sugared_rule.clone());
+            });
+
+        self.sugared_program = sort_program(&self.sugared_program);
+
+        self.program = self
+            .sugared_program
+            .iter()
+            .map(|sugared_rule| self.interner.intern_rule(&sugared_rule))
+            .collect();
 
         let mut evaluation = Evaluation::new(
             &self.fact_store,
-            Box::new(Rewriting::new(&sort_program(&self.materialization))),
+            Box::new(Rewriting::new(&self.program)),
         );
         if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRewriting::new(&self.materialization));
+            evaluation.evaluator = Box::new(ParallelRewriting::new(&self.program));
         }
 
         evaluation.semi_naive();
@@ -214,7 +235,7 @@ impl Materializer for ChibiDatalog {
         });
 
         if retractions.len() > 0 {
-            delete_rederive(self, &self.materialization.clone(), retractions)
+            delete_rederive(self, &self.sugared_program, retractions)
         }
 
         if additions.len() > 0 {
@@ -223,21 +244,21 @@ impl Materializer for ChibiDatalog {
             });
             let mut evaluation = Evaluation::new(
                 &self.fact_store,
-                Box::new(Rewriting::new(&sort_program(&self.materialization))),
+                Box::new(Rewriting::new(&self.program)),
             );
             if self.parallel {
-                evaluation.evaluator = Box::new(ParallelRewriting::new(&self.materialization));
+                evaluation.evaluator = Box::new(ParallelRewriting::new(&self.program));
             }
 
             evaluation.semi_naive();
 
             evaluation
                 .output
-                .database
+                .storage
                 .iter()
                 .for_each(|(symbol, relation)| {
-                    relation.ward.iter().for_each(|(row, _active)| {
-                        self.insert_typed(symbol, row.clone());
+                    relation.iter().for_each(|(row, _active)| {
+                        self.fact_store.insert_at(*symbol, *row);
                     });
                 });
         }

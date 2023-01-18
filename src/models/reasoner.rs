@@ -1,8 +1,9 @@
 use crate::models::datalog::{Atom, Program, SugaredRule, Ty, TypedValue};
-use crate::models::index::IndexBacking;
-use crate::models::instance::{Instance, SimpleDatabaseWithIndex};
+use crate::models::instance::Database;
+use crate::models::relational_algebra::Row;
 
-// Utility interface for reasoners that only physically delete data
+// Utility interface for reasoners that only logically delete data, and require a "flushing"
+// step in order to physically do so.
 pub trait Flusher {
     // Deletes all marked as deleted
     fn flush(&mut self, table: &str);
@@ -43,10 +44,12 @@ pub trait Queryable {
     fn contains(&mut self, atom: &Atom) -> bool;
 }
 
-pub trait BottomUpEvaluator<T: IndexBacking> {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Instance;
+pub trait BottomUpEvaluator<'a> {
+    type IntoIter: Iterator<Item=(&'a str, Row)>;
+    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Self::IntoIter;
 }
 
-pub trait TopDownEvaluator<T: IndexBacking> {
-    fn evaluate_program_top_down(&mut self, program: Vec<SugaredRule>, query: &SugaredRule) -> Instance;
+pub trait TopDownEvaluator<'a> {
+    type IntoIter: Iterator<Item=(&'a str, Row)>;
+    fn evaluate_program_top_down(&mut self, program: Vec<SugaredRule>, query: &SugaredRule) -> Self::IntoIter;
 }

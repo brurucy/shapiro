@@ -4,8 +4,7 @@ mod abomonated_vertebra;
 use std::clone::Clone;
 use std::thread;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, SugaredProgram, SugaredRule, TypedValue};
-use crate::models::instance::{Instance};
+use crate::models::datalog::{Program, SugaredProgram, TypedValue};
 use crossbeam_channel::{Receiver, select, Sender, unbounded};
 use differential_dataflow::input::Input;
 use differential_dataflow::Collection;
@@ -22,6 +21,7 @@ use timely::dataflow::Scope;
 use timely::dataflow::scopes::Child;
 use timely::order::Product;
 use timely::worker::Worker;
+use crate::models::instance::SimpleDatabase;
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, mask, permute_mask};
@@ -293,7 +293,7 @@ pub fn reason(
 
 pub struct DifferentialDatalog {
     epoch: usize,
-    pub fact_store: Instance,
+    pub fact_store: SimpleDatabase,
     _ddflow: thread::JoinHandle<()>,
     pub rule_input_sink: RuleSink,
     pub rule_output_source: RuleSource,
@@ -331,7 +331,7 @@ impl Default for DifferentialDatalog {
             fact_input_sink,
             fact_output_source,
             notification_source,
-            fact_store: Instance::new(),
+            fact_store: Default::default(),
             _ddflow: handle,
             interner: Default::default(),
             parallel: false,
@@ -385,7 +385,7 @@ impl DynamicTyped for DifferentialDatalog {
 const NOOP_DUMMY_LHS: &'static str = "NOOP";
 const NOOP_DUMMY_RHS: &'static str = "SKIP";
 
-fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut Instance, table: &str) {
+fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut SimpleDatabase, table: &str) {
     let boxed_vec = fresh_intensional_atom
         .2
         .iter()
