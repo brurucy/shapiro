@@ -190,22 +190,22 @@ impl<T: IndexBacking> Flusher for SimpleDatalog<T> {
     }
 }
 
-impl<T> BottomUpEvaluator<T> for SimpleDatalog<T>
-where
-    T: IndexBacking,
-{
+impl<'a> BottomUpEvaluator<'a> for SimpleDatalog {
+
     fn evaluate_program_bottom_up(&mut self, program: SugaredProgram) -> SimpleDatabaseWithIndex<T> {
-        let interned_program = &sort_program(&program)
+        let sugared_program = &sort_program(&program);
+
+        let savory_program = sugared_program
             .iter()
-            .map(|sugared_rule| self.interner.intern_rule(sugared_rule))
+            .map(|rule| self.interner.intern_rule(rule))
             .collect();
 
         let mut evaluation = Evaluation::new(
             &self.storage,
-            Box::new(RuleToRelationalExpressionConverter::new(interned_program)),
+            Box::new(RuleToRelationalExpressionConverter::new(sugared_program)),
         );
         if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(interned_program));
+            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(sugared_program));
         }
         evaluation.semi_naive();
 
