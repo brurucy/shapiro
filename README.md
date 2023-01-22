@@ -120,11 +120,6 @@ queries over hundreds of thousands of triples(the included benchmark), barely ha
 
 ### Roadmap
 
-0. [] Using `DashMap` instead of `indexmap`
-1. [x] Streaming implementation with `differential-dataflow`
-2. [] Negation(stratification is already implemented)
-3. [] Head Aggregations
-4. [] Body functions
-5. [] Head Skolemization
-6. [] Program Linearization
-7. [] Multiple heads for one body
+1. [] - Constant specialization
+2. [] - Magic sets
+3. [] - Negation(stratification is already implemented)
