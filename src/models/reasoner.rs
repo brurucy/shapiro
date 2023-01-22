@@ -1,5 +1,4 @@
-use crate::models::datalog::{Atom, Program, SugaredRule, Ty, TypedValue};
-use crate::models::instance::Database;
+use crate::models::datalog::{SugaredProgram, SugaredAtom, SugaredRule, Ty, TypedValue};
 use crate::models::relational_algebra::Row;
 
 // Utility interface for reasoners that only logically delete data, and require a "flushing"
@@ -33,7 +32,7 @@ pub type Diff<'a> = (bool, (&'a str, Vec<Box<dyn Ty>>));
 
 pub trait Materializer {
     // merges the given program with the already being materialized programs, and updates
-    fn materialize(&mut self, program: &Program);
+    fn materialize(&mut self, program: &SugaredProgram);
     // given the changes, incrementally maintain the materialization
     fn update(&mut self, changes: Vec<Diff>);
     // returns the amount of facts currently materialized(possibly extensional and intensional)
@@ -41,15 +40,14 @@ pub trait Materializer {
 }
 
 pub trait Queryable {
-    fn contains(&mut self, atom: &Atom) -> bool;
+    fn contains(&mut self, atom: &SugaredAtom) -> bool;
 }
 
+// Sad situation. It would be 100x better if it could return a generic iterator instead.
 pub trait BottomUpEvaluator<'a> {
-    type IntoIter: Iterator<Item=(&'a str, Row)>;
-    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Self::IntoIter;
+    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Vec<(&'a str, Row)>;
 }
 
 pub trait TopDownEvaluator<'a> {
-    type IntoIter: Iterator<Item=(&'a str, Row)>;
-    fn evaluate_program_top_down(&mut self, program: Vec<SugaredRule>, query: &SugaredRule) -> Self::IntoIter;
+    fn evaluate_program_top_down(&mut self, program: Vec<SugaredRule>, query: &SugaredRule) -> Vec<(&'a str, Row)>;
 }

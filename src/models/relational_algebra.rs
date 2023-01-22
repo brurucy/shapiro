@@ -28,27 +28,23 @@ pub trait Relation {
     fn symbol(&self) -> String;
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct SimpleRelationWithOneIndexBacking<T: IndexBacking> {
+#[derive(Clone, Debug)]
+pub struct SimpleRelationWithOneIndexBacking<T : IndexBacking> {
     pub symbol: String,
-    pub indexes: Vec<Index<T>>,
     pub ward: IndexedHashMap<Row, bool>,
-    pub index: bool,
+    pub index: T,
+}
+
+impl<T : IndexBacking> PartialEq for SimpleRelationWithOneIndexBacking<T> {
+    fn eq(&self, other: &Self) -> bool {
+        return self.symbol == other.symbol && self.ward == other.ward
+    }
 }
 
 impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
     fn insert_row(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
             self.ward.insert(row.clone(), true);
-            if self.index {
-                row.into_iter()
-                    .enumerate()
-                    .for_each(|(column_idx, column_value)| {
-                        self.indexes[column_idx]
-                            .index
-                            .insert_row((column_value.clone(), self.ward.len() - 1));
-                    });
-            }
         } else {
             let sign = self.ward.get_mut(&row).unwrap();
             if !*sign {
@@ -62,97 +58,28 @@ impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
     }
 }
 
-impl<T: IndexBacking> SimpleRelationWithOneIndexBacking<T> {
+impl<T : IndexBacking> SimpleRelationWithOneIndexBacking<T> {
     pub fn mark_deleted(&mut self, row: &Row) {
         if let Some(sign) = self.ward.get_mut(row) {
             *sign = false
         }
     }
 
-    pub fn compact_logical(&mut self, index_idx: usize) {
-        let mut indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        let mut new_row_id = 0usize;
-        self.ward.iter().for_each(|(k, v)| {
-            if *v {
-                indexes[index_idx]
-                    .index
-                    .insert_row((k[index_idx].clone(), new_row_id));
-            }
-            new_row_id += 1;
-        });
-
-        self.indexes = indexes;
-    }
-
-    pub fn compact_physical(&mut self, index_idx: usize) {
-        let mut indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        let mut new_row_id = 0usize;
+    pub fn compact_physical(&mut self) {
         self.ward.retain(|k, v| {
-            if *v {
-                indexes[index_idx]
-                    .index
-                    .insert_row((k[index_idx].clone(), new_row_id));
-                new_row_id += 1;
-            }
             *v
         });
-
-        self.indexes = indexes;
     }
 
     pub fn compact(&mut self) {
-        let indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        self.indexes = indexes;
         self.ward.retain(|_k, v| *v);
     }
 
-    pub fn new(symbol: String, arity: usize) -> Self {
-        let indexes = vec![
-            Index {
-                index: T::default(),
-                active: true
-            };
-            arity
-        ];
-
+    pub fn new(symbol: String) -> Self {
         SimpleRelationWithOneIndexBacking {
             symbol,
-            indexes,
+            index: Default::default(),
             ward: Default::default(),
-            index: false,
         }
     }
 }

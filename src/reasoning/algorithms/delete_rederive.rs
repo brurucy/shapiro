@@ -2,7 +2,6 @@ use crate::models::datalog::SugaredRule;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
-use crate::models::instance::Database;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
@@ -37,7 +36,7 @@ pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<Su
         alt_rule.head.symbol = alt_symbol;
 
         let mut new_del_atom = alt_rule.head.clone();
-        new_del_atom.relation_id = del_symbol;
+        new_del_atom.symbol = del_symbol;
 
         alt_rule.body.insert(0, new_del_atom);
         alternative_derivation_program.push(alt_rule)
@@ -48,7 +47,7 @@ pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<Su
 
 pub type TypedDiff<'a> = (&'a str, Row);
 
-pub fn delete_rederive<'a, K : Database, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
+pub fn delete_rederive<'a, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
 where
     T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<'a> + RelationDropper,
 {

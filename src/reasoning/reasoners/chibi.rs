@@ -1,11 +1,10 @@
 use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, Rule, SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
-use crate::models::index::ValueRowId;
+use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::instance::{Database, SimpleDatabase};
 use crate::models::reasoner::{
-    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
+    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer,
     RelationDropper,
 };
 use crate::models::relational_algebra::Row;
@@ -28,14 +27,22 @@ impl Rewriting {
 
 impl InstanceEvaluator<SimpleDatabase> for Rewriting {
     fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
-        return self
+        let mut out: SimpleDatabase = Default::default();
+
+        self
             .program
-            .clone()
-            .into_iter()
-            .filter_map(|rule| {
-                return evaluate_rule(&instance, &rule);
-            })
-            .collect();
+            .iter()
+            .for_each(|rule| {
+                if let Some(eval) = evaluate_rule(&instance, &rule) {
+                    eval
+                        .into_iter()
+                        .for_each(|row| {
+                            out.insert_at(rule.head.relation_id.get(), row)
+                        })
+                }
+            });
+
+        return out
     }
 }
 
@@ -53,14 +60,22 @@ impl ParallelRewriting {
 
 impl InstanceEvaluator<SimpleDatabase> for ParallelRewriting {
     fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
-        return self
+        let mut out: SimpleDatabase = Default::default();
+
+        self
             .program
-            .clone()
-            .into_par_iter()
-            .filter_map(|rule| {
-                return evaluate_rule(&instance, &rule);
-            })
-            .collect();
+            .par_iter()
+            .for_each(|rule| {
+                if let Some(eval) = evaluate_rule(&instance, &rule) {
+                    eval
+                        .into_iter()
+                        .for_each(|row| {
+                            out.insert_at(rule.head.relation_id.get(), row)
+                        })
+                }
+            });
+
+        return out
     }
 }
 
@@ -96,56 +111,44 @@ impl ChibiDatalog {
 impl Dynamic for ChibiDatalog {
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
+        typed_row = self.interner.intern_typed_values(typed_row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
-
-        self.fact_store.insert_typed(table, typed_row)
+        self.fact_store.insert_at(relation_id, typed_row)
     }
 
     fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
+        typed_row = self.interner.intern_typed_values(typed_row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
-
-        self.fact_store.delete_typed(table, typed_row)
+        self.fact_store.delete_at(relation_id, typed_row)
     }
 }
 
 impl DynamicTyped for ChibiDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
         let mut typed_row = row.clone();
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
+        typed_row = self.interner.intern_typed_values(typed_row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        self.fact_store.insert_typed(table, typed_row)
+        self.fact_store.insert_at(relation_id, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: Row) {
         let mut typed_row = row.clone();
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
+        typed_row = self.interner.intern_typed_values(typed_row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        self.fact_store.delete_typed(table, typed_row)
+        self.fact_store.delete_at(relation_id, typed_row)
     }
 }
 
 impl Flusher for ChibiDatalog {
-    fn flush(&mut self, table: &str) {
-        if let Some(relation) = self.fact_store.database.get_mut(table) {
-            relation.compact()
-        }
-    }
+    fn flush(&mut self, table: &str) {}
 }
 
 impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {
-    type IntoIter = std::vec::IntoIter<(&'a str, Row)>;
-
-    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Self::IntoIter {
+    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Vec<(&'a str, Row)> {
         let sugared_program = program;
 
         let savory_program = &sort_program(&sugared_program)
@@ -173,9 +176,7 @@ impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {
                     .into_iter()
                     .map(|row| (sym, row))
             })
-            // This sort of defeats the purpose :D but oh well
             .collect()
-            .into_iter()
     }
 }
 
@@ -207,11 +208,11 @@ impl Materializer for ChibiDatalog {
 
         evaluation
             .output
-            .database
-            .iter()
+            .storage
+            .into_iter()
             .for_each(|(symbol, relation)| {
-                relation.ward.iter().for_each(|(row, _active)| {
-                    self.insert_typed(symbol, row.clone());
+                relation.into_iter().for_each(|row| {
+                    self.fact_store.insert_at(symbol, row);
                 });
             });
     }
@@ -255,10 +256,10 @@ impl Materializer for ChibiDatalog {
             evaluation
                 .output
                 .storage
-                .iter()
+                .into_iter()
                 .for_each(|(symbol, relation)| {
-                    relation.iter().for_each(|(row, _active)| {
-                        self.fact_store.insert_at(*symbol, *row);
+                    relation.into_iter().for_each(|row| {
+                        self.fact_store.insert_at(symbol, row);
                     });
                 });
         }
@@ -267,32 +268,17 @@ impl Materializer for ChibiDatalog {
     fn triple_count(&self) -> usize {
         return self
             .fact_store
-            .database
+            .storage
             .iter()
-            .map(|(_sym, rel)| return rel.ward.len())
+            .map(|(_sym, rel)| return rel.len())
             .sum();
-    }
-}
-
-impl Queryable for ChibiDatalog {
-    fn contains(&mut self, atom: &SugaredAtom) -> bool {
-        let rel = self.fact_store.view(&atom.relation_id);
-        let mut boolean_query = atom
-            .terms
-            .iter()
-            .map(|term| term.clone().into())
-            .collect::<Vec<TypedValue>>()
-            .into_boxed_slice();
-        if self.intern {
-            boolean_query = self.interner.intern_typed_values(boolean_query);
-        }
-
-        return rel.contains(&boolean_query);
     }
 }
 
 impl RelationDropper for ChibiDatalog {
     fn drop_relation(&mut self, table: &str) {
-        self.fact_store.database.remove(table);
+        let sym = self.interner.rodeo.get_or_intern(table);
+
+        self.fact_store.storage.remove(&sym.into_inner().get());
     }
 }

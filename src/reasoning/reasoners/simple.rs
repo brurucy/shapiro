@@ -1,29 +1,28 @@
+use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Program, SugaredProgram, SugaredRule, Ty, TypedValue};
+use crate::models::datalog::{SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::index::IndexBacking;
-use crate::models::instance::SimpleDatabaseWithIndex;
-use crate::models::reasoner::{
-    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable,
-    RelationDropper,
-};
-use crate::models::relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression, Row};
+use crate::models::instance::{Database, SimpleDatabaseWithIndex};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, Flusher, Materializer, Queryable, RelationDropper};
+use crate::models::relational_algebra::{RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use rayon::prelude::*;
 
 pub struct RuleToRelationalExpressionConverter<'a> {
-    pub program: Vec<(&'a str, RelationalExpression)>,
+    pub program: Vec<(&'a str, u32, RelationalExpression)>,
 }
 
 impl<'a> RuleToRelationalExpressionConverter<'a> {
-    fn new(program: &Vec<SugaredRule>) -> Self {
+    fn new(program: &Vec<(u32, SugaredRule)>) -> Self {
         return RuleToRelationalExpressionConverter {
             program: program
-                .iter()
-                .map(|rule| {
+                .into_iter()
+                .map(|(relation_id, rule)| {
                     (
                         &rule.head.symbol[..],
+                        *relation_id,
                         RelationalExpression::from(rule),
                     )
                 })
@@ -32,216 +31,253 @@ impl<'a> RuleToRelationalExpressionConverter<'a> {
     }
 }
 
-impl<'a, T> InstanceEvaluator<T> for RuleToRelationalExpressionConverter<'a>
+impl<'a, T> InstanceEvaluator<SimpleDatabaseWithIndex<T>> for RuleToRelationalExpressionConverter<'a>
 where
-    T: IndexBacking,
+    T: IndexBacking + PartialEq,
 {
-    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<SimpleRelationWithOneIndexBacking<T>> {
-        return self
+    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        let mut out: SimpleDatabaseWithIndex<T> = Default::default();
+
+        self
             .program
-            .clone()
             .into_iter()
-            .fold(SimpleDatabaseWithIndex::new(), |mut acc, (symbol, expression)| {
-                let output = instance.evaluate(&expression, &symbol);
-                if let Some(relation) = output {
-                    relation.ward.iter().for_each(|(row, active)| {
-                        if *active {
-                            acc.insert_typed(&relation.relation_id, row.clone());
-                        }
-                    })
+            .for_each(|(sym, relation_id, expr)| {
+                if let Some(eval) = instance.evaluate(&expr, sym) {
+                    if let None = out.storage.get(&relation_id) {
+                        out.create_relation(sym.to_string(), relation_id)
+                    }
+
+                    eval
+                        .ward
+                        .into_iter()
+                        .for_each(|(row, active)| {
+                            if active {
+                                out.insert_at(relation_id, row)
+                            }
+                        })
                 }
-                acc
-            })
-            .storage
-            .values()
-            .cloned()
-            .collect();
+
+            });
+
+        return out
     }
 }
 
-pub struct ParallelRelationalAlgebra {
-    pub program: Vec<(String, RelationalExpression)>,
+pub struct ParallelRelationalAlgebra<'a> {
+    pub program: Vec<(&'a str, u32, RelationalExpression)>,
 }
 
-impl ParallelRelationalAlgebra {
-    fn new(program: &Vec<SugaredRule>) -> Self {
+impl<'a> ParallelRelationalAlgebra<'a> {
+    fn new(program: &Vec<(u32, SugaredRule)>) -> Self {
         return ParallelRelationalAlgebra {
             program: program
-                .iter()
-                .map(|rule| {
-                    let head = rule.head.symbol.to_string();
-                    let expr = RelationalExpression::from(rule);
-                    return (head, expr);
+                .into_iter()
+                .map(|(relation_id, rule)| {
+                    (
+                        &rule.head.symbol[..],
+                        *relation_id,
+                        RelationalExpression::from(rule),
+                    )
                 })
                 .collect(),
         };
     }
 }
 
-impl<T> InstanceEvaluator<T> for ParallelRelationalAlgebra
+impl<'a, T> InstanceEvaluator<SimpleDatabaseWithIndex<T>> for ParallelRelationalAlgebra<'a>
 where
-    T: IndexBacking,
+    T: IndexBacking + PartialEq,
 {
-    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> Vec<SimpleRelationWithOneIndexBacking<T>> {
-        return self
+    fn evaluate(&self, instance: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        let mut out: SimpleDatabaseWithIndex<T> = Default::default();
+
+        self
             .program
-            .clone()
-            .into_par_iter()
-            .filter_map(|(symbol, expression)| return instance.evaluate(&expression, &symbol))
-            .collect();
+            .par_iter()
+            .filter_map(|(sym, relation_id, expr)| {
+                if let Some(eval) = instance.evaluate(expr, sym) {
+                    return Some((sym.clone(), relation_id.clone(), eval))
+                }
+                None
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .for_each(|(sym, relation_id, fresh_relation)| {
+                if let None = out.storage.get(&relation_id) {
+                    out.create_relation(sym.to_string(), relation_id)
+                }
+
+                fresh_relation
+                    .ward
+                    .into_iter()
+                    .for_each(|(row, active)| {
+                        if active {
+                            out.insert_at(relation_id, row)
+                        }
+                    })
+            });
+
+        return out
     }
 }
 
 pub struct SimpleDatalog<T>
 where
-    T: IndexBacking,
+    T: IndexBacking + PartialEq,
 {
-    pub storage: SimpleDatabaseWithIndex<T>,
+    pub fact_store: SimpleDatabaseWithIndex<T>,
     interner: Interner,
     parallel: bool,
-    intern: bool,
-    safe: bool,
-    materialization: Program,
+    sugared_program: SugaredProgram,
 }
 
 impl<T> Default for SimpleDatalog<T>
 where
-    T: IndexBacking,
+    T: IndexBacking + PartialEq,
 {
     fn default() -> Self {
         SimpleDatalog {
-            storage: SimpleDatabaseWithIndex::new(),
+            fact_store: SimpleDatabaseWithIndex::default(),
             interner: Interner::default(),
             parallel: true,
-            intern: true,
-            safe: true,
-            materialization: vec![],
+            sugared_program: vec![]
         }
     }
 }
 
 impl<T> SimpleDatalog<T>
 where
-    T: IndexBacking,
+    T: IndexBacking + PartialEq,
 {
-    pub fn new(parallel: bool, intern: bool) -> Self {
+    pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
-            intern,
             ..Default::default()
         };
     }
 }
 
-impl<T: IndexBacking> Dynamic for SimpleDatalog<T> {
+impl<T: IndexBacking + PartialEq> Dynamic for SimpleDatalog<T> {
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
+        typed_row = self.interner.intern_typed_values(typed_row);
 
-        if self.materialization.len() > 0 {
-            self.safe = false
-        }
-
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
-
-        self.storage.insert_typed(table, typed_row)
+        self.insert_typed(table, typed_row)
     }
 
     fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
         let mut typed_row = row.iter().map(|ty| ty.to_typed_value()).collect();
+        typed_row = self.interner.intern_typed_values(typed_row);
 
-        if self.materialization.len() > 0 {
-            self.safe = false
-        }
-
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
-
-        self.storage.delete_typed(table, typed_row)
+        self.insert_typed(table, typed_row)
     }
 }
 
-impl<T: IndexBacking> DynamicTyped for SimpleDatalog<T> {
+impl<T: IndexBacking + PartialEq> DynamicTyped for SimpleDatalog<T> {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        let mut typed_row = row.clone();
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
+        let typed_row = self.interner.intern_typed_values(row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        self.storage.insert_typed(table, typed_row)
+        self.fact_store.insert_at(relation_id, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: Row) {
-        let mut typed_row = row.clone();
-        if self.intern {
-            typed_row = self.interner.intern_typed_values(typed_row);
-        }
+        let typed_row = self.interner.intern_typed_values(row);
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
-        self.storage.delete_typed(table, typed_row)
+        self.fact_store.delete_at(relation_id, typed_row)
     }
 }
 
-impl<T: IndexBacking> Flusher for SimpleDatalog<T> {
+impl<T: IndexBacking + PartialEq> Flusher for SimpleDatalog<T> {
     fn flush(&mut self, table: &str) {
-        if let Some(relation) = self.storage.storage.get_mut(table) {
+        let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
+
+        if let Some(relation) = self.fact_store.storage.get_mut(&relation_id) {
             relation.compact();
         }
     }
 }
 
-impl<'a> BottomUpEvaluator<'a> for SimpleDatalog {
-
-    fn evaluate_program_bottom_up(&mut self, program: SugaredProgram) -> SimpleDatabaseWithIndex<T> {
+impl<'a, T: IndexBacking + PartialEq> BottomUpEvaluator<'a> for SimpleDatalog<T> {
+    fn evaluate_program_bottom_up(&mut self, program: SugaredProgram) -> Vec<(&'a str, Row)> {
         let sugared_program = &sort_program(&program);
 
-        let savory_program = sugared_program
+        let interned_sugared_program = sugared_program
             .iter()
-            .map(|rule| self.interner.intern_rule(rule))
+            .map(|rule| (
+                self.interner.rodeo.get_or_intern(&rule.head.symbol[..]).into_inner().get(),
+                self.interner.intern_sugared_rule(rule)
+            ))
             .collect();
 
         let mut evaluation = Evaluation::new(
-            &self.storage,
-            Box::new(RuleToRelationalExpressionConverter::new(sugared_program)),
+            &self.fact_store,
+            Box::new(RuleToRelationalExpressionConverter::new(&interned_sugared_program)),
         );
         if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(sugared_program));
+            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&interned_sugared_program));
         }
         evaluation.semi_naive();
 
-        return evaluation.output;
+        return evaluation
+            .output
+            .storage
+            .into_iter()
+            .flat_map(|(relation_id, relation)| {
+                let spur = Spur::try_from_usize(relation_id as usize).unwrap();
+                let sym = self.interner.rodeo.resolve(&spur);
+
+                relation
+                    .ward
+                    .into_iter()
+                    .map(|row| (sym, row.0))
+            })
+            .collect()
     }
 }
 
-impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
-    fn materialize(&mut self, program: &Program) {
-        program.iter().for_each(|rule| {
-            self.materialization.push(rule);
-        });
+impl<T: IndexBacking + PartialEq> Materializer for SimpleDatalog<T> {
+    fn materialize(&mut self, program: &SugaredProgram) {
+        let sugared_program = sort_program(&program);
+
+        let interned_sugared_program = sugared_program
+            .into_iter()
+            .map(|rule| self.interner.intern_sugared_rule(&rule))
+            .collect::<Vec<_>>();
+
+        self.sugared_program = interned_sugared_program.clone();
+
+        let relation_id_rule = interned_sugared_program
+            .into_iter()
+            .map(|rule| {
+                let relation_id = self.interner.rodeo.get_or_intern(rule.head.symbol.clone()).into_inner().get();
+
+                return (relation_id, rule)
+            })
+            .collect();
 
         let mut evaluation = Evaluation::new(
-            &self.storage,
-            Box::new(RuleToRelationalExpressionConverter::new(&sort_program(
-                &self.materialization,
-            ))),
-        );
+            &self.fact_store,
+            Box::new(RuleToRelationalExpressionConverter::new(&relation_id_rule)));
         if self.parallel {
-            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&self.materialization));
+            evaluation.evaluator = Box::new(ParallelRelationalAlgebra::new(&relation_id_rule));
         }
 
         evaluation.semi_naive();
 
         evaluation
             .output
-            .database
+            .storage
             .iter()
             .for_each(|(symbol, relation)| {
                 relation.ward.iter().for_each(|(row, _active)| {
-                    self.insert_typed(symbol, row.clone());
+                    let spur = Spur::try_from_usize(*symbol as usize).unwrap();
+                    let sym = self.interner.rodeo.resolve(&spur);
+
+                    self.insert_typed(sym, row.clone());
                 });
             });
 
-        self.safe = true;
     }
 
     // Update first processes deletions, then additions.
@@ -263,42 +299,58 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
         });
 
         if retractions.len() > 0 {
-            delete_rederive(self, &self.materialization.clone(), retractions)
+            delete_rederive(self, &self.sugared_program, retractions)
         }
+
+        let interned_sugared_program = self.sugared_program
+            .iter()
+            .map(|rule| self.interner.intern_sugared_rule(rule))
+            .collect::<Vec<_>>();
+
+        self.sugared_program = interned_sugared_program.clone();
+
+        let relation_id_rule = interned_sugared_program
+            .into_iter()
+            .map(|rule| {
+                let relation_id = self.interner.rodeo.get_or_intern(rule.head.symbol.clone()).into_inner().get();
+
+                return (relation_id, rule)
+            })
+            .collect();
 
         if additions.len() > 0 {
             additions.iter().for_each(|(sym, row)| {
                 self.insert_typed(sym, row.clone());
             });
             let mut evaluation = Evaluation::new(
-                &self.storage,
-                Box::new(RuleToRelationalExpressionConverter::new(&sort_program(
-                    &self.materialization,
-                ))),
+                &self.fact_store,
+                Box::new(RuleToRelationalExpressionConverter::new(&relation_id_rule))
             );
             if self.parallel {
                 evaluation.evaluator =
-                    Box::new(ParallelRelationalAlgebra::new(&self.materialization));
+                    Box::new(ParallelRelationalAlgebra::new(&relation_id_rule));
             }
 
             evaluation.semi_naive();
 
             evaluation
                 .output
-                .database
+                .storage
                 .iter()
                 .for_each(|(symbol, relation)| {
                     relation.ward.iter().for_each(|(row, _active)| {
-                        self.insert_typed(symbol, row.clone());
+                        let spur = Spur::try_from_usize(*symbol as usize).unwrap();
+                        let sym = self.interner.rodeo.resolve(&spur);
+
+                        self.insert_typed(sym, row.clone());
                     });
                 });
         }
-        self.safe = true;
     }
 
     fn triple_count(&self) -> usize {
         return self
-            .storage
+            .fact_store
             .storage
             .iter()
             .map(|(_sym, rel)| return rel.ward.len())
@@ -306,26 +358,28 @@ impl<T: IndexBacking> Materializer for SimpleDatalog<T> {
     }
 }
 
-impl<T: IndexBacking> Queryable for SimpleDatalog<T> {
-    fn contains(&mut self, atom: &Atom) -> bool {
-        let rel = self.storage.view(&atom.relation_id);
+impl<T: IndexBacking + PartialEq> Queryable for SimpleDatalog<T> {
+    fn contains(&mut self, atom: &SugaredAtom) -> bool {
+        let sym = self.interner.rodeo.get_or_intern(&atom.symbol);
+
+        let rel = self.fact_store.view(sym.into_inner().get());
         let mut boolean_query = atom
             .terms
             .iter()
             .map(|term| term.clone().into())
             .collect::<Vec<TypedValue>>()
             .into_boxed_slice();
-        if self.intern {
-            boolean_query = self.interner.intern_typed_values(boolean_query);
-        }
+        boolean_query = self.interner.intern_typed_values(boolean_query);
 
         return rel.contains(&boolean_query);
     }
 }
 
-impl<T: IndexBacking> RelationDropper for SimpleDatalog<T> {
+impl<T : IndexBacking + PartialEq> RelationDropper for SimpleDatalog<T> {
     fn drop_relation(&mut self, table: &str) {
-        self.storage.storage.remove(table);
+        let sym = self.interner.rodeo.get_or_intern(table);
+
+        self.fact_store.storage.remove(&sym.into_inner().get());
     }
 }
 
@@ -333,7 +387,7 @@ impl<T: IndexBacking> RelationDropper for SimpleDatalog<T> {
 mod tests {
     use crate::models::datalog::{SugaredRule, Ty, TypedValue};
     use crate::models::index::BTreeIndex;
-    use crate::models::reasoner::BottomUpEvaluator;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
     use crate::reasoning::reasoners::simple::SimpleDatalog;
     use std::collections::HashSet;
     use std::ops::Deref;
@@ -341,15 +395,15 @@ mod tests {
     #[test]
     fn test_simple_datalog() {
         let mut reasoner: SimpleDatalog<BTreeIndex> = Default::default();
-        reasoner.storage.insert_typed(
+        reasoner.insert(
             "edge",
             Box::new(["a".to_typed_value(), "b".to_typed_value()]),
         );
-        reasoner.storage.insert_typed(
+        reasoner.insert(
             "edge",
             Box::new(["b".to_typed_value(), "c".to_typed_value()]),
         );
-        reasoner.storage.insert_typed(
+        reasoner.insert(
             "edge",
             Box::new(["b".to_typed_value(), "d".to_typed_value()]),
         );

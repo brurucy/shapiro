@@ -12,28 +12,29 @@ pub trait Set {
     fn difference(&self, other: &Self) -> Self;
 }
 
-pub struct Evaluation<'a, T : Database + Clone + Set> {
+pub trait Empty {
+    fn is_empty(&self) -> bool;
+}
+
+pub struct Evaluation<'a, T : Database + Set + Empty> {
     pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub previous_delta: T,
     pub current_delta: T,
     pub output: T,
 }
 
-impl<'a, T : Database + Clone + Set> Evaluation<'a, T>
+impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
 {
     pub(crate) fn new(database: &'a T, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
             input: database,
             evaluator,
-            previous_delta: Default::default(),
             current_delta: Default::default(),
             output: Default::default(),
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
-        self.previous_delta = self.current_delta.clone();
-        let input_plus_previous_delta = self.input.union(&self.previous_delta);
+        let input_plus_previous_delta = self.input.union(&self.current_delta);
 
         let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
         self.current_delta = evaluation.difference(&input_plus_previous_delta);
@@ -44,7 +45,7 @@ impl<'a, T : Database + Clone + Set> Evaluation<'a, T>
         loop {
             self.semi_naive_immediate_consequence();
 
-            if self.previous_delta == self.current_delta {
+            if self.current_delta.is_empty() {
                 break;
             }
         }
