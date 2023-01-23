@@ -21,7 +21,7 @@ use timely::dataflow::Scope;
 use timely::dataflow::scopes::Child;
 use timely::order::Product;
 use timely::worker::Worker;
-use crate::models::instance::SimpleDatabase;
+use crate::models::instance::{Database, SimpleDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, mask, permute_mask};
@@ -400,9 +400,9 @@ fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: i
         .collect();
 
     if multiplicity > 0 {
-        instance.insert_typed(table, boxed_vec)
+        instance.insert_at(fresh_intensional_atom.0.get(), boxed_vec)
     } else {
-        instance.delete_typed(table, boxed_vec)
+        instance.insert_at(fresh_intensional_atom.0.get(), boxed_vec)
     }
 }
 
@@ -487,7 +487,7 @@ impl Materializer for DifferentialDatalog {
     fn triple_count(&self) -> usize {
         return self
             .fact_store
-            .database
+            .storage
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();

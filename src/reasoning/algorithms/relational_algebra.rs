@@ -120,7 +120,7 @@ where
         let root_node = expr.arena[root_addr].clone();
 
         match root_node.value {
-            Term::Relation(atom) => return database.get(atom.symbol).cloned(),
+            Term::Relation(atom) => return database.get(&atom.symbol).cloned(),
             Term::Product => {
                 let left_subtree = expr.branch_at(root_node.left_child.unwrap());
                 let right_subtree = expr.branch_at(root_node.right_child.unwrap());

@@ -178,6 +178,16 @@ impl Display for SugaredAtom {
     }
 }
 
+impl Default for SugaredAtom {
+    fn default() -> Self {
+        Self {
+            terms: vec![],
+            symbol: "".to_string(),
+            positive: true,
+        }
+    }
+}
+
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct SugaredRule {
     pub head: SugaredAtom,
@@ -194,6 +204,15 @@ impl Display for SugaredRule {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let body = self.body.iter().map(|atom| atom.to_string()).join(", ");
         write!(f, "{} <- [{}]", self.head, body)
+    }
+}
+
+impl Default for SugaredRule {
+    fn default() -> Self {
+        Self {
+            head: SugaredAtom::default(),
+            body: vec![],
+        }
     }
 }
 

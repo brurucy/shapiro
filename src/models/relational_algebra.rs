@@ -8,7 +8,7 @@ use ordered_float::OrderedFloat;
 
 use super::datalog::{self, SugaredRule, TypedValue};
 use crate::data_structures;
-use crate::models::index::{Index, IndexBacking};
+use crate::models::index::IndexBacking;
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;

@@ -10,9 +10,9 @@ pub fn nested_loop_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
     K: Ord + Clone,
     V: Clone,
 {
-    left_iter.into_iter().for_each(|left_row_idx| {
-        right_iter.into_iter().for_each(|right_row_idx| {
-            f(*left_row_idx, *right_row_idx);
+    left_iter.into_iter().for_each(|left_row| {
+        right_iter.into_iter().for_each(|right_row| {
+            f(left_row.1.clone(), right_row.1.clone());
         })
     })
 }
@@ -28,7 +28,6 @@ pub fn sort_merge_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
     V: Clone,
 {
     let mut left_iterator = left_iter.into_iter();
-
     let mut right_iterator = right_iter.into_iter();
 
     let (mut current_left, mut current_right) = (left_iterator.next(), right_iterator.next());
