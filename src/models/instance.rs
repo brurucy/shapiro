@@ -7,17 +7,14 @@ use crate::models::relational_algebra::{Container, Row};
 use crate::reasoning::algorithms::evaluation::{Empty, Set};
 use crate::reasoning::algorithms::relational_algebra::evaluate;
 
-use super::{
-    datalog::TypedValue,
-    relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression},
-};
+use super::{relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression}};
 
 pub type HashSetBacking = HashSet<Row, ahash::RandomState>;
 pub type SimpleStorage = HashMap<u32, HashSetBacking>;
 
 pub trait Database: Default + PartialEq {
     fn insert_at(&mut self, relation_id: u32, row: Row);
-    fn delete_at(&mut self, relation_id: u32, row: Row);
+    fn delete_at(&mut self, relation_id: u32, row: &Row);
     fn create_relation(&mut self, symbol: String, relation_id: u32);
     fn delete_relation(&mut self, symbol: &str, relation_id: u32);
 }
@@ -43,9 +40,9 @@ impl Database for SimpleDatabase {
         }
     }
 
-    fn delete_at(&mut self, relation_id: u32, row: Row) {
+    fn delete_at(&mut self, relation_id: u32, row: &Row) {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
-            relation.remove(&row);
+            relation.remove(row);
         }
     }
 
@@ -147,12 +144,12 @@ impl<T : IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
             relation.insert_row(row);
         }
     }
-    fn delete_at(&mut self, relation_id: u32, row: Row) {
+    fn delete_at(&mut self, relation_id: u32, row: &Row) {
         let spur = Spur::try_from_usize(relation_id as usize).unwrap();
         let symbol = self.interner.rodeo.resolve(&spur);
 
         if let Some(relation) = self.storage.get_mut(symbol) {
-            relation.mark_deleted(&row)
+            relation.mark_deleted(row)
         }
     }
     fn create_relation(&mut self, symbol: String, relation_id: u32) {

@@ -6,14 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- `DifferentialDatalog` a differential-dataflow-based datalog engine.
+- `DifferentialDatalog` a differential-dataflow-based datalog engine with three different algorithms.
 - Non-indexed variations of `Database`, `Relation` and `Instance`.
 
 ### Changed
 - `Chibi` now does not use an Indexed relation, since it does not need it.
 - `Relation` renamed to `RelationWithIndex`
 - `Instance` renamed to `InstanceWithIndex`
-- Rethinking of interfaces altogether.
+- Rethinking of interfaces altogether
+- Refactor of all reasoners
 
 ## [0.6.0] - 2022-12-28
 ### Added

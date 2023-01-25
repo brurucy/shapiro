@@ -13,8 +13,6 @@ use differential_dataflow::algorithms::identifiers::Identifiers;
 use differential_dataflow::lattice::Lattice;
 use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{Consolidate, iterate, Join, JoinCore, Threshold};
-use lasso::Spur;
-use lasso::Key;
 
 use timely::communication::allocator::Generic;
 use timely::dataflow::Scope;
@@ -341,11 +339,8 @@ impl Default for DifferentialDatalog {
     }
 }
 
-fn typed_row_to_abomonated_row(typed_row: Row, intern: bool, interner: &mut Interner) -> Vec<AbomonatedTerm> {
-    let mut typed_row = typed_row.clone();
-    if intern {
-        typed_row = interner.intern_typed_values(typed_row);
-    }
+fn typed_row_to_abomonated_row(typed_row: &Row, interner: &mut Interner) -> Vec<AbomonatedTerm> {
+    let typed_row = interner.intern_typed_values(typed_row);
 
     return typed_row
         .into_iter()
@@ -354,15 +349,14 @@ fn typed_row_to_abomonated_row(typed_row: Row, intern: bool, interner: &mut Inte
 }
 
 impl DifferentialDatalog {
-    pub fn new(parallel: bool, intern: bool) -> Self {
+    pub fn new(parallel: bool) -> Self {
         return Self {
             parallel,
-            intern,
             ..Default::default()
         };
     }
-    fn noop_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, self.intern, &mut self.interner));
+    fn noop_typed(&mut self, table: &str, row: &Box<[TypedValue]>) {
+        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, 0)).unwrap();
     }
@@ -370,13 +364,13 @@ impl DifferentialDatalog {
 
 impl DynamicTyped for DifferentialDatalog {
     fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, self.intern, &mut self.interner));
+        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(&row, &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, 1)).unwrap();
     }
 
-    fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, self.intern, &mut self.interner));
+    fn delete_typed(&mut self, table: &str, row: &Box<[TypedValue]>) {
+        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, -1)).unwrap();
     }
@@ -385,7 +379,7 @@ impl DynamicTyped for DifferentialDatalog {
 const NOOP_DUMMY_LHS: &'static str = "NOOP";
 const NOOP_DUMMY_RHS: &'static str = "SKIP";
 
-fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut SimpleDatabase, table: &str) {
+fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut SimpleDatabase) {
     let boxed_vec = fresh_intensional_atom
         .2
         .iter()
@@ -436,12 +430,12 @@ impl Materializer for DifferentialDatalog {
             if *sign {
                 self.insert_typed(sym.clone(), typed_row);
             } else {
-                self.delete_typed(sym.clone(), typed_row);
+                self.delete_typed(sym.clone(), &typed_row);
             }
         });
         self.epoch += 1;
         let noop_row = vec![TypedValue::Bool(false)].into_boxed_slice();
-        self.noop_typed("noop", noop_row);
+        self.noop_typed("noop", &noop_row);
 
         let noop_rule: AbomonatedRule =  (
             (self.interner.rodeo.get_or_intern(NOOP_DUMMY_LHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)]),
@@ -461,11 +455,7 @@ impl Materializer for DifferentialDatalog {
                         .fact_output_source
                         .try_iter()
                         .for_each(|fresh_intensional_atom| {
-                            let spur = Spur::try_from_usize(fresh_intensional_atom.0.0.get() as usize).unwrap();
-
-                            let resolved_symbol = self.interner.rodeo.resolve(&spur);
-
-                            insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store, resolved_symbol)
+                            insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store)
                         });
 
                         return;
@@ -474,11 +464,7 @@ impl Materializer for DifferentialDatalog {
                 recv(self.fact_output_source) -> fact => {
                     let fresh_intensional_atom = fact.unwrap();
 
-                    let spur = Spur::try_from_usize(fresh_intensional_atom.0.0.get() as usize).unwrap();
-
-                    let resolved_symbol = self.interner.rodeo.resolve(&spur);
-
-                    insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store, resolved_symbol)
+                    insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store)
                 },
             }
         }

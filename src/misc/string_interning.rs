@@ -16,12 +16,13 @@ impl Interner {
                 not_str => Term::Constant(not_str.clone()),
             },
             variable => variable.clone(),
-        });
+        })
+            .collect();
 
         let relation_id = self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner();
 
         return Atom {
-            terms: new_terms.collect(),
+            terms: new_terms,
             relation_id,
             sign: true,
         };
@@ -45,7 +46,7 @@ impl Interner {
         };
     }
 
-    pub fn intern_typed_values(&mut self, values: Row) -> Row {
+    pub fn intern_typed_values(&mut self, values: &Row) -> Row {
         return values
             .iter()
             .map(|typed_value| match typed_value {

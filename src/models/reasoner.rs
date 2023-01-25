@@ -1,3 +1,4 @@
+use ahash::{HashMap, HashSet};
 use crate::models::datalog::{SugaredProgram, SugaredAtom, SugaredRule, Ty, TypedValue};
 use crate::models::relational_algebra::Row;
 
@@ -13,15 +14,15 @@ pub trait Dynamic {
     // Inserts data
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
     // Marks as deleted
-    fn delete(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
+    fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>);
 }
 
 // For internal consumption only
-pub(crate) trait DynamicTyped {
+pub trait DynamicTyped {
     // Inserts data
     fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>);
     // Marks as deleted
-    fn delete_typed(&mut self, table: &str, row: Box<[TypedValue]>);
+    fn delete_typed(&mut self, table: &str, row: &Box<[TypedValue]>);
 }
 
 pub trait RelationDropper {
@@ -43,11 +44,13 @@ pub trait Queryable {
     fn contains(&mut self, atom: &SugaredAtom) -> bool;
 }
 
-// Sad situation. It would be 100x better if it could return a generic iterator instead.
+
+pub type EvaluationResult = HashMap<String, HashSet<Row>>;
+
 pub trait BottomUpEvaluator<'a> {
-    fn evaluate_program_bottom_up(&mut self, program: Vec<SugaredRule>) -> Vec<(&'a str, Row)>;
+    fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult;
 }
 
 pub trait TopDownEvaluator<'a> {
-    fn evaluate_program_top_down(&mut self, program: Vec<SugaredRule>, query: &SugaredRule) -> Vec<(&'a str, Row)>;
+    fn evaluate_program_top_down(&mut self, program: &Vec<SugaredRule>, query: &SugaredRule) -> EvaluationResult;
 }

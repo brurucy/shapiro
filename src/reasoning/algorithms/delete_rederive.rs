@@ -47,13 +47,13 @@ pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<Su
 
 pub type TypedDiff<'a> = (&'a str, Row);
 
-pub fn delete_rederive<'a, T>(instance: &mut T, program: &Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
+pub fn delete_rederive<'a, T>(instance: &mut T, program: &'a Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
 where
     T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<'a> + RelationDropper,
 {
     let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
-    updates.clone().into_iter().for_each(|(symbol, update)| {
+    updates.into_iter().for_each(|(symbol, update)| {
         let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
         instance.insert_typed(&del_sym, update);
         relations_to_be_dropped.insert(del_sym.to_string());
@@ -63,28 +63,32 @@ where
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - overdeletion
-    let overdeletions = instance.evaluate_program_bottom_up(overdeletion_program);
-    overdeletions.into_iter().for_each(|(del_sym, row)| {
+    let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
+    overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-        instance.insert_typed(&del_sym, row.clone());
-        relations_to_be_dropped.insert(del_sym.to_string());
-        instance.delete_typed(sym, row);
+        relations_to_be_dropped.insert(del_sym.clone());
         relations_to_be_flushed.insert(sym.to_string());
+        row_set
+            .into_iter()
+            .for_each(|row| {
+                instance.delete_typed(sym, &row);
+                instance.insert_typed(&del_sym, row);
+            });
     });
 
-    updates
-        .iter()
-        .for_each(|(sym, row)| instance.delete_typed(sym, row.clone()));
-
-    relations_to_be_flushed.iter().for_each(|sym| {
-        instance.flush(sym);
+    relations_to_be_flushed.into_iter().for_each(|sym| {
+        instance.flush(&sym);
     });
 
     // Stage 2 - rederivation
-    let rederivations = instance.evaluate_program_bottom_up(rederivation_program);
-    rederivations.into_iter().for_each(|(alt_sym, row)| {
+    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        instance.insert_typed(&sym, row);
+        row_set
+            .into_iter()
+            .for_each(|row| {
+                instance.insert_typed(&sym, row);
+            })
     });
 
     relations_to_be_dropped.iter().for_each(|del_sym| {

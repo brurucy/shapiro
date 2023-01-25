@@ -5,7 +5,7 @@ use crate::Reasoners::{
 };
 use clap::{Arg, Command};
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -69,14 +69,14 @@ static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/2002/07/owl#oneOf>" =>"owl:oneOf",
 };
 
-trait AtomParser {
-    fn parse_line(&self, line: &str) -> Atom;
+trait SugaredAtomParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom;
 }
 
 pub struct NTripleParser;
 
-impl AtomParser for NTripleParser {
-    fn parse_line(&self, line: &str) -> Atom {
+impl SugaredAtomParser for NTripleParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom {
         let mut split_line = line.split(' ');
 
         let digit_one: String = split_line.next().unwrap().to_string();
@@ -109,18 +109,18 @@ impl AtomParser for NTripleParser {
             ]
         };
 
-        return Atom {
+        return SugaredAtom {
             terms,
-            relation_id: symbol.to_string(),
-            sign: true,
+            symbol: symbol.to_string(),
+            positive: false,
         };
     }
 }
 
 pub struct SpaceSepParser;
 
-impl AtomParser for SpaceSepParser {
-    fn parse_line(&self, line: &str) -> Atom {
+impl SugaredAtomParser for SpaceSepParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom {
         let raw_terms: Vec<&str> = line.split(' ').collect();
 
         let symbol = raw_terms[raw_terms.len() - 1];
@@ -130,16 +130,16 @@ impl AtomParser for SpaceSepParser {
             .map(|term| Term::Constant(term.to_typed_value()))
             .collect();
 
-        return Atom {
+        return SugaredAtom {
             terms,
-            relation_id: symbol.to_string(),
-            sign: true,
+            symbol: symbol.to_string(),
+            positive: true,
         };
     }
 }
 
 struct Parser {
-    atom_parser: Box<dyn AtomParser>,
+    atom_parser: Box<dyn SugaredAtomParser>,
 }
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
@@ -153,7 +153,7 @@ fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static st
 }
 
 impl Parser {
-    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item =Atom> + '_ {
+    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item = SugaredAtom> + '_ {
         match read_file(filename) {
             Ok(file) => {
                 return file
@@ -228,22 +228,16 @@ fn main() {
                 .index(4),
         )
         .arg(
-            Arg::new("INTERN")
-                .help("Sets whether strings should be interned")
-                .required(true)
-                .index(5),
-        )
-        .arg(
             Arg::new("BATCH_SIZE")
                 .help("Sets the batch size, from 0-1.0")
                 .required(true)
-                .index(6),
+                .index(5),
         )
         .arg(
             Arg::new("PARSER")
                 .help("Sets the parser, nt or free")
                 .required(true)
-                .index(7),
+                .index(6),
         )
         .get_matches();
 
@@ -260,13 +254,12 @@ fn main() {
         "simple-spine" => SimpleSpine,
         other => panic!("unknown reasoner variant: {}", other),
     };
-    let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
     let batch_size: f64 = matches
         .value_of("BATCH_SIZE")
         .unwrap()
         .parse::<f64>()
         .unwrap();
-    let line_parser: Box<dyn AtomParser> = match matches.value_of("PARSER").unwrap() {
+    let line_parser: Box<dyn SugaredAtomParser> = match matches.value_of("PARSER").unwrap() {
         "nt" => Box::new(NTripleParser),
         _ => Box::new(SpaceSepParser),
     };
@@ -275,18 +268,18 @@ fn main() {
     };
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
-        Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
-        Differential => Box::new(DifferentialDatalog::new(parallel, intern)),
-        SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel, intern)),
-        SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel, intern)),
-        SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel, intern)),
+        Chibi => Box::new(ChibiDatalog::new(parallel)),
+        Differential => Box::new(DifferentialDatalog::new(parallel)),
+        SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel)),
+        SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel)),
+        SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel)),
         SimpleImmutableVector => {
-            Box::new(SimpleDatalog::<ImmutableVectorIndex>::new(parallel, intern))
+            Box::new(SimpleDatalog::<ImmutableVectorIndex>::new(parallel))
         }
-        SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel, intern)),
+        SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel)),
     };
 
-    let facts: Vec<Atom> = parser.read_fact_file(&data_path).collect();
+    let facts: Vec<SugaredAtom> = parser.read_fact_file(&data_path).collect();
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
     let mut batch_size: usize = 0;
@@ -297,8 +290,8 @@ fn main() {
     }
 
     println!(
-        "data: {}\nprogram: {}\nparallel: {}\nreasoner: {}\nintern: {}\nbatch_size: {}",
-        data_path, program_path, parallel, reasoner, intern, batch_size
+        "data: {}\nprogram: {}\nparallel: {}\nreasoner: {}\nbatch_size: {}",
+        data_path, program_path, parallel, reasoner, batch_size
     );
 
     evaluator.materialize(&parser.read_datalog_file(&program_path).collect());
@@ -308,7 +301,7 @@ fn main() {
     let mut negative_update: Vec<Diff> = vec![];
 
     facts.iter().enumerate().for_each(|(idx, atom)| {
-        let sym = atom.relation_id.as_str();
+        let sym = atom.symbol.as_str();
         let terms: Vec<Box<dyn Ty>> = atom
             .terms
             .iter()
