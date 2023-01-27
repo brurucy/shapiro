@@ -19,7 +19,7 @@ use timely::dataflow::Scope;
 use timely::dataflow::scopes::Child;
 use timely::order::Product;
 use timely::worker::Worker;
-use crate::models::instance::{Database, SimpleDatabase};
+use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, mask, permute_mask};
@@ -291,7 +291,7 @@ pub fn reason(
 
 pub struct DifferentialDatalog {
     epoch: usize,
-    pub fact_store: SimpleDatabase,
+    pub fact_store: HashSetDatabase,
     _ddflow: thread::JoinHandle<()>,
     pub rule_input_sink: RuleSink,
     pub rule_output_source: RuleSource,
@@ -379,7 +379,7 @@ impl DynamicTyped for DifferentialDatalog {
 const NOOP_DUMMY_LHS: &'static str = "NOOP";
 const NOOP_DUMMY_RHS: &'static str = "SKIP";
 
-fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut SimpleDatabase) {
+fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut HashSetDatabase) {
     let boxed_vec = fresh_intensional_atom
         .2
         .iter()

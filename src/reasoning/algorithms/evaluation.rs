@@ -38,13 +38,13 @@ impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
 
         let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
         self.current_delta = evaluation.difference(&input_plus_previous_delta);
-
         self.output.union(&self.current_delta);
     }
     pub fn semi_naive(&mut self) {
         loop {
             self.semi_naive_immediate_consequence();
 
+            println!("{}", self.current_delta.is_empty());
             if self.current_delta.is_empty() {
                 break;
             }

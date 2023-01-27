@@ -3,7 +3,7 @@ use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty, TypedValue};
-use crate::models::instance::{Database, SimpleDatabase};
+use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Flusher, Materializer, RelationDropper};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
@@ -23,9 +23,9 @@ impl Rewriting {
     }
 }
 
-impl InstanceEvaluator<SimpleDatabase> for Rewriting {
-    fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
-        let mut out: SimpleDatabase = Default::default();
+impl InstanceEvaluator<HashSetDatabase> for Rewriting {
+    fn evaluate(&self, instance: &HashSetDatabase) -> HashSetDatabase {
+        let mut out: HashSetDatabase = Default::default();
 
         self
             .program
@@ -56,9 +56,9 @@ impl ParallelRewriting {
     }
 }
 
-impl InstanceEvaluator<SimpleDatabase> for ParallelRewriting {
-    fn evaluate(&self, instance: &SimpleDatabase) -> SimpleDatabase {
-        let mut out: SimpleDatabase = Default::default();
+impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
+    fn evaluate(&self, instance: &HashSetDatabase) -> HashSetDatabase {
+        let mut out: HashSetDatabase = Default::default();
 
         self
             .program
@@ -85,7 +85,7 @@ impl InstanceEvaluator<SimpleDatabase> for ParallelRewriting {
 }
 
 pub struct ChibiDatalog {
-    pub fact_store: SimpleDatabase,
+    pub fact_store: HashSetDatabase,
     interner: Interner,
     parallel: bool,
     program: Program,

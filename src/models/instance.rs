@@ -10,7 +10,7 @@ use crate::reasoning::algorithms::relational_algebra::evaluate;
 use super::{relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression}};
 
 pub type HashSetBacking = HashSet<Row, ahash::RandomState>;
-pub type SimpleStorage = HashMap<u32, HashSetBacking>;
+pub type HashSetStorage = HashMap<u32, HashSetBacking>;
 
 pub trait Database: Default + PartialEq {
     fn insert_at(&mut self, relation_id: u32, row: Row);
@@ -24,12 +24,12 @@ pub trait WithIndexes {
 }
 
 #[derive(PartialEq)]
-pub struct SimpleDatabase
+pub struct HashSetDatabase
 {
-    pub storage: SimpleStorage,
+    pub storage: HashSetStorage,
 }
 
-impl Database for SimpleDatabase {
+impl Database for HashSetDatabase {
     fn insert_at(&mut self, relation_id: u32, row: Row) {
         if let Some(relation) = self.storage.get_mut(&relation_id) {
             relation.insert(row);
@@ -47,8 +47,7 @@ impl Database for SimpleDatabase {
     }
 
     fn create_relation(&mut self, symbol: String, relation_id: u32) {
-        let mut new_relation: HashSetBacking = Default::default();
-        self.storage.insert(relation_id, new_relation);
+        self.storage.insert(relation_id, Default::default());
     }
 
     fn delete_relation(&mut self, symbol: &str, relation_id: u32) {
@@ -56,9 +55,10 @@ impl Database for SimpleDatabase {
     }
 }
 
-impl Set for SimpleDatabase {
+impl Set for HashSetDatabase {
     fn union(&self, other: &Self) -> Self {
-        let mut out = SimpleDatabase::default();
+        let mut out = HashSetDatabase::default();
+
         self
             .storage
             .iter()
@@ -84,7 +84,8 @@ impl Set for SimpleDatabase {
     }
 
     fn difference(&self, other: &Self) -> Self {
-        let mut out = SimpleDatabase::default();
+        let mut out = HashSetDatabase::default();
+
         self
             .storage
             .iter()
@@ -104,14 +105,25 @@ impl Set for SimpleDatabase {
     }
 }
 
-impl Empty for SimpleDatabase {
+impl Empty for HashSetDatabase {
     fn is_empty(&self) -> bool {
-        return self.storage.is_empty()
+        let mut is_empty = false || self.storage.is_empty();
+
+        self
+            .storage
+            .iter()
+            .for_each(|(_relation_id, row_set)| {
+                if row_set.is_empty() {
+                    is_empty = true
+                }
+            });
+
+        return is_empty
     }
 }
 
 
-impl Default for SimpleDatabase {
+impl Default for HashSetDatabase {
     fn default() -> Self {
         return Self {
             storage: Default::default(),

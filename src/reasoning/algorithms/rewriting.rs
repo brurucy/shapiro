@@ -1,7 +1,7 @@
 use crate::data_structures::substitutions::Substitutions;
 use crate::misc::helpers::terms_to_boxed_term_slice;
 use crate::models::datalog::{Atom, Rule, Term};
-use crate::models::instance::{Database, HashSetBacking, SimpleDatabase};
+use crate::models::instance::{Database, HashSetBacking, HashSetDatabase};
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -52,30 +52,31 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
 }
 
 pub fn generate_all_substitutions(
-    knowledge_base: &SimpleDatabase,
+    knowledge_base: &HashSetDatabase,
     target_atom: &Atom,
 ) -> Vec<Substitutions> {
-    let relation = knowledge_base.storage.get(&target_atom.relation_id.get());
+    if let Some(rel) = knowledge_base.storage.get(&target_atom.relation_id.get()) {
+        return rel
+            .into_iter()
+            .filter_map(|row| {
+                let term_vec = row
+                    .into_iter()
+                    .map(|row_element| Term::Constant(row_element.clone()))
+                    .collect();
 
-    return relation
-        .unwrap()
-        .into_iter()
-        .filter_map(|row| {
-            let term_vec = row
-                .into_iter()
-                .map(|row_element| Term::Constant(row_element.clone()))
-                .collect();
+                return make_substitutions(
+                    target_atom,
+                    &Atom {
+                        terms: term_vec,
+                        relation_id: target_atom.relation_id,
+                        sign: true,
+                    },
+                );
+            })
+            .collect();
+    }
 
-            return make_substitutions(
-                target_atom,
-                &Atom {
-                    terms: term_vec,
-                    relation_id: target_atom.relation_id,
-                    sign: true,
-                },
-            );
-        })
-        .collect();
+    return vec![];
 }
 
 pub fn is_ground(atom: &Atom) -> bool {
@@ -91,7 +92,7 @@ pub fn is_ground(atom: &Atom) -> bool {
 }
 
 pub fn accumulate_substitutions(
-    knowledge_base: &SimpleDatabase,
+    knowledge_base: &HashSetDatabase,
     target_atom: &Atom,
     input_substitutions: Vec<Substitutions>,
 ) -> Vec<Substitutions> {
@@ -117,7 +118,7 @@ pub fn accumulate_substitutions(
 }
 
 pub fn accumulate_body_substitutions(
-    knowledge_base: &SimpleDatabase,
+    knowledge_base: &HashSetDatabase,
     body: &Vec<Atom>,
 ) -> Vec<Substitutions>
 {
@@ -129,7 +130,7 @@ pub fn accumulate_body_substitutions(
 }
 
 pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<HashSetBacking> {
-    let mut output_instance: SimpleDatabase = Default::default();
+    let mut output_instance: HashSetDatabase = Default::default();
 
     substitutions.into_iter().for_each(|substitutions| {
         let rewrite_attempt = attempt_to_rewrite(&substitutions, head);
@@ -149,164 +150,167 @@ pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Has
     return None;
 }
 
-pub fn evaluate_rule(knowledge_base: &SimpleDatabase, rule: &Rule) -> Option<HashSetBacking> {
+pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<HashSetBacking> {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, &rule.body),
     );
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::data_structures::substitutions::Substitutions;
-//     use crate::models::datalog::{Atom, SugaredRule, TypedValue};
-//     use crate::models::index::BTreeIndex;
-//     use crate::models::instance::SimpleDatabaseWithIndex;
-//     use crate::reasoning::algorithms::rewriting::{
-//         accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground,
-//         make_substitutions,
-//     };
-//
-//     use super::generate_all_substitutions;
-//
-//     #[test]
-//     fn test_make_substitution() {
-//         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-//         let data_0 = Atom::from("edge(a,b)");
-//
-//         if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
-//             let expected_sub: Substitutions = Substitutions {
-//                 inner: vec![
-//                     (0, TypedValue::Str("a".to_string())),
-//                     (1, TypedValue::Str("b".to_string())),
-//                 ],
-//             };
-//             assert_eq!(sub, expected_sub);
-//         } else {
-//             panic!()
-//         };
-//     }
-//
-//     #[test]
-//     fn test_attempt_to_substitute() {
-//         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-//         let data_0 = Atom::from("edge(a,b)");
-//
-//         if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
-//             assert_eq!(data_0, attempt_to_rewrite(&sub, &rule_atom_0))
-//         } else {
-//             panic!()
-//         };
-//     }
-//
-//     #[test]
-//     fn test_ground_atom() {
-//         let mut fact_store: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new(false);
-//         let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-//         fact_store.insert_atom(&Atom::from("edge(a, b)"));
-//         fact_store.insert_atom(&Atom::from("edge(b, c)"));
-//
-//         let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
-//         assert_eq!(
-//             subs,
-//             vec![
-//                 Substitutions {
-//                     inner: vec![
-//                         (0, TypedValue::Str("a".to_string())),
-//                         (1, TypedValue::Str("b".to_string())),
-//                     ]
-//                 },
-//                 Substitutions {
-//                     inner: vec![
-//                         (0, TypedValue::Str("b".to_string())),
-//                         (1, TypedValue::Str("c".to_string())),
-//                     ]
-//                 },
-//             ]
-//         )
-//     }
-//
-//     #[test]
-//     fn test_is_ground() {
-//         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-//         let data_0 = Atom::from("T(student, takesClassesFrom, PLlab)");
-//
-//         assert_eq!(is_ground(&rule_atom_0), false);
-//         assert_eq!(is_ground(&data_0), true)
-//     }
-//
-//     #[test]
-//     fn test_extend_substitutions() {
-//         let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-//         let mut fact_store: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new(false);
-//         fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
-//         fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
-//
-//         let partial_subs = vec![
-//             Substitutions {
-//                 inner: vec![(0, TypedValue::Str("student".to_string()))],
-//             },
-//             Substitutions {
-//                 inner: vec![(0, TypedValue::Str("professor".to_string()))],
-//             },
-//         ];
-//
-//         let subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
-//         assert_eq!(
-//             subs,
-//             vec![
-//                 Substitutions {
-//                     inner: vec![
-//                         (0, TypedValue::Str("student".to_string())),
-//                         (1, TypedValue::Str("takesClassesFrom".to_string())),
-//                     ]
-//                 },
-//                 Substitutions {
-//                     inner: vec![
-//                         (0, TypedValue::Str("professor".to_string())),
-//                         (1, TypedValue::Str("worksAt".to_string())),
-//                     ]
-//                 },
-//             ]
-//         )
-//     }
-//
-//     #[test]
-//     fn test_explode_body_substitutions() {
-//         let rule = SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
-//         let rule_body = rule.body;
-//
-//         let mut fact_store: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new(false);
-//
-//         fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
-//         fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));
-//         fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
-//         fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
-//
-//         let fitting_substitutions = vec![
-//             Substitutions {
-//                 inner: vec![
-//                     (0, TypedValue::Str("adam".to_string())),
-//                     (1, TypedValue::Str("cthulu".to_string())),
-//                     (2, TypedValue::Str("jumala".to_string())),
-//                 ],
-//             },
-//             Substitutions {
-//                 inner: vec![
-//                     (0, TypedValue::Str("vanasarvik".to_string())),
-//                     (1, TypedValue::Str("cthulu".to_string())),
-//                     (2, TypedValue::Str("jumala".to_string())),
-//                 ],
-//             },
-//             Substitutions {
-//                 inner: vec![
-//                     (0, TypedValue::Str("eve".to_string())),
-//                     (1, TypedValue::Str("jumala".to_string())),
-//                     (2, TypedValue::Str("adam".to_string())),
-//                 ],
-//             },
-//         ];
-//         let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);
-//         assert_eq!(all_substitutions, fitting_substitutions);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use crate::data_structures::substitutions::Substitutions;
+    use crate::misc::string_interning::Interner;
+    use crate::models::datalog::{Atom, SugaredAtom, SugaredRule, TypedValue};
+    use crate::models::index::BTreeIndex;
+    use crate::models::instance::{HashSetDatabase, SimpleDatabaseWithIndex};
+    use crate::reasoning::algorithms::rewriting::{
+        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground,
+        make_substitutions,
+    };
+
+    use super::generate_all_substitutions;
+
+    #[test]
+    fn test_make_substitution() {
+        let mut interner: Interner = Default::default();
+
+        let rule_atom_0 = interner.intern_atom(&SugaredAtom::from("edge(?X, ?Y)"));
+        let data_0 = interner.intern_atom(&SugaredAtom::from("edge(a,b)"));
+
+        if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
+            let expected_sub: Substitutions = Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("a".to_string())),
+                    (1, TypedValue::Str("b".to_string())),
+                ],
+            };
+            assert_eq!(sub, expected_sub);
+        } else {
+            panic!()
+        };
+    }
+
+    #[test]
+    fn test_attempt_to_substitute() {
+        let rule_atom_0 = SugaredAtom::from("edge(?X, ?Y)");
+        let data_0 = SugaredAtom::from("edge(a,b)");
+
+        if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
+            assert_eq!(data_0, attempt_to_rewrite(&sub, &rule_atom_0))
+        } else {
+            panic!()
+        };
+    }
+
+    #[test]
+    fn test_ground_atom() {
+        let mut fact_store = Default::default();
+        let rule_atom_0 = SugaredAtom::from("edge(?X, ?Y)");
+        fact_store.insert_atom(&SugaredAtom::from("edge(a, b)"));
+        fact_store.insert_atom(&SugaredAtom::from("edge(b, c)"));
+
+        let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
+        assert_eq!(
+            subs,
+            vec![
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("a".to_string())),
+                        (1, TypedValue::Str("b".to_string())),
+                    ]
+                },
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("b".to_string())),
+                        (1, TypedValue::Str("c".to_string())),
+                    ]
+                },
+            ]
+        )
+    }
+
+    #[test]
+    fn test_is_ground() {
+        let rule_atom_0 = SugaredAtom::from("T(?X, ?Y, PLlab)");
+        let data_0 = SugaredAtom::from("T(student, takesClassesFrom, PLlab)");
+
+        assert_eq!(is_ground(&rule_atom_0), false);
+        assert_eq!(is_ground(&data_0), true)
+    }
+
+    #[test]
+    fn test_extend_substitutions() {
+        let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
+        let mut fact_store: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new(false);
+        fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
+        fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
+
+        let partial_subs = vec![
+            Substitutions {
+                inner: vec![(0, TypedValue::Str("student".to_string()))],
+            },
+            Substitutions {
+                inner: vec![(0, TypedValue::Str("professor".to_string()))],
+            },
+        ];
+
+        let subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
+        assert_eq!(
+            subs,
+            vec![
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("student".to_string())),
+                        (1, TypedValue::Str("takesClassesFrom".to_string())),
+                    ]
+                },
+                Substitutions {
+                    inner: vec![
+                        (0, TypedValue::Str("professor".to_string())),
+                        (1, TypedValue::Str("worksAt".to_string())),
+                    ]
+                },
+            ]
+        )
+    }
+
+    #[test]
+    fn test_explode_body_substitutions() {
+        let rule = SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let rule_body = rule.body;
+
+        let mut fact_store: HashSetDatabase = Default::default();
+
+        fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));
+        fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
+        fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
+
+        let fitting_substitutions = vec![
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("adam".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
+                ],
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("vanasarvik".to_string())),
+                    (1, TypedValue::Str("cthulu".to_string())),
+                    (2, TypedValue::Str("jumala".to_string())),
+                ],
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("eve".to_string())),
+                    (1, TypedValue::Str("jumala".to_string())),
+                    (2, TypedValue::Str("adam".to_string())),
+                ],
+            },
+        ];
+        let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);
+        assert_eq!(all_substitutions, fitting_substitutions);
+    }
+}
