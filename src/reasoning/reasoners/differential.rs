@@ -299,8 +299,6 @@ pub struct DifferentialDatalog {
     pub fact_output_source: AtomSource,
     pub notification_source: NotificationSource,
     pub interner: Interner,
-    parallel: bool,
-    intern: bool,
     materialization: Program,
 }
 
@@ -332,8 +330,6 @@ impl Default for DifferentialDatalog {
             fact_store: Default::default(),
             _ddflow: handle,
             interner: Default::default(),
-            parallel: false,
-            intern: false,
             materialization: vec![],
         }
     }
@@ -349,9 +345,8 @@ fn typed_row_to_abomonated_row(typed_row: &Row, interner: &mut Interner) -> Vec<
 }
 
 impl DifferentialDatalog {
-    pub fn new(parallel: bool) -> Self {
+    pub fn new() -> Self {
         return Self {
-            parallel,
             ..Default::default()
         };
     }
@@ -403,7 +398,7 @@ fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: i
 impl Materializer for DifferentialDatalog {
     fn materialize(&mut self, program: &SugaredProgram) {
         program.iter().for_each(|rule| {
-            let mut interned_rule = self.interner.intern_rule(rule);
+            let interned_rule = self.interner.intern_rule(rule);
 
             self.materialization.push(interned_rule.clone());
             self.rule_input_sink.send((abomonate_rule(interned_rule), self.epoch, 1)).unwrap();

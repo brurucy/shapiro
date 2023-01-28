@@ -46,11 +46,11 @@ impl Database for HashSetDatabase {
         }
     }
 
-    fn create_relation(&mut self, symbol: String, relation_id: u32) {
+    fn create_relation(&mut self, _symbol: String, relation_id: u32) {
         self.storage.insert(relation_id, Default::default());
     }
 
-    fn delete_relation(&mut self, symbol: &str, relation_id: u32) {
+    fn delete_relation(&mut self, _symbol: &str, relation_id: u32) {
         self.storage.remove(&relation_id);
     }
 }
@@ -80,7 +80,7 @@ impl Set for HashSetDatabase {
                     })
             });
 
-        return out
+        return out;
     }
 
     fn difference(&self, other: &Self) -> Self {
@@ -90,18 +90,42 @@ impl Set for HashSetDatabase {
             .storage
             .iter()
             .for_each(|(relation_id, relation)| {
-                if let Some(other_relation) = other.storage.get(relation_id) {
+                if other.storage.contains_key(relation_id) {
+                    let other_relation = other
+                        .storage
+                        .get(relation_id)
+                        .unwrap();
+
                     relation
-                        .into_iter()
+                        .iter()
                         .for_each(|row| {
                             if !other_relation.contains(row) {
                                 out.insert_at(*relation_id, row.clone())
                             }
                         })
+                } else {
+                    relation
+                        .iter()
+                        .for_each(|row| {
+                            out.insert_at(*relation_id, row.clone())
+                        })
                 }
             });
 
         out
+    }
+
+    fn merge(&mut self, other: Self) {
+        other
+            .storage
+            .into_iter()
+            .for_each(|(relation_id, row_set)| {
+                row_set
+                    .into_iter()
+                    .for_each(|row| {
+                        self.insert_at(relation_id, row)
+                    })
+            })
     }
 }
 
@@ -118,7 +142,7 @@ impl Empty for HashSetDatabase {
                 }
             });
 
-        return is_empty
+        return is_empty;
     }
 }
 
@@ -127,27 +151,27 @@ impl Default for HashSetDatabase {
     fn default() -> Self {
         return Self {
             storage: Default::default(),
-        }
+        };
     }
 }
 
 pub type StorageWithIndex<T> = HashMap<String, SimpleRelationWithOneIndexBacking<T>>;
 
 pub struct SimpleDatabaseWithIndex<T>
-where
-    T: IndexBacking
+    where
+        T: IndexBacking
 {
     pub storage: StorageWithIndex<T>,
-    pub interner: Interner
+    pub interner: Interner,
 }
 
-impl<T : IndexBacking + PartialEq> PartialEq for SimpleDatabaseWithIndex<T> {
+impl<T: IndexBacking + PartialEq> PartialEq for SimpleDatabaseWithIndex<T> {
     fn eq(&self, other: &Self) -> bool {
-        return self.storage == other.storage
+        return self.storage == other.storage;
     }
 }
 
-impl<T : IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
+impl<T: IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
     fn insert_at(&mut self, relation_id: u32, row: Row) {
         let spur = Spur::try_from_usize(relation_id as usize).unwrap();
         let symbol = self.interner.rodeo.resolve(&spur);
@@ -164,80 +188,96 @@ impl<T : IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
             relation.mark_deleted(row)
         }
     }
-    fn create_relation(&mut self, symbol: String, relation_id: u32) {
+    fn create_relation(&mut self, symbol: String, _relation_id: u32) {
         let new_relation = SimpleRelationWithOneIndexBacking::new(symbol.clone());
         self.storage.insert(symbol, new_relation);
     }
-    fn delete_relation(&mut self, symbol: &str, relation_id: u32) {
+    fn delete_relation(&mut self, symbol: &str, _relation_id: u32) {
         self.storage.remove(symbol);
     }
 }
 
-impl<T : IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
-        fn union(&self, other: &Self) -> Self {
-            let mut out = SimpleDatabaseWithIndex::default();
-            self
-                .storage
-                .iter()
-                .for_each(|(symbol, relation)| {
+impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
+    fn union(&self, other: &Self) -> Self {
+        let mut out = SimpleDatabaseWithIndex::default();
+        self
+            .storage
+            .iter()
+            .for_each(|(symbol, relation)| {
+                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+
+                relation
+                    .ward
+                    .iter()
+                    .for_each(|(row, active)| {
+                        if *active {
+                            out.insert_at(relation_id, row.clone())
+                        }
+                    })
+            });
+
+        other
+            .storage
+            .iter()
+            .for_each(|(symbol, relation)| {
+                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+
+                relation
+                    .ward
+                    .iter()
+                    .for_each(|(row, active)| {
+                        if *active {
+                            out.insert_at(relation_id, row.clone())
+                        }
+                    })
+            });
+
+        return out;
+    }
+
+    fn difference(&self, other: &Self) -> Self {
+        let mut out = SimpleDatabaseWithIndex::default();
+        self
+            .storage
+            .iter()
+            .for_each(|(symbol, relation)| {
+                if let Some(other_relation) = other.storage.get(symbol) {
                     let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
 
                     relation
                         .ward
                         .iter()
                         .for_each(|(row, active)| {
-                            if *active {
+                            if *active && !other_relation.ward.contains_key(row) {
                                 out.insert_at(relation_id, row.clone())
                             }
                         })
-                });
+                }
+            });
 
-            other
-                .storage
-                .iter()
-                .for_each(|(symbol, relation)| {
-                    let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+        out
+    }
 
-                    relation
-                        .ward
-                        .iter()
-                        .for_each(|(row, active)| {
-                            if *active {
-                                out.insert_at(relation_id, row.clone())
-                            }
-                        })
-                });
+    fn merge(&mut self, other: Self) {
+        other
+            .storage
+            .into_iter()
+            .for_each(|(symbol, row_set)| {
+                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
 
-            return out
-        }
-
-        fn difference(&self, other: &Self) -> Self {
-            let mut out = SimpleDatabaseWithIndex::default();
-            self
-                .storage
-                .iter()
-                .for_each(|(symbol, relation)| {
-                    if let Some(other_relation) = other.storage.get(symbol) {
-                        let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
-
-                        relation
-                            .ward
-                            .iter()
-                            .for_each(|(row, active)| {
-                                if *active && !other_relation.ward.contains_key(row) {
-                                    out.insert_at(relation_id, row.clone())
-                                }
-                            })
-                    }
-                });
-
-            out
-        }
+                row_set
+                    .ward
+                    .into_iter()
+                    .for_each(|(row, _active)| {
+                        self.insert_at(relation_id, row)
+                    })
+            })
+    }
 }
 
-impl<T : IndexBacking + PartialEq> Empty for SimpleDatabaseWithIndex<T> {
+impl<T: IndexBacking + PartialEq> Empty for SimpleDatabaseWithIndex<T> {
     fn is_empty(&self) -> bool {
-        return self.storage.is_empty()
+        return self.storage.is_empty();
     }
 }
 
@@ -251,11 +291,11 @@ impl<T: IndexBacking + PartialEq> SimpleDatabaseWithIndex<T> {
     }
 }
 
-impl<T : IndexBacking + PartialEq> Default for SimpleDatabaseWithIndex<T> {
+impl<T: IndexBacking + PartialEq> Default for SimpleDatabaseWithIndex<T> {
     fn default() -> Self {
         return Self {
             storage: Default::default(),
             interner: Default::default(),
-        }
+        };
     }
 }

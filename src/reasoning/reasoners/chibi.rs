@@ -35,7 +35,6 @@ impl InstanceEvaluator<HashSetDatabase> for Rewriting {
                     eval
                         .into_iter()
                         .for_each(|row| {
-                            println!("Row: {:?}", row.to_vec());
                             out.insert_at(rule.head.relation_id.get(), row)
                         })
                 }
@@ -140,7 +139,7 @@ impl DynamicTyped for ChibiDatalog {
 }
 
 impl Flusher for ChibiDatalog {
-    fn flush(&mut self, table: &str) {}
+    fn flush(&mut self, _table: &str) {}
 }
 
 impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {

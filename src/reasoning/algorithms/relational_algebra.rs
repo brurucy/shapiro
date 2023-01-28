@@ -52,7 +52,7 @@ impl<T : IndexBacking> Relation for SimpleRelationWithOneIndexBacking<T> {
         return relation;
     }
 
-    fn join(&self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self {
+    fn join(&self, other: &Self, _left_column_idx: usize, _right_column_idx: usize) -> Self {
         let mut relation = SimpleRelationWithOneIndexBacking::new(
             self.symbol() + &other.symbol(),
         );
@@ -150,7 +150,7 @@ where
                                     .ward
                                     .iter()
                                     .enumerate()
-                                    .for_each(|(idx, (row, active))| {
+                                    .for_each(|(idx, (row, _active))| {
                                         left_relation.index.insert_row((row[left_column_idx].clone(), idx));
                                     });
                             },
@@ -159,7 +159,7 @@ where
                                     .ward
                                     .iter()
                                     .enumerate()
-                                    .for_each(|(idx, (row, active))| {
+                                    .for_each(|(idx, (row, _active))| {
                                         right_relation.index.insert_row((row[left_column_idx].clone(), idx));
                                     });
 

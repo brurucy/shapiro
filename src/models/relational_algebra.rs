@@ -66,7 +66,7 @@ impl<T : IndexBacking> SimpleRelationWithOneIndexBacking<T> {
     }
 
     pub fn compact_physical(&mut self) {
-        self.ward.retain(|k, v| {
+        self.ward.retain(|_k, v| {
             *v
         });
     }

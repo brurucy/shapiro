@@ -290,7 +290,7 @@ mod tests {
         let mut interner: Interner = Default::default();
 
         let rule = SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
-        let rule_head = interner.intern_atom_weak(&rule.head);
+        let _rule_head = interner.intern_atom_weak(&rule.head);
         let rule_body = rule
             .body
             .iter()

@@ -3,8 +3,7 @@ use std::hash::Hash;
 use std::num::NonZeroU32;
 use abomonation_derive::Abomonation;
 use itertools::Itertools;
-use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Atom, Rule, SugaredRule, Term, TypedValue};
+use crate::models::datalog::{Atom, Rule, Term, TypedValue};
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTypedValue {
@@ -121,7 +120,7 @@ pub fn permute_mask(masked_atom: MaskedAtom) -> impl Iterator<Item=MaskedAtom> {
         .1
         .into_iter()
         .enumerate()
-        .filter(|(idx, possibly_some)| *possibly_some != None)
+        .filter(|(_idx, possibly_some)| *possibly_some != None)
         .powerset()
         .map(move |x| {
             let mut vec = vec![None; arity];

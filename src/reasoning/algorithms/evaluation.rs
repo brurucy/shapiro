@@ -10,6 +10,7 @@ where
 pub trait Set {
     fn union(&self, other: &Self) -> Self;
     fn difference(&self, other: &Self) -> Self;
+    fn merge(&mut self, other: Self);
 }
 
 pub trait Empty {
@@ -19,8 +20,7 @@ pub trait Empty {
 pub struct Evaluation<'a, T : Database + Set + Empty> {
     pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub current_delta: T,
-    pub previous_delta: T,
+    pub delta: T,
     pub output: T,
 }
 
@@ -30,21 +30,21 @@ impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
         return Self {
             input: database,
             evaluator,
-            current_delta: Default::default(),
-            previous_delta: Default::default(),
+            delta: Default::default(),
             output: Default::default(),
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
-        self.previous_delta = self.current_delta.union(&self.current_delta);
-        self.current_delta = self.evaluator.evaluate(&self.input.union(&self.previous_delta));
-        self.output = self.output.union(&self.current_delta);
+        let evaluation = self.evaluator.evaluate(&self.input.union(&self.delta));
+        self.delta = evaluation.difference(&self.output);
+
+        self.output.merge(evaluation)
     }
     pub fn semi_naive(&mut self) {
         loop {
             self.semi_naive_immediate_consequence();
 
-            if self.current_delta == self.previous_delta {
+            if self.delta.is_empty() {
                 break;
             }
         }
