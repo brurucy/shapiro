@@ -165,7 +165,7 @@ impl<T : IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
         }
     }
     fn create_relation(&mut self, symbol: String, relation_id: u32) {
-        let mut new_relation = SimpleRelationWithOneIndexBacking::new(symbol.clone());
+        let new_relation = SimpleRelationWithOneIndexBacking::new(symbol.clone());
         self.storage.insert(symbol, new_relation);
     }
     fn delete_relation(&mut self, symbol: &str, relation_id: u32) {

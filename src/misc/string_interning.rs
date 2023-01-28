@@ -7,6 +7,7 @@ pub struct Interner {
 }
 
 impl Interner {
+    // Interns both the symbol and the terms.
     pub(crate) fn intern_atom(&mut self, sugared_atom: &SugaredAtom) -> Atom {
         let new_terms = sugared_atom.terms.iter().map(|term| match term {
             Term::Constant(inner) => match inner {
@@ -26,6 +27,15 @@ impl Interner {
             relation_id,
             sign: true,
         };
+    }
+
+    // Weak interning refers to only interning the relation symbol, not the terms themselves.
+    pub(crate) fn intern_atom_weak(&mut self, sugared_atom: &SugaredAtom) -> Atom {
+        return Atom {
+            terms: sugared_atom.terms.clone(),
+            relation_id: self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner(),
+            sign: true,
+        }
     }
 
     pub(crate) fn intern_sugared_atom(&mut self, sugared_atom: &SugaredAtom) -> SugaredAtom {
@@ -77,6 +87,18 @@ impl Interner {
             .body
             .iter()
             .map(|body_atom| self.intern_atom(&body_atom))
+            .collect();
+
+        return new_rule;
+    }
+
+    pub(crate) fn intern_rule_weak(&mut self, rule: &SugaredRule) -> Rule {
+        let mut new_rule: Rule = Default::default();
+        new_rule.head = self.intern_atom_weak(&rule.head);
+        new_rule.body = rule
+            .body
+            .iter()
+            .map(|body_atom| self.intern_atom_weak(&body_atom))
             .collect();
 
         return new_rule;

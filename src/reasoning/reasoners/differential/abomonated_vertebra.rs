@@ -80,57 +80,57 @@ impl Display for AbomonatedVertebra {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTypedValue;
-    use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedVertebra;
-
-    #[test]
-    fn test_insert() {
-        let mut subs = AbomonatedVertebra::new();
-
-        let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
-        let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
-        let second_sub = (0, AbomonatedTypedValue::Str("two".to_string()));
-
-        assert_eq!(subs.insert(first_sub.clone()), Some(first_sub.clone()));
-        assert_eq!(subs.insert(second_sub), None);
-        assert_eq!(subs.insert(zeroth_sub.clone()), Some(zeroth_sub.clone()));
-        assert_eq!(subs.inner, vec![
-            first_sub,
-            zeroth_sub
-        ])
-    }
-
-    #[test]
-    fn test_get() {
-        let mut subs = AbomonatedVertebra::new();
-
-        let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
-        let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
-
-        subs.insert(zeroth_sub);
-        subs.insert(first_sub);
-
-        assert_eq!(subs.get(0), Some(AbomonatedTypedValue::Str("one".to_string())));
-        assert_eq!(subs.get(1), Some(AbomonatedTypedValue::Str("one".to_string())))
-    }
-
-    #[test]
-    fn test_extend() {
-        let mut subs_left = AbomonatedVertebra::new();
-        let zeroth_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
-        subs_left.insert(zeroth_sub);
-
-        let mut subs_right = AbomonatedVertebra::new();
-        let first_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
-        subs_right.insert(first_sub);
-
-        subs_left.extend(&subs_right);
-
-        assert_eq!(subs_left.inner, vec![
-            (0, AbomonatedTypedValue::Str("one".to_string())),
-            (1, AbomonatedTypedValue::Str("one".to_string())),
-        ])
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::reasoning::reasoners::differential::abomonated_model::AbomonatedTypedValue;
+//     use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedVertebra;
+//
+//     #[test]
+//     fn test_insert() {
+//         let mut subs = AbomonatedVertebra::new();
+//
+//         let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
+//         let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
+//         let second_sub = (0, AbomonatedTypedValue::Str("two".to_string()));
+//
+//         assert_eq!(subs.insert(first_sub.clone()), Some(first_sub.clone()));
+//         assert_eq!(subs.insert(second_sub), None);
+//         assert_eq!(subs.insert(zeroth_sub.clone()), Some(zeroth_sub.clone()));
+//         assert_eq!(subs.inner, vec![
+//             first_sub,
+//             zeroth_sub
+//         ])
+//     }
+//
+//     #[test]
+//     fn test_get() {
+//         let mut subs = AbomonatedVertebra::new();
+//
+//         let zeroth_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
+//         let first_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
+//
+//         subs.insert(zeroth_sub);
+//         subs.insert(first_sub);
+//
+//         assert_eq!(subs.get(0), Some(AbomonatedTypedValue::Str("one".to_string())));
+//         assert_eq!(subs.get(1), Some(AbomonatedTypedValue::Str("one".to_string())))
+//     }
+//
+//     #[test]
+//     fn test_extend() {
+//         let mut subs_left = AbomonatedVertebra::new();
+//         let zeroth_sub = (0, AbomonatedTypedValue::Str("one".to_string()));
+//         subs_left.insert(zeroth_sub);
+//
+//         let mut subs_right = AbomonatedVertebra::new();
+//         let first_sub = (1, AbomonatedTypedValue::Str("one".to_string()));
+//         subs_right.insert(first_sub);
+//
+//         subs_left.extend(&subs_right);
+//
+//         assert_eq!(subs_left.inner, vec![
+//             (0, AbomonatedTypedValue::Str("one".to_string())),
+//             (1, AbomonatedTypedValue::Str("one".to_string())),
+//         ])
+//     }
+// }

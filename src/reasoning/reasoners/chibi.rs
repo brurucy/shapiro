@@ -2,7 +2,7 @@ use ahash::{HashMap, HashSet};
 use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty, TypedValue};
+use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Flusher, Materializer, RelationDropper};
 use crate::models::relational_algebra::Row;
@@ -35,6 +35,7 @@ impl InstanceEvaluator<HashSetDatabase> for Rewriting {
                     eval
                         .into_iter()
                         .for_each(|row| {
+                            println!("Row: {:?}", row.to_vec());
                             out.insert_at(rule.head.relation_id.get(), row)
                         })
                 }
@@ -115,15 +116,11 @@ impl ChibiDatalog {
 
 impl Dynamic for ChibiDatalog {
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
-
-        self.insert_typed(table, typed_row)
+        self.insert_typed(table, row.iter().map(|ty| ty.to_typed_value()).collect())
     }
 
     fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>) {
-        let mut typed_row: Box<[TypedValue]> = row.iter().map(|ty| ty.to_typed_value()).collect();
-
-        self.delete_typed(table, &typed_row)
+        self.delete_typed(table, &row.iter().map(|ty| ty.to_typed_value()).collect())
     }
 }
 

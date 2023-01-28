@@ -20,6 +20,7 @@ pub struct Evaluation<'a, T : Database + Set + Empty> {
     pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
     pub current_delta: T,
+    pub previous_delta: T,
     pub output: T,
 }
 
@@ -30,22 +31,20 @@ impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
             input: database,
             evaluator,
             current_delta: Default::default(),
+            previous_delta: Default::default(),
             output: Default::default(),
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
-        let input_plus_previous_delta = self.input.union(&self.current_delta);
-
-        let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
-        self.current_delta = evaluation.difference(&input_plus_previous_delta);
-        self.output.union(&self.current_delta);
+        self.previous_delta = self.current_delta.union(&self.current_delta);
+        self.current_delta = self.evaluator.evaluate(&self.input.union(&self.previous_delta));
+        self.output = self.output.union(&self.current_delta);
     }
     pub fn semi_naive(&mut self) {
         loop {
             self.semi_naive_immediate_consequence();
 
-            println!("{}", self.current_delta.is_empty());
-            if self.current_delta.is_empty() {
+            if self.current_delta == self.previous_delta {
                 break;
             }
         }

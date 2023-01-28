@@ -110,7 +110,7 @@ mod tests {
     use crate::models::datalog::{SugaredAtom, SugaredRule, Term, TypedValue};
 
     #[test]
-    fn test_parse_SugaredAtom() {
+    fn test_parse_sugared_atom() {
         let some_sugared_atom_1 = "X(?a, 5, true)";
         let some_sugared_atom_2 = "!Y(?a, yeah, false)";
         let some_sugared_atom_3 = "Z(?a, 4, 5)";
