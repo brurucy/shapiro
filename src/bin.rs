@@ -269,7 +269,7 @@ fn main() {
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
         Chibi => Box::new(ChibiDatalog::new(parallel)),
-        Differential => Box::new(DifferentialDatalog::new(parallel)),
+        Differential => Box::new(DifferentialDatalog::new()),
         SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel)),
         SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel)),
         SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel)),

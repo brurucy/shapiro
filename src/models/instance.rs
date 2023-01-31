@@ -162,7 +162,7 @@ pub struct SimpleDatabaseWithIndex<T>
         T: IndexBacking
 {
     pub storage: StorageWithIndex<T>,
-    pub interner: Interner,
+    pub symbol_interner: Interner,
 }
 
 impl<T: IndexBacking + PartialEq> PartialEq for SimpleDatabaseWithIndex<T> {
@@ -173,16 +173,20 @@ impl<T: IndexBacking + PartialEq> PartialEq for SimpleDatabaseWithIndex<T> {
 
 impl<T: IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
     fn insert_at(&mut self, relation_id: u32, row: Row) {
-        let spur = Spur::try_from_usize(relation_id as usize).unwrap();
-        let symbol = self.interner.rodeo.resolve(&spur);
+        let spur = Spur::try_from_usize(relation_id as usize - 1).unwrap();
+        let symbol = self.symbol_interner.rodeo.resolve(&spur);
 
         if let Some(relation) = self.storage.get_mut(symbol) {
             relation.insert_row(row);
+        } else {
+            let mut new_relation = SimpleRelationWithOneIndexBacking::new(symbol.to_string());
+            new_relation.ward.insert(row, true);
+            self.storage.insert(symbol.to_string(), new_relation);
         }
     }
     fn delete_at(&mut self, relation_id: u32, row: &Row) {
-        let spur = Spur::try_from_usize(relation_id as usize).unwrap();
-        let symbol = self.interner.rodeo.resolve(&spur);
+        let spur = Spur::try_from_usize(relation_id as usize - 1).unwrap();
+        let symbol = self.symbol_interner.rodeo.resolve(&spur);
 
         if let Some(relation) = self.storage.get_mut(symbol) {
             relation.mark_deleted(row)
@@ -199,12 +203,13 @@ impl<T: IndexBacking + PartialEq> Database for SimpleDatabaseWithIndex<T> {
 
 impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
     fn union(&self, other: &Self) -> Self {
-        let mut out = SimpleDatabaseWithIndex::default();
+        let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
+
         self
             .storage
             .iter()
             .for_each(|(symbol, relation)| {
-                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+                let relation_id = out.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
 
                 relation
                     .ward
@@ -220,7 +225,7 @@ impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
             .storage
             .iter()
             .for_each(|(symbol, relation)| {
-                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+                let relation_id = out.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
 
                 relation
                     .ward
@@ -236,13 +241,14 @@ impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
     }
 
     fn difference(&self, other: &Self) -> Self {
-        let mut out = SimpleDatabaseWithIndex::default();
+        let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
+
         self
             .storage
             .iter()
             .for_each(|(symbol, relation)| {
                 if let Some(other_relation) = other.storage.get(symbol) {
-                    let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+                    let relation_id = out.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
 
                     relation
                         .ward
@@ -263,7 +269,7 @@ impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
             .storage
             .into_iter()
             .for_each(|(symbol, row_set)| {
-                let relation_id = self.interner.rodeo.get(symbol).unwrap().into_inner().get();
+                let relation_id = self.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
 
                 row_set
                     .ward
@@ -295,7 +301,16 @@ impl<T: IndexBacking + PartialEq> Default for SimpleDatabaseWithIndex<T> {
     fn default() -> Self {
         return Self {
             storage: Default::default(),
-            interner: Default::default(),
+            symbol_interner: Default::default(),
         };
+    }
+}
+
+impl<T : IndexBacking + PartialEq> SimpleDatabaseWithIndex<T> {
+    pub(crate) fn new(symbol_interner: Interner) -> SimpleDatabaseWithIndex<T> {
+        return Self {
+            storage: Default::default(),
+            symbol_interner,
+        }
     }
 }

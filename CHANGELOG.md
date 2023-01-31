@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Instance` renamed to `InstanceWithIndex`
 - Rethinking of interfaces altogether
 - Refactor of all reasoners
+- String interning is done by default
 
 ## [0.6.0] - 2022-12-28
 ### Added

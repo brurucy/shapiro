@@ -224,7 +224,7 @@ pub type SugaredProgram = Vec<SugaredRule>;
 pub struct Atom {
     pub terms: Vec<Term>,
     pub relation_id: NonZeroU32,
-    pub sign: bool,
+    pub positive: bool,
 }
 
 impl Display for Atom {
@@ -245,7 +245,7 @@ impl Display for Atom {
 impl Hash for Atom {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.relation_id.hash(state);
-        self.sign.hash(state);
+        self.positive.hash(state);
         for term in &self.terms {
             term.hash(state)
         }
@@ -257,7 +257,7 @@ impl Default for Atom {
         Self {
             terms: vec![],
             relation_id: NonZeroU32::new(1).unwrap(),
-            sign: false,
+            positive: true,
         }
     }
 }

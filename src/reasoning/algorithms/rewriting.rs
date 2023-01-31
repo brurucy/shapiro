@@ -47,7 +47,7 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
             })
             .collect(),
         relation_id: atom.relation_id,
-        sign: atom.clone().sign,
+        positive: atom.clone().positive,
     };
 }
 
@@ -69,7 +69,7 @@ pub fn generate_all_substitutions(
                     &Atom {
                         terms: term_vec,
                         relation_id: target_atom.relation_id,
-                        sign: true,
+                        positive: true,
                     },
                 );
             })

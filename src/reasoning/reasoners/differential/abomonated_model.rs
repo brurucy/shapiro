@@ -147,7 +147,7 @@ pub fn abomonate_atom(atom: Atom) -> AbomonatedAtom {
         })
         .collect();
 
-    return (atom.relation_id, atom.sign, terms);
+    return (atom.relation_id, atom.positive, terms);
 }
 
 pub type AbomonatedRule = (AbomonatedAtom, Vec<AbomonatedAtom>);

@@ -2,6 +2,7 @@ use crate::models::datalog::{Atom, Rule, SugaredAtom, SugaredRule, Term, TypedVa
 use crate::models::relational_algebra::Row;
 use lasso::Rodeo;
 
+#[derive(Clone)]
 pub struct Interner {
     pub rodeo: Rodeo,
 }
@@ -25,7 +26,7 @@ impl Interner {
         return Atom {
             terms: new_terms,
             relation_id,
-            sign: true,
+            positive: true,
         };
     }
 
@@ -34,7 +35,7 @@ impl Interner {
         return Atom {
             terms: sugared_atom.terms.clone(),
             relation_id: self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner(),
-            sign: true,
+            positive: true,
         }
     }
 
