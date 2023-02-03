@@ -4,7 +4,7 @@ pub trait InstanceEvaluator<T>
 where
     T: Database,
 {
-    fn evaluate(&self, _: &T) -> T;
+    fn evaluate(&self, _: T) -> T;
 }
 
 pub trait Set {
@@ -35,7 +35,7 @@ impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
-        let evaluation = self.evaluator.evaluate(&self.input.union(&self.delta));
+        let evaluation = self.evaluator.evaluate(self.input.union(&self.delta));
         self.delta = evaluation.difference(&self.output);
 
         self.output.merge(evaluation)

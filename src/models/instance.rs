@@ -247,16 +247,28 @@ impl<T: IndexBacking + PartialEq> Set for SimpleDatabaseWithIndex<T> {
             .storage
             .iter()
             .for_each(|(symbol, relation)| {
-                if let Some(other_relation) = other.storage.get(symbol) {
-                    let relation_id = out.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
+                let relation_id = out.symbol_interner.rodeo.get_or_intern(symbol).into_inner().get();
+
+                if other.storage.contains_key(symbol) {
+                    let other_relation = other
+                        .storage
+                        .get(symbol)
+                        .unwrap();
 
                     relation
                         .ward
-                        .iter()
-                        .for_each(|(row, active)| {
-                            if *active && !other_relation.ward.contains_key(row) {
+                        .keys()
+                        .for_each(|row| {
+                            if !other_relation.ward.contains_key(row) {
                                 out.insert_at(relation_id, row.clone())
                             }
+                        })
+                } else {
+                    relation
+                        .ward
+                        .keys()
+                        .for_each(|row| {
+                            out.insert_at(relation_id, row.clone())
                         })
                 }
             });

@@ -52,104 +52,15 @@ pub fn sort_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
 #[cfg(test)]
 mod tests {
     use crate::misc::rule_graph::generate_rule_dependency_graph;
-    use crate::models::datalog::{SugaredAtom, SugaredRule};
+    use crate::models::datalog::SugaredRule;
     use std::collections::HashSet;
 
     #[test]
     fn generate_rule_dependency_graph_test() {
-        let r = "r".to_string();
-        let r_prime_1 = "r'_1'".to_string();
-        let r_prime_2 = "r'_2".to_string();
-        let r_prime_3 = "r'_3".to_string();
-        let r_prime_4 = "r'_4".to_string();
-        let s = "S".to_string();
-        let t = "T".to_string();
-        let u = "U".to_string();
-        let v = "V".to_string();
-        let r_1 = SugaredRule {
-            head: SugaredAtom {
-                terms: vec![],
-                symbol: s.clone(),
-                positive: true,
-            },
-            body: vec![
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r_prime_1.clone(),
-                    positive: true,
-                },
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r.clone(),
-                    positive: true,
-                },
-            ],
-        };
-
-        let r_2 = SugaredRule {
-            head: SugaredAtom {
-                terms: vec![],
-                symbol: t.clone(),
-                positive: true,
-            },
-            body: vec![
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r_prime_2.clone(),
-                    positive: true,
-                },
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r.clone(),
-                    positive: true,
-                },
-            ],
-        };
-
-        let r_3 = SugaredRule {
-            head: SugaredAtom {
-                terms: vec![],
-                symbol: u.clone(),
-                positive: true,
-            },
-            body: vec![
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r_prime_3.clone(),
-                    positive: true,
-                },
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: t.clone(),
-                    positive: true,
-                },
-            ],
-        };
-
-        let r_4 = SugaredRule {
-            head: SugaredAtom {
-                terms: vec![],
-                symbol: v.clone(),
-                positive: true,
-            },
-            body: vec![
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: r_prime_4.clone(),
-                    positive: true,
-                },
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: s.clone(),
-                    positive: true,
-                },
-                SugaredAtom {
-                    terms: vec![],
-                    symbol: u.clone(),
-                    positive: true,
-                },
-            ],
-        };
+        let r_1 = SugaredRule::from("S() <- [r'_1(), !r()]");
+        let r_2 = SugaredRule::from("T() <- [r'_2(), !r()]");
+        let r_3 = SugaredRule::from("U() <- [r'_3(), !T()]");
+        let r_4 = SugaredRule::from("V() <- [r'_4(), !S(), !U()]");
 
         let not_recursive_program = vec![r_1.clone(), r_2.clone(), r_3.clone(), r_4.clone()];
 

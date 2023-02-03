@@ -107,6 +107,16 @@ impl<T : IndexBacking> Relation for SimpleRelationWithOneIndexBacking<T> {
     }
 }
 
+pub fn build_index<T : IndexBacking>(relation: &mut SimpleRelationWithOneIndexBacking<T>, column_idx: usize) {
+    relation
+        .ward
+        .iter()
+        .enumerate()
+        .for_each(|(idx, (row, _active))| {
+            relation.index.insert_row((row[column_idx].clone(), idx));
+        })
+}
+
 // TODO make this generic over the database
 pub fn evaluate<T: IndexBacking>(
     expr: &RelationalExpression,
@@ -146,23 +156,10 @@ where
                     if let Some(mut right_relation) = right_subtree_evaluation {
                         rayon::join(
                             || {
-                                left_relation
-                                    .ward
-                                    .iter()
-                                    .enumerate()
-                                    .for_each(|(idx, (row, _active))| {
-                                        left_relation.index.insert_row((row[left_column_idx].clone(), idx));
-                                    });
+                                build_index(&mut left_relation, left_column_idx);
                             },
                             || {
-                                right_relation
-                                    .ward
-                                    .iter()
-                                    .enumerate()
-                                    .for_each(|(idx, (row, _active))| {
-                                        right_relation.index.insert_row((row[left_column_idx].clone(), idx));
-                                    });
-
+                                build_index(&mut right_relation, right_column_idx);
                             },
                         );
 
@@ -219,189 +216,196 @@ where
     return None;
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::models::datalog::SugaredRule;
-//     use crate::models::instance::SimpleDatabaseWithIndex;
-//     use crate::models::relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression, SelectionTypedValue, Container, Relation};
-//
-//     #[test]
-//     fn select_value_test() {
-//         let mut relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string(), 2);
-//         let relation_data = vec![(true, 1), (true, 4), (false, 4)];
-//         relation_data.into_iter().for_each(|tuple| {
-//             relation.insert_row(vec![Box::new(tuple.0), Box::new(tuple.1)]);
-//         });
-//
-//         let expected_selection_data = vec![(true, 4), (false, 4)];
-//         let mut expected_selection = SimpleRelationWithOneIndexBacking::new("X".to_string(), 2);
-//         expected_selection_data.into_iter().for_each(|tuple| {
-//             expected_selection.insert_row(vec![Box::new(tuple.0), Box::new(tuple.1)]);
-//         });
-//
-//         relation.select_value(1, &SelectionTypedValue::UInt(4));
-//         relation.compact();
-//         assert_eq!(expected_selection, relation);
-//     }
-//
-//     #[test]
-//     fn select_equality_test() {
-//         let mut relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("four".to_string(), 3);
-//         let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
-//         rel_data.into_iter().for_each(|tuple| {
-//             relation.insert(vec![
-//                 Box::new(tuple.0),
-//                 Box::new(tuple.1),
-//                 Box::new(tuple.2),
-//             ]);
-//         });
-//
-//         let expected_selection_data = vec![(true, 4, 4), (false, 4, 4)];
-//         let mut expected_selection = SimpleRelationWithOneIndexBacking::new("four".to_string(), 3);
-//         expected_selection_data.into_iter().for_each(|tuple| {
-//             expected_selection.insert(vec![
-//                 Box::new(tuple.0),
-//                 Box::new(tuple.1),
-//                 Box::new(tuple.2),
-//             ]);
-//         });
-//
-//         relation.select_equality( 1, 2);
-//         relation.compact();
-//         assert_eq!(expected_selection, relation);
-//     }
-//
-//     use crate::models::index::BTreeIndex;
-//     use itertools::Itertools;
-//
-//     #[test]
-//     fn product_test() {
-//         let mut left_relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string(), 2);
-//         let left_data = vec![
-//             (1001, "Arlis"),
-//             (1002, "Robert"),
-//             (1003, "Rego"),
-//             (1004, "Michael"),
-//             (1005, "Rucy"),
-//         ];
-//         left_data.clone().into_iter().for_each(|tuple| {
-//             left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
-//         });
-//
-//         let mut right_relation = SimpleRelationWithOneIndexBacking::new("Y".to_string(), 2);
-//         let right_data = vec![
-//             (1001, "Bulbasaur"),
-//             (1002, "Charmander"),
-//             (1003, "Squirtle"),
-//         ];
-//         right_data
-//             .clone()
-//             .into_iter()
-//             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
-//
-//         let mut expected_product = SimpleRelationWithOneIndexBacking::new("XY".to_string(), 4);
-//
-//         left_data
-//             .into_iter()
-//             .cartesian_product(right_data.into_iter())
-//             .for_each(|tuple| {
-//                 expected_product.insert(vec![
-//                     Box::new(tuple.0 .0),
-//                     Box::new(tuple.0 .1),
-//                     Box::new(tuple.1 .0),
-//                     Box::new(tuple.1 .1),
-//                 ]);
-//             });
-//
-//         let actual_product = left_relation.product(&right_relation);
-//         assert_eq!(expected_product, actual_product);
-//     }
-//
-//     #[test]
-//     fn join_test() {
-//         let mut left_relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string(), 2);
-//         let left_data = vec![
-//             (1001, "Arlis"),
-//             (1002, "Robert"),
-//             (1003, "Rego"),
-//             (1004, "Michael"),
-//             (1005, "Rucy"),
-//         ];
-//         left_data.clone().into_iter().for_each(|tuple| {
-//             left_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]);
-//         });
-//         left_relation.compact_physical(0);
-//
-//         let mut right_relation = SimpleRelationWithOneIndexBacking::new("Y".to_string(), 2);
-//         let right_data = vec![
-//             (1001, "Bulbasaur"),
-//             (1002, "Charmander"),
-//             (1003, "Squirtle"),
-//         ];
-//         right_data
-//             .clone()
-//             .into_iter()
-//             .for_each(|tuple| right_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
-//         right_relation.compact_physical(0);
-//
-//         let mut expected_join = SimpleRelationWithOneIndexBacking::new("XY".to_string(), 4);
-//         let expected_join_data = vec![
-//             (1001, "Arlis", 1001, "Bulbasaur"),
-//             (1002, "Robert", 1002, "Charmander"),
-//             (1003, "Rego", 1003, "Squirtle"),
-//         ];
-//         expected_join_data.clone().into_iter().for_each(|tuple| {
-//             expected_join.insert(vec![
-//                 Box::new(tuple.0),
-//                 Box::new(tuple.1),
-//                 Box::new(tuple.2),
-//                 Box::new(tuple.3),
-//             ])
-//         });
-//
-//         let actual_join = left_relation.join(&right_relation, 0, 0);
-//         assert_eq!(expected_join, actual_join);
-//     }
-//
-//     #[test]
-//     fn evaluate_test() {
-//         let rule =
-//             "mysticalAncestor(?x, ?z) <- [child(?x, ?y), child(?y, ?z), subClassOf(?y, demiGod)]";
-//
-//         let expression = RelationalExpression::from(&SugaredRule::from(rule));
-//
-//         let mut instance: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new();
-//         vec![
-//             ("adam", "jumala"),
-//             ("vanasarvik", "jumala"),
-//             ("eve", "adam"),
-//             ("jumala", "cthulu"),
-//         ]
-//         .into_iter()
-//         .for_each(|tuple| instance.insert("child", vec![Box::new(tuple.0), Box::new(tuple.1)]));
-//
-//         vec![
-//             ("adam", "human"),
-//             ("vanasarvik", "demiGod"),
-//             ("eve", "human"),
-//             ("jumala", "demiGod"),
-//             ("cthulu", "demiGod"),
-//         ]
-//         .into_iter()
-//         .for_each(|tuple| {
-//             instance.insert("subClassOf", vec![Box::new(tuple.0), Box::new(tuple.1)])
-//         });
-//
-//         let mut expected_relation = SimpleRelationWithOneIndexBacking::new("ancestor".to_string(), 2);
-//         let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];
-//         expected_relation_data
-//             .clone()
-//             .into_iter()
-//             .for_each(|tuple| expected_relation.insert(vec![Box::new(tuple.0), Box::new(tuple.1)]));
-//
-//         let mut actual_relation = instance.evaluate(&expression, "ancestor").unwrap();
-//         actual_relation.compact();
-//
-//         assert_eq!(expected_relation, actual_relation);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use crate::models::datalog::{SugaredRule, Ty};
+    use crate::models::instance::{Database, SimpleDatabaseWithIndex};
+    use crate::models::relational_algebra::{SimpleRelationWithOneIndexBacking, RelationalExpression, SelectionTypedValue, Container, Relation};
+
+    #[test]
+    fn select_value_test() {
+        let mut relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string());
+        let relation_data = vec![(true, 1), (true, 4), (false, 4)];
+        relation_data.into_iter().for_each(|tuple| {
+            relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]));
+        });
+
+        let expected_selection_data = vec![(true, 4), (false, 4)];
+        let mut expected_selection = SimpleRelationWithOneIndexBacking::new("X".to_string());
+        expected_selection_data.into_iter().for_each(|tuple| {
+            expected_selection.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]));
+        });
+
+        relation.select_value(1, &SelectionTypedValue::UInt(4));
+        relation.compact();
+        assert_eq!(expected_selection, relation);
+    }
+
+    #[test]
+    fn select_equality_test() {
+        let mut relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("four".to_string());
+        let rel_data = vec![(true, 1, 3), (true, 4, 4), (false, 4, 4)];
+        rel_data.into_iter().for_each(|tuple| {
+            relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value(), tuple.2.to_typed_value()]));
+        });
+
+        let expected_selection_data = vec![(true, 4, 4), (false, 4, 4)];
+        let mut expected_selection = SimpleRelationWithOneIndexBacking::new("four".to_string());
+        expected_selection_data.into_iter().for_each(|tuple| {
+            expected_selection.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value(), tuple.2.to_typed_value()]));
+        });
+
+        relation.select_equality( 1, 2);
+        relation.compact();
+        assert_eq!(expected_selection, relation);
+    }
+
+    use crate::models::index::BTreeIndex;
+    use itertools::Itertools;
+    use crate::misc::string_interning::Interner;
+    use crate::reasoning::algorithms::relational_algebra::build_index;
+
+    #[test]
+    fn product_test() {
+        let mut left_relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string());
+        let left_data = vec![
+            (1001, "Arlis"),
+            (1002, "Robert"),
+            (1003, "Rego"),
+            (1004, "Michael"),
+            (1005, "Rucy"),
+        ];
+        left_data.clone().into_iter().for_each(|tuple| {
+            left_relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]));
+        });
+
+        let mut right_relation = SimpleRelationWithOneIndexBacking::new("Y".to_string());
+        let right_data = vec![
+            (1001, "Bulbasaur"),
+            (1002, "Charmander"),
+            (1003, "Squirtle"),
+        ];
+        right_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| right_relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()])));
+
+        let mut expected_product = SimpleRelationWithOneIndexBacking::new("XY".to_string());
+
+        left_data
+            .into_iter()
+            .cartesian_product(right_data.into_iter())
+            .for_each(|tuple| {
+
+                expected_product.insert_row(
+                    Box::new([
+                        tuple.0.0.to_typed_value(),
+                        tuple.0.1.to_typed_value(),
+                        tuple.1.0.to_typed_value(),
+                        tuple.1.1.to_typed_value(),
+                    ])
+                );
+            });
+
+        let actual_product = left_relation.product(&right_relation);
+        assert_eq!(expected_product, actual_product);
+    }
+
+    #[test]
+    fn join_test() {
+        let mut left_relation: SimpleRelationWithOneIndexBacking<BTreeIndex> = SimpleRelationWithOneIndexBacking::new("X".to_string());
+        let left_data = vec![
+            (1001, "Arlis"),
+            (1002, "Robert"),
+            (1003, "Rego"),
+            (1004, "Michael"),
+            (1005, "Rucy"),
+        ];
+        left_data.into_iter().for_each(|tuple| {
+            left_relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]));
+        });
+
+        left_relation.compact_physical();
+
+        let mut right_relation = SimpleRelationWithOneIndexBacking::new("Y".to_string());
+        let right_data = vec![
+            (1001, "Bulbasaur"),
+            (1002, "Charmander"),
+            (1003, "Squirtle"),
+        ];
+        right_data.into_iter().for_each(|tuple| {
+            right_relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]));
+        });
+
+        right_relation.compact_physical();
+
+        let mut expected_join = SimpleRelationWithOneIndexBacking::new("XY".to_string());
+        let expected_join_data = vec![
+            (1001, "Arlis", 1001, "Bulbasaur"),
+            (1002, "Robert", 1002, "Charmander"),
+            (1003, "Rego", 1003, "Squirtle"),
+        ];
+        expected_join_data.clone().into_iter().for_each(|tuple| {
+            expected_join.insert_row(
+                Box::new([
+                    tuple.0.to_typed_value(),
+                    tuple.1.to_typed_value(),
+                    tuple.2.to_typed_value(),
+                    tuple.3.to_typed_value(),
+                ]))
+        });
+
+        build_index(&mut left_relation, 0);
+        build_index(&mut right_relation, 0);
+
+        let actual_join = left_relation.join(&right_relation, 0, 0);
+        assert_eq!(expected_join, actual_join);
+    }
+
+    #[test]
+    fn evaluate_test() {
+        let rule =
+            "mysticalAncestor(?x, ?z) <- [child(?x, ?y), child(?y, ?z), subClassOf(?y, demiGod)]";
+
+        let expression = RelationalExpression::from(&SugaredRule::from(rule));
+
+        let mut interner = Interner::default();
+        let mut child_id = interner.rodeo.get_or_intern("child");
+        let mut sub_class_of_id = interner.rodeo.get_or_intern("subClassOf");
+        let mut ancestor_id = interner.rodeo.get_or_intern("ancestor");
+
+        let mut instance: SimpleDatabaseWithIndex<BTreeIndex> = SimpleDatabaseWithIndex::new(interner);
+        vec![
+            ("adam", "jumala"),
+            ("vanasarvik", "jumala"),
+            ("eve", "adam"),
+            ("jumala", "cthulu"),
+        ]
+        .into_iter()
+        .for_each(|tuple| instance.insert_at(child_id.into_inner().get(), Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()])));
+
+        vec![
+            ("adam", "human"),
+            ("vanasarvik", "demiGod"),
+            ("eve", "human"),
+            ("jumala", "demiGod"),
+            ("cthulu", "demiGod"),
+        ]
+        .into_iter()
+        .for_each(|tuple| {
+            instance.insert_at(sub_class_of_id.into_inner().get(), Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()]))
+        });
+
+        let mut expected_relation = SimpleRelationWithOneIndexBacking::new("ancestor".to_string());
+        let expected_relation_data = vec![("adam", "cthulu"), ("vanasarvik", "cthulu")];
+        expected_relation_data
+            .clone()
+            .into_iter()
+            .for_each(|tuple| expected_relation.insert_row(Box::new([tuple.0.to_typed_value(), tuple.1.to_typed_value()])));
+
+        let mut actual_relation = instance.evaluate(&expression, "ancestor").unwrap();
+        actual_relation.compact();
+
+        assert_eq!(expected_relation, actual_relation);
+    }
+}

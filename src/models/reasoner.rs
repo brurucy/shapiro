@@ -41,16 +41,16 @@ pub trait Materializer {
 }
 
 pub trait Queryable {
-    fn contains(&mut self, atom: &SugaredAtom) -> bool;
+    fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool;
 }
 
 
 pub type EvaluationResult = HashMap<String, HashSet<Row>>;
 
-pub trait BottomUpEvaluator<'a> {
+pub trait BottomUpEvaluator {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult;
 }
 
-pub trait TopDownEvaluator<'a> {
+pub trait TopDownEvaluator {
     fn evaluate_program_top_down(&mut self, program: &Vec<SugaredRule>, query: &SugaredRule) -> EvaluationResult;
 }

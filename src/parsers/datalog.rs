@@ -135,7 +135,7 @@ mod tests {
                 Term::Constant(TypedValue::Bool(false)),
             ],
             symbol: "Y".to_string(),
-            positive: true,
+            positive: false,
         };
         let expected_parsed_sugared_atom_3 = SugaredAtom {
             terms: vec![
@@ -183,7 +183,7 @@ mod tests {
                         Term::Constant(TypedValue::Bool(false)),
                     ],
                     symbol: "Y".to_string(),
-                    positive: true,
+                    positive: false,
                 },
             ],
         };

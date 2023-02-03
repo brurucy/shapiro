@@ -213,23 +213,28 @@ mod tests {
         fact_store.insert_at(fact_0.relation_id.get(), terms_to_row(fact_0.terms));
         fact_store.insert_at(fact_1.relation_id.get(), terms_to_row(fact_1.terms));
 
-        let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
+        let mut expected_subs = vec![
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("b".to_string())),
+                    (1, TypedValue::Str("c".to_string())),
+                ]
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("a".to_string())),
+                    (1, TypedValue::Str("b".to_string())),
+                ]
+            },
+        ];
+        expected_subs.sort();
+
+        let mut actual_subs = generate_all_substitutions(&fact_store, &rule_atom_0);
+        actual_subs.sort();
+
         assert_eq!(
-            subs,
-            vec![
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("b".to_string())),
-                        (1, TypedValue::Str("c".to_string())),
-                    ]
-                },
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("a".to_string())),
-                        (1, TypedValue::Str("b".to_string())),
-                    ]
-                },
-            ]
+            expected_subs,
+            actual_subs,
         )
     }
 
@@ -265,23 +270,28 @@ mod tests {
             },
         ];
 
-        let subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
+        let mut actual_subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
+        let mut expected_subs = vec![
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("student".to_string())),
+                    (1, TypedValue::Str("takesClassesFrom".to_string())),
+                ]
+            },
+            Substitutions {
+                inner: vec![
+                    (0, TypedValue::Str("professor".to_string())),
+                    (1, TypedValue::Str("worksAt".to_string())),
+                ]
+            },
+        ];
+
+        actual_subs.sort();
+        expected_subs.sort();
+
         assert_eq!(
-            subs,
-            vec![
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("student".to_string())),
-                        (1, TypedValue::Str("takesClassesFrom".to_string())),
-                    ]
-                },
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("professor".to_string())),
-                        (1, TypedValue::Str("worksAt".to_string())),
-                    ]
-                },
-            ]
+            actual_subs,
+            expected_subs
         )
     }
 
@@ -314,7 +324,7 @@ mod tests {
             });
 
 
-        let fitting_substitutions = vec![
+        let mut expected_subs = vec![
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("adam".to_string())),
@@ -337,8 +347,13 @@ mod tests {
                 ],
             },
         ];
-        let all_substitutions = accumulate_body_substitutions(&fact_store, &rule_body);
-        assert_eq!(all_substitutions, fitting_substitutions);
+
+        let mut actual_subs = accumulate_body_substitutions(&fact_store, &rule_body);
+
+        expected_subs.sort();
+        actual_subs.sort();
+
+        assert_eq!(expected_subs, actual_subs);
     }
 
     #[test]
@@ -348,7 +363,7 @@ mod tests {
         let rule = SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
         let rule_head = interner.intern_atom_weak(&rule.head);
 
-        let fitting_substitutions = vec![
+        let subs = vec![
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("adam".to_string())),
@@ -372,7 +387,7 @@ mod tests {
             },
         ];
 
-        let groundingtons = ground_head(&rule_head, fitting_substitutions).unwrap();
+        let actual_output = ground_head(&rule_head, subs).unwrap();
         let mut expected_output: HashSetBacking = Default::default();
         vec![
             Box::new([Box::new("adam").to_typed_value(), Box::new("cthulu").to_typed_value()]),
@@ -382,7 +397,7 @@ mod tests {
             .into_iter()
             .for_each(|row| { expected_output.insert(row); });
 
-        assert_eq!(groundingtons, expected_output);
+        assert_eq!(actual_output, expected_output);
     }
 
     #[test]

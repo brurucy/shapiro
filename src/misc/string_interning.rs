@@ -57,14 +57,30 @@ impl Interner {
         };
     }
 
-    pub fn intern_typed_values(&mut self, values: &Row) -> Row {
+    pub fn intern_row(&mut self, values: Row) -> Row {
         return values
-            .iter()
+            .into_iter()
             .map(|typed_value| match typed_value {
                 TypedValue::Str(inner) => {
                     TypedValue::InternedStr(self.rodeo.get_or_intern(inner).into_inner())
                 }
                 not_str => not_str.clone(),
+            })
+            .collect();
+    }
+
+    pub fn try_intern_row(&self, values: &Row) -> Option<Row> {
+        return values
+            .iter()
+            .map(|typed_value| match typed_value {
+                TypedValue::Str(inner) => {
+                    if let Some(interned_inner) = self.rodeo.get(&inner) {
+                        return Some(TypedValue::InternedStr(interned_inner.into_inner()))
+                    }
+
+                    return None
+                }
+                not_str => Some(not_str.clone()),
             })
             .collect();
     }

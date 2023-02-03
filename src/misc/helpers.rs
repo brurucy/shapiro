@@ -15,9 +15,9 @@ pub fn terms_to_row(terms: Vec<Term>) -> Row {
         .collect()
 }
 
-pub fn ty_to_row(tys: Vec<Box<dyn Ty>>) -> Row {
+pub fn ty_to_row(tys: &Vec<Box<dyn Ty>>) -> Row {
         tys
-            .into_iter()
+            .iter()
             .map(|ty| ty.to_typed_value())
             .collect()
 }

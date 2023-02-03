@@ -335,8 +335,8 @@ impl Default for DifferentialDatalog {
     }
 }
 
-fn typed_row_to_abomonated_row(typed_row: &Row, interner: &mut Interner) -> Vec<AbomonatedTerm> {
-    let typed_row = interner.intern_typed_values(typed_row);
+fn typed_row_to_abomonated_row(typed_row: Row, interner: &mut Interner) -> Vec<AbomonatedTerm> {
+    let typed_row = interner.intern_row(typed_row);
 
     return typed_row
         .into_iter()
@@ -350,7 +350,7 @@ impl DifferentialDatalog {
             ..Default::default()
         };
     }
-    fn noop_typed(&mut self, table: &str, row: &Box<[TypedValue]>) {
+    fn noop_typed(&mut self, table: &str, row: Row) {
         let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, 0)).unwrap();
@@ -358,14 +358,14 @@ impl DifferentialDatalog {
 }
 
 impl DynamicTyped for DifferentialDatalog {
-    fn insert_typed(&mut self, table: &str, row: Box<[TypedValue]>) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(&row, &mut self.interner));
+    fn insert_typed(&mut self, table: &str, row: Row) {
+        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, 1)).unwrap();
     }
 
-    fn delete_typed(&mut self, table: &str, row: &Box<[TypedValue]>) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
+    fn delete_typed(&mut self, table: &str, row: &Row) {
+        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row.clone(), &mut self.interner));
 
         self.fact_input_sink.send((abomonated_atom, self.epoch, -1)).unwrap();
     }
@@ -430,7 +430,7 @@ impl Materializer for DifferentialDatalog {
         });
         self.epoch += 1;
         let noop_row = vec![TypedValue::Bool(false)].into_boxed_slice();
-        self.noop_typed("noop", &noop_row);
+        self.noop_typed("noop", noop_row);
 
         let noop_rule: AbomonatedRule =  (
             (self.interner.rodeo.get_or_intern(NOOP_DUMMY_LHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)]),

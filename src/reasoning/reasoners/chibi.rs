@@ -2,14 +2,15 @@ use ahash::{HashMap, HashSet};
 use lasso::{Key, Spur};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty};
+use crate::models::datalog::{Program, Rule, SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::instance::{Database, HashSetDatabase};
-use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Flusher, Materializer, RelationDropper};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Flusher, Materializer, Queryable, RelationDropper};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use rayon::prelude::*;
+use crate::misc::helpers::ty_to_row;
 
 pub struct Rewriting {
     pub program: Program,
@@ -24,7 +25,7 @@ impl Rewriting {
 }
 
 impl InstanceEvaluator<HashSetDatabase> for Rewriting {
-    fn evaluate(&self, instance: &HashSetDatabase) -> HashSetDatabase {
+    fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
         let mut out: HashSetDatabase = Default::default();
 
         self
@@ -57,7 +58,7 @@ impl ParallelRewriting {
 }
 
 impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
-    fn evaluate(&self, instance: &HashSetDatabase) -> HashSetDatabase {
+    fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
         let mut out: HashSetDatabase = Default::default();
 
         self
@@ -125,13 +126,13 @@ impl Dynamic for ChibiDatalog {
 
 impl DynamicTyped for ChibiDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        let typed_row = self.interner.intern_typed_values(&row);
+        let typed_row = self.interner.intern_row(row);
         let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
         self.fact_store.insert_at(relation_id, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: &Row) {
-        let typed_row = self.interner.intern_typed_values(row);
+        let typed_row = self.interner.intern_row(row.clone());
         let relation_id = self.interner.rodeo.get_or_intern(table).into_inner().get();
 
         self.fact_store.delete_at(relation_id, &typed_row)
@@ -142,13 +143,11 @@ impl Flusher for ChibiDatalog {
     fn flush(&mut self, _table: &str) {}
 }
 
-impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {
+impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> HashMap<String, HashSet<Row>> {
-        let sugared_program = program;
-
-        let savory_program = sort_program(sugared_program)
-            .iter()
-            .map(|rule| self.interner.intern_rule(rule))
+        let savory_program = sort_program(program)
+            .into_iter()
+            .map(|rule| self.interner.intern_rule(&rule))
             .collect();
 
         let mut evaluation = Evaluation::new(
@@ -166,7 +165,7 @@ impl<'a> BottomUpEvaluator<'a> for ChibiDatalog {
             .storage
             .into_iter()
             .fold(Default::default(), |mut acc: EvaluationResult, (relation_id, row_set)| {
-                let spur = Spur::try_from_usize(relation_id as usize).unwrap();
+                let spur = Spur::try_from_usize(relation_id as usize - 1).unwrap();
                 let sym = self.interner.rodeo.resolve(&spur);
 
                 acc.insert(sym.to_string(), row_set);
@@ -277,5 +276,17 @@ impl RelationDropper for ChibiDatalog {
         let sym = self.interner.rodeo.get_or_intern(table);
 
         self.fact_store.storage.remove(&sym.into_inner().get());
+    }
+}
+
+impl Queryable for ChibiDatalog {
+    fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool {
+        if let Some(relation_id) = self.interner.rodeo.get(table) {
+            if let Some(typed_row) = self.interner.try_intern_row(&ty_to_row(row)) {
+                return self.fact_store.storage.get(&relation_id.into_inner().get()).unwrap().contains(&typed_row)
+            }
+        }
+
+        return false
     }
 }

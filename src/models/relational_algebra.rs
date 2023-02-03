@@ -13,6 +13,8 @@ use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
+
+
 pub trait Container {
     fn insert_row(&mut self, row: Row);
     fn remove_row(&mut self, row: Row);
@@ -44,7 +46,7 @@ impl<T : IndexBacking> PartialEq for SimpleRelationWithOneIndexBacking<T> {
 impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
     fn insert_row(&mut self, row: Row) {
         if !self.ward.contains_key(&row) {
-            self.ward.insert(row.clone(), true);
+            self.ward.insert(row, true);
         } else {
             let sign = self.ward.get_mut(&row).unwrap();
             if !*sign {
@@ -66,9 +68,7 @@ impl<T : IndexBacking> SimpleRelationWithOneIndexBacking<T> {
     }
 
     pub fn compact_physical(&mut self) {
-        self.ward.retain(|_k, v| {
-            *v
-        });
+        self.ward.retain(|_k, v| *v);
     }
 
     pub fn compact(&mut self) {

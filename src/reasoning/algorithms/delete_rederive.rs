@@ -49,7 +49,7 @@ pub type TypedDiff<'a> = (&'a str, Row);
 
 pub fn delete_rederive<'a, T>(instance: &mut T, program: &'a Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
 where
-    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<'a> + RelationDropper,
+    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator + RelationDropper,
 {
     let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
@@ -91,121 +91,121 @@ where
             })
     });
 
-    relations_to_be_dropped.iter().for_each(|del_sym| {
-        instance.drop_relation(del_sym);
+    relations_to_be_dropped.into_iter().for_each(|del_sym| {
+        instance.drop_relation(&del_sym);
     })
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::models::datalog::{Atom, SugaredAtom, SugaredRule, Ty};
-//     use crate::models::reasoner::{Dynamic, Materializer};
-//     use crate::reasoning::algorithms::delete_rederive::{
-//         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
-//         OVERDELETION_PREFIX, REDERIVATION_PREFIX,
-//     };
-//     use crate::reasoning::reasoners::chibi::ChibiDatalog;
-//
-//     #[test]
-//     fn test_make_overdeletion_program() {
-//         let program = vec![
-//             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-//             SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
-//         ];
-//
-//         let actual_overdeletion_program = make_overdeletion_program(&program);
-//
-//         let exp_overdeletion_program = vec![
-//             SugaredRule::from(&*format!(
-//                 "{}reach(?x, ?y) <- [{}edge(?x, ?y)]",
-//                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
-//             )),
-//             SugaredRule::from(&*format!(
-//                 "{}reach(?x, ?z) <- [{}reach(?x, ?y), edge(?y, ?z)]",
-//                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
-//             )),
-//             SugaredRule::from(&*format!(
-//                 "{}reach(?x, ?z) <- [reach(?x, ?y), {}edge(?y, ?z)]",
-//                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
-//             )),
-//         ];
-//
-//         assert_eq!(exp_overdeletion_program, actual_overdeletion_program)
-//     }
-//
-//     #[test]
-//     fn test_make_alternative_derivation_program() {
-//         let program = vec![
-//             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-//             SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
-//         ];
-//
-//         let actual_alt_program = make_alternative_derivation_program(&program);
-//         let exp_alt_program = vec![
-//             SugaredRule::from(&*format!(
-//                 "{}reach(?x, ?y) <- [{}reach(?x, ?y), edge(?x, ?y)]",
-//                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
-//             )),
-//             SugaredRule::from(&*format!(
-//                 "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]",
-//                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
-//             )),
-//         ];
-//
-//         assert_eq!(exp_alt_program, actual_alt_program)
-//     }
-//
-//     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
-//     #[test]
-//     fn test_delete_rederive() {
-//         let mut chibi: ChibiDatalog = Default::default();
-//
-//         vec![
-//             ("a", "b"),
-//             ("a", "c"),
-//             ("b", "d"),
-//             ("b", "e"),
-//             ("d", "g"),
-//             ("c", "f"),
-//             ("e", "d"),
-//             ("e", "f"),
-//             ("f", "g"),
-//             ("f", "h"),
-//         ]
-//         .into_iter()
-//         .for_each(|(source, destination)| {
-//             chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
-//         });
-//
-//         let program = vec![
-//             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-//             SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
-//         ];
-//
-//         chibi.materialize(&program);
-//
-//         let expected_deletion_1 = SugaredAtom::from("reach(e, f)");
-//         let expected_deletion_2 = SugaredAtom::from("reach(e, h)");
-//         let expected_deletion_3 = SugaredAtom::from("reach(b, f)");
-//         let expected_deletion_4 = SugaredAtom::from("reach(b, h)");
-//
-//         assert!(chibi.contains(&expected_deletion_1));
-//         assert!(chibi.contains(&expected_deletion_2));
-//         assert!(chibi.contains(&expected_deletion_3));
-//         assert!(chibi.contains(&expected_deletion_4));
-//
-//         delete_rederive(
-//             &mut chibi,
-//             &program,
-//             vec![(
-//                 "edge",
-//                 Box::new(["e".to_typed_value(), "f".to_typed_value()]),
-//             )],
-//         );
-//
-//         assert!(!chibi.contains(&expected_deletion_1));
-//         assert!(!chibi.contains(&expected_deletion_2));
-//         assert!(!chibi.contains(&expected_deletion_3));
-//         assert!(!chibi.contains(&expected_deletion_4));
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use crate::models::datalog::{SugaredAtom, SugaredRule, Ty};
+    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
+    use crate::reasoning::algorithms::delete_rederive::{
+        delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
+        OVERDELETION_PREFIX, REDERIVATION_PREFIX,
+    };
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
+
+    #[test]
+    fn test_make_overdeletion_program() {
+        let program = vec![
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+        ];
+
+        let actual_overdeletion_program = make_overdeletion_program(&program);
+
+        let exp_overdeletion_program = vec![
+            SugaredRule::from(&*format!(
+                "{}reach(?x, ?y) <- [{}edge(?x, ?y)]",
+                OVERDELETION_PREFIX, OVERDELETION_PREFIX
+            )),
+            SugaredRule::from(&*format!(
+                "{}reach(?x, ?z) <- [{}reach(?x, ?y), edge(?y, ?z)]",
+                OVERDELETION_PREFIX, OVERDELETION_PREFIX
+            )),
+            SugaredRule::from(&*format!(
+                "{}reach(?x, ?z) <- [reach(?x, ?y), {}edge(?y, ?z)]",
+                OVERDELETION_PREFIX, OVERDELETION_PREFIX
+            )),
+        ];
+
+        assert_eq!(exp_overdeletion_program, actual_overdeletion_program)
+    }
+
+    #[test]
+    fn test_make_alternative_derivation_program() {
+        let program = vec![
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+        ];
+
+        let actual_alt_program = make_alternative_derivation_program(&program);
+        let exp_alt_program = vec![
+            SugaredRule::from(&*format!(
+                "{}reach(?x, ?y) <- [{}reach(?x, ?y), edge(?x, ?y)]",
+                REDERIVATION_PREFIX, OVERDELETION_PREFIX
+            )),
+            SugaredRule::from(&*format!(
+                "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]",
+                REDERIVATION_PREFIX, OVERDELETION_PREFIX
+            )),
+        ];
+
+        assert_eq!(exp_alt_program, actual_alt_program)
+    }
+
+    // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
+    #[test]
+    fn test_delete_rederive() {
+        let mut chibi: ChibiDatalog = Default::default();
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("e", "f"),
+            ("f", "g"),
+            ("f", "h"),
+        ]
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+        });
+
+        let program = vec![
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+        ];
+
+        chibi.materialize(&program);
+
+        let expected_deletion_1: Vec<Box<dyn Ty>> = vec![Box::new("e"), Box::new("f")];
+        let expected_deletion_2: Vec<Box<dyn Ty>> = vec![Box::new("e"), Box::new("h")];
+        let expected_deletion_3: Vec<Box<dyn Ty>> = vec![Box::new("b"), Box::new("f")];
+        let expected_deletion_4: Vec<Box<dyn Ty>> = vec![Box::new("b"), Box::new("h")];
+
+        assert!(chibi.contains_row("reach", &expected_deletion_1));
+        assert!(chibi.contains_row("reach", &expected_deletion_2));
+        assert!(chibi.contains_row("reach", &expected_deletion_3));
+        assert!(chibi.contains_row("reach", &expected_deletion_4));
+
+        delete_rederive(
+            &mut chibi,
+            &program,
+            vec![(
+                "edge",
+                Box::new(["e".to_typed_value(), "f".to_typed_value()]),
+            )],
+        );
+
+        assert!(!chibi.contains_row("reach", &expected_deletion_1));
+        assert!(!chibi.contains_row("reach", &expected_deletion_2));
+        assert!(!chibi.contains_row("reach", &expected_deletion_3));
+        assert!(!chibi.contains_row("reach", &expected_deletion_4));
+    }
+}
