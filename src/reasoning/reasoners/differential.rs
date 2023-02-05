@@ -412,9 +412,9 @@ fn insert_atom_with_diff(
 ) {
     let boxed_vec = fresh_intensional_atom
         .2
-        .iter()
+        .into_iter()
         .map(|abomonated_term| match abomonated_term {
-            AbomonatedTerm::Constant(inner) => inner.clone().into(),
+            AbomonatedTerm::Constant(inner) => inner.into(),
             AbomonatedTerm::Variable(_) => unreachable!(),
         })
         .collect();
@@ -422,7 +422,7 @@ fn insert_atom_with_diff(
     if multiplicity > 0 {
         instance.insert_at(fresh_intensional_atom.0.get(), boxed_vec)
     } else {
-        instance.insert_at(fresh_intensional_atom.0.get(), boxed_vec)
+        instance.delete_at(fresh_intensional_atom.0.get(), &boxed_vec)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::models::datalog::SugaredRule;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
 
@@ -50,15 +50,15 @@ pub type TypedDiff<'a> = (&'a str, Row);
 pub fn delete_rederive<'a, T>(
     instance: &mut T,
     program: &'a Vec<SugaredRule>,
-    updates: Vec<TypedDiff<'a>>,
+    deletions: Vec<TypedDiff<'a>>,
 ) where
     T: DynamicTyped + Dynamic + BottomUpEvaluator + RelationDropper,
 {
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
-    updates.into_iter().for_each(|(symbol, update)| {
+    deletions.into_iter().for_each(|(symbol, update)| {
         let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
         instance.insert_typed(&del_sym, update);
-        relations_to_be_dropped.insert(del_sym.to_string());
+        relations_to_be_dropped.insert(del_sym);
     });
     // Overdeletion and Rederivation programs
     let overdeletion_program = make_overdeletion_program(program);
@@ -67,11 +67,11 @@ pub fn delete_rederive<'a, T>(
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-        relations_to_be_dropped.insert(del_sym.clone());
         row_set.into_iter().for_each(|row| {
             instance.delete_typed(sym, &row);
             instance.insert_typed(&del_sym, row);
         });
+        relations_to_be_dropped.insert(del_sym);
     });
 
     // Stage 2 - rederivation
@@ -164,10 +164,10 @@ mod tests {
             ("f", "g"),
             ("f", "h"),
         ]
-        .into_iter()
-        .for_each(|(source, destination)| {
-            chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
-        });
+            .into_iter()
+            .for_each(|(source, destination)| {
+                chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+            });
 
         let program = vec![
             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),

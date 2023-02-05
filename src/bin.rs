@@ -5,7 +5,7 @@ use crate::Reasoners::{
 };
 use clap::{Arg, Command};
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -88,31 +88,17 @@ impl SugaredAtomParser for NTripleParser {
         if let Some(alias) = OWL.get(&digit_three) {
             digit_three = alias.to_string()
         }
-        let symbol = match &digit_two[..] {
-            "rdf:type" => "Type",
-            "rdfs:subPropertyOf" => "SubPropertyOf",
-            "rdfs:subClassOf" => "SubClassOf",
-            "rdfs:domain" => "Domain",
-            "rdfs:range" => "Range",
-            _ => "Property",
-        };
 
-        let terms = match symbol {
-            "Property" => vec![
-                Term::Constant(TypedValue::Str(digit_one)),
-                Term::Constant(TypedValue::Str(digit_two)),
-                Term::Constant(TypedValue::Str(digit_three)),
-            ],
-            _ => vec![
-                Term::Constant(TypedValue::Str(digit_one)),
-                Term::Constant(TypedValue::Str(digit_three)),
-            ],
-        };
+        let terms = vec![
+            Term::Constant(TypedValue::Str(digit_one)),
+            Term::Constant(TypedValue::Str(digit_two)),
+            Term::Constant(TypedValue::Str(digit_three))
+        ];
 
         return SugaredAtom {
             terms,
-            symbol: symbol.to_string(),
-            positive: false,
+            symbol: "T".to_string(),
+            positive: true,
         };
     }
 }

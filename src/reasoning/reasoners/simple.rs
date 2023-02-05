@@ -158,7 +158,7 @@ impl<T: IndexBacking + PartialEq> Dynamic for RelationalDatalog<T> {
     }
 
     fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>) {
-        self.delete_typed(table, &row.iter().map(|ty| ty.to_typed_value()).collect())
+        self.delete_typed(table, &ty_to_row(row))
     }
 }
 
@@ -273,8 +273,8 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
         }
 
         if additions.len() > 0 {
-            additions.iter().for_each(|(sym, row)| {
-                self.insert_typed(sym, row.clone());
+            additions.into_iter().for_each(|(sym, row)| {
+                self.insert_typed(sym, row);
             });
 
             self.update_materialization()
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_simple_datalog() {
-        let mut reasoner: RelationalDatalog<BTreeIndex> = Default::default();
+        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
         reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);

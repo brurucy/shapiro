@@ -7,7 +7,7 @@ use std::num::NonZeroU32;
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord, Abomonation)]
 pub enum AbomonatedTypedValue {
-    //Str(String),
+    Str(String),
     Bool(bool),
     UInt(u32),
     InternedStr(NonZeroU32),
@@ -16,6 +16,7 @@ pub enum AbomonatedTypedValue {
 impl Display for AbomonatedTypedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            AbomonatedTypedValue::Str(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::Bool(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::UInt(inner) => write!(f, "{}", inner),
             AbomonatedTypedValue::InternedStr(inner) => write!(f, "Is{}", inner),
@@ -26,11 +27,11 @@ impl Display for AbomonatedTypedValue {
 impl From<TypedValue> for AbomonatedTypedValue {
     fn from(value: TypedValue) -> Self {
         return match value {
-            //TypedValue::Str(inner) => AbomonatedTypedValue::Str(inner),
+            TypedValue::Str(inner) => AbomonatedTypedValue::Str(inner),
             TypedValue::Bool(inner) => AbomonatedTypedValue::Bool(inner),
             TypedValue::UInt(inner) => AbomonatedTypedValue::UInt(inner),
             TypedValue::InternedStr(inner) => AbomonatedTypedValue::InternedStr(inner),
-            _ => panic!("floats and strings are not supported by differential reasoner!"),
+            _ => panic!("floats are not supported by differential reasoner!"),
         };
     }
 }
@@ -38,7 +39,7 @@ impl From<TypedValue> for AbomonatedTypedValue {
 impl Into<TypedValue> for AbomonatedTypedValue {
     fn into(self) -> TypedValue {
         match self {
-            //AbomonatedTypedValue::Str(inner) => TypedValue::Str(inner),
+            AbomonatedTypedValue::Str(inner) => TypedValue::Str(inner),
             AbomonatedTypedValue::Bool(inner) => TypedValue::Bool(inner),
             AbomonatedTypedValue::UInt(inner) => TypedValue::UInt(inner),
             AbomonatedTypedValue::InternedStr(inner) => TypedValue::InternedStr(inner),
