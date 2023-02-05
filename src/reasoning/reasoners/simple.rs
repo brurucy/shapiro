@@ -324,7 +324,7 @@ mod tests {
     use indexmap::IndexSet;
 
     #[test]
-    fn test_simple_operations() {
+    fn test_relational_operations() {
         let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
 
         assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_datalog() {
+    fn test_relational_datalog() {
         let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
         reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);

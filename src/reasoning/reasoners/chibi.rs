@@ -265,15 +265,14 @@ impl Queryable for ChibiDatalog {
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::{SugaredRule, TypedValue};
-    use crate::models::index::BTreeIndex;
     use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer, Queryable};
     use crate::models::relational_algebra::Row;
-    use crate::reasoning::reasoners::simple::RelationalDatalog;
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
     use indexmap::IndexSet;
 
     #[test]
-    fn test_simple_operations() {
-        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
+    fn test_chibi_operations() {
+        let mut reasoner: ChibiDatalog = ChibiDatalog::new(false, false);
 
         assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
         assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
@@ -303,8 +302,8 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_datalog() {
-        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
+    fn test_chibi_datalog() {
+        let mut reasoner: ChibiDatalog = ChibiDatalog::new(false, false);
         reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);

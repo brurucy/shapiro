@@ -4,9 +4,9 @@ Shapiro is a datalog toolbox and zoo.
 
 Here you can find, at the moment, **two** simple in-memory query engines that support materialized recursive queries.
 
-1. [x] A very fast in-memory parallel datalog and relational algebra engine that relies on an ordered(not necessarily sorted) 
-   container for storage and sorted sets as indexes - Simple Datalog
-2. [x] A not-so-fast in-memory parallel datalog engine that uses no indexes and does not rely on order - ChibiDatalog
+1. [x] A datalog and relational algebra engine that relies on an ordered(not necessarily sorted) container for
+   storage and sorted sets as indexes - Simple Datalog
+2. [x] A engine that uses no indexes and does not rely on order - ChibiDatalog
 3. [x] A sort of fast in-memory parallel and distributed datalog engine that supports adding and removing rules and data with optimal update times - DifferentialDatalog 
 
 The following snippet showcases `ChibiDatalog` in action.

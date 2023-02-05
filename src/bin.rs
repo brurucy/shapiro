@@ -1,7 +1,7 @@
 extern crate core;
 
 use crate::Reasoners::{
-    Chibi, Differential, SimpleBTree, SimpleHashMap, SimpleImmutableVector, SimpleSpine, SimpleVec,
+    Chibi, Differential, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec,
 };
 use clap::{Arg, Command};
 use phf::phf_map;
@@ -12,11 +12,11 @@ use shapiro::models::index::{
 use shapiro::models::reasoner::{Diff, Materializer};
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
-use shapiro::reasoning::reasoners::simple::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use shapiro::reasoning::reasoners::simple::RelationalDatalog;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -168,11 +168,11 @@ impl Parser {
 pub enum Reasoners {
     Chibi,
     Differential,
-    SimpleHashMap,
-    SimpleBTree,
-    SimpleVec,
-    SimpleImmutableVector,
-    SimpleSpine,
+    RelationalHashMap,
+    RelationalBTree,
+    RelationalVec,
+    RelationalImmutableVector,
+    RelationalSpine,
 }
 
 impl Display for Reasoners {
@@ -180,11 +180,11 @@ impl Display for Reasoners {
         match self {
             Chibi => write!(f, "chibi"),
             Differential => write!(f, "differential"),
-            SimpleHashMap => write!(f, "simple-hashmap"),
-            SimpleBTree => write!(f, "simple-btree"),
-            SimpleVec => write!(f, "simple-vec"),
-            SimpleImmutableVector => write!(f, "simple-immutable-vector"),
-            SimpleSpine => write!(f, "simple-spine"),
+            RelationalHashMap => write!(f, "relational-hashmap"),
+            RelationalBTree => write!(f, "relational-btree"),
+            RelationalVec => write!(f, "relational-vec"),
+            RelationalImmutableVector => write!(f, "relational-immutable-vector"),
+            RelationalSpine => write!(f, "relational-spine"),
         }
     }
 }
@@ -192,7 +192,7 @@ impl Display for Reasoners {
 fn main() {
     let matches = Command::new("shapiro-bencher")
         .version("0.7.0")
-        .about("Benches the time taken to reason over simple space-separated facts or .nt files")
+        .about("Benches the time taken to reason over relational space-separated facts or .nt files")
         .arg(
             Arg::new("DATA_PATH")
                 .help("Sets the data file path")
@@ -207,7 +207,7 @@ fn main() {
         )
         .arg(
             Arg::new("REASONER")
-                .help("Sets the reasoner to be used, chibi, simple or differential")
+                .help("Sets the reasoner to be used, chibi, relational or differential")
                 .required(true)
                 .index(3),
         )
@@ -244,11 +244,11 @@ fn main() {
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
         "differential" => Differential,
-        "simple-hashmap" => SimpleHashMap,
-        "simple-btree" => SimpleBTree,
-        "simple-vec" => SimpleVec,
-        "simple-immutable-vector" => SimpleImmutableVector,
-        "simple-spine" => SimpleSpine,
+        "relational-hashmap" => RelationalHashMap,
+        "relational-btree" => RelationalBTree,
+        "relational-vec" => RelationalVec,
+        "relational-immutable-vector" => RelationalImmutableVector,
+        "relational-spine" => RelationalSpine,
         other => panic!("unknown reasoner variant: {}", other),
     };
     let batch_size: f64 = matches
@@ -267,11 +267,11 @@ fn main() {
     let mut evaluator: Box<dyn Materializer> = match reasoner {
         Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
         Differential => Box::new(DifferentialDatalog::new()),
-        SimpleHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
-        SimpleBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
-        SimpleVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
-        SimpleImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(parallel, intern)),
-        SimpleSpine => Box::new(RelationalDatalog::<SpineIndex>::new(parallel, intern)),
+        RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
+        RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
+        RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
+        RelationalImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(parallel, intern)),
+        RelationalSpine => Box::new(RelationalDatalog::<SpineIndex>::new(parallel, intern)),
     };
 
     let facts: Vec<SugaredAtom> = parser.read_fact_file(&data_path).collect();
