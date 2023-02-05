@@ -261,3 +261,94 @@ impl Queryable for ChibiDatalog {
         return false;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::models::datalog::{SugaredRule, TypedValue};
+    use crate::models::index::BTreeIndex;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer, Queryable};
+    use crate::models::relational_algebra::Row;
+    use crate::reasoning::reasoners::simple::RelationalDatalog;
+    use indexmap::IndexSet;
+
+    #[test]
+    fn test_simple_operations() {
+        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
+
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+
+        assert_eq!(reasoner.triple_count(), 0);
+
+        reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);
+
+        assert_eq!(reasoner.triple_count(), 3);
+
+        assert!(reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+
+        reasoner.delete("edge", &vec![Box::new("a"), Box::new("b")]);
+        reasoner.delete("edge", &vec![Box::new("b"), Box::new("c")]);
+        reasoner.delete("edge", &vec![Box::new("b"), Box::new("d")]);
+
+        assert_eq!(reasoner.triple_count(), 0);
+
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+    }
+
+    #[test]
+    fn test_simple_datalog() {
+        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
+        reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);
+
+        let new_tuples = reasoner
+            .evaluate_program_bottom_up(&vec![
+                SugaredRule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+                SugaredRule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+            ])
+            .get("reachable")
+            .unwrap()
+            .clone();
+
+        let mut expected_new_tuples: IndexSet<Row> = Default::default();
+
+        vec![
+            // Rule 1 output
+            Box::new([
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("b".to_string()),
+            ]),
+            Box::new([
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("c".to_string()),
+            ]),
+            Box::new([
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("d".to_string()),
+            ]),
+            // Rule 2 output
+            Box::new([
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("c".to_string()),
+            ]),
+            Box::new([
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("d".to_string()),
+            ]),
+        ]
+            .into_iter()
+            .for_each(|row| {
+                expected_new_tuples.insert(row);
+            });
+
+        assert_eq!(expected_new_tuples, new_tuples)
+    }
+}
