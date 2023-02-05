@@ -1,11 +1,11 @@
+use crate::misc::string_interning::Interner;
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
-use crate::misc::string_interning::Interner;
 
-use crate::parsers::datalog::{parse_sugared_rule, parse_sugared_atom};
+use crate::parsers::datalog::{parse_sugared_atom, parse_sugared_rule};
 
 // TypedValue are the allowed types in the datalog model. Not canonical.
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -266,14 +266,14 @@ impl Atom {
     pub(crate) fn from_str_with_interner(str: &str, interner: &mut Interner) -> Self {
         let sugared_atom = parse_sugared_atom(str);
 
-        return interner.intern_atom_weak(&sugared_atom)
+        return interner.intern_atom_weak(&sugared_atom);
     }
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Rule {
     pub head: Atom,
-    pub body: Vec<Atom>
+    pub body: Vec<Atom>,
 }
 
 impl Default for Rule {

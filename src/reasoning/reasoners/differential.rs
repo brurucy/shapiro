@@ -1,32 +1,36 @@
 mod abomonated_model;
 mod abomonated_vertebra;
 
-use std::clone::Clone;
-use std::thread;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, TypedValue};
-use crossbeam_channel::{Receiver, select, Sender, unbounded};
-use differential_dataflow::input::Input;
-use differential_dataflow::Collection;
-use std::time::{Duration};
+use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use differential_dataflow::algorithms::identifiers::Identifiers;
+use differential_dataflow::input::Input;
 use differential_dataflow::lattice::Lattice;
 use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
-use differential_dataflow::operators::{Consolidate, iterate, Join, JoinCore, Threshold};
+use differential_dataflow::operators::{iterate, Consolidate, Join, JoinCore, Threshold};
+use differential_dataflow::Collection;
+use std::clone::Clone;
+use std::thread;
+use std::time::Duration;
 
-use timely::communication::allocator::Generic;
-use timely::dataflow::Scope;
-use timely::dataflow::scopes::Child;
-use timely::order::Product;
-use timely::worker::Worker;
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, mask, permute_mask};
-use crate::reasoning::reasoners::differential::abomonated_vertebra::{AbomonatedSubstitutions};
+use crate::reasoning::reasoners::differential::abomonated_model::{
+    abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm,
+    AbomonatedTypedValue,
+};
+use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
+use timely::communication::allocator::Generic;
+use timely::dataflow::scopes::Child;
+use timely::dataflow::Scope;
+use timely::order::Product;
+use timely::worker::Worker;
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
-pub type SubstitutionsCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
+pub type SubstitutionsCollection<'b> =
+    Collection<Child<'b, Worker<Generic>, usize>, AbomonatedSubstitutions>;
 
 pub type RuleSink = Sender<(AbomonatedRule, usize, isize)>;
 pub type AtomSink = Sender<(AbomonatedAtom, usize, isize)>;
@@ -37,7 +41,10 @@ pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 pub type NotificationSink = Sender<usize>;
 pub type NotificationSource = Receiver<usize>;
 
-fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
+fn make_substitutions(
+    left: &AbomonatedAtom,
+    right: &AbomonatedAtom,
+) -> Option<AbomonatedSubstitutions> {
     let mut substitution: AbomonatedSubstitutions = Default::default();
 
     let left_and_right = left.2.iter().zip(right.2.iter());
@@ -56,7 +63,9 @@ fn make_substitutions(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<A
                         return None;
                     }
                 } else {
-                    substitution.inner.insert((left_variable.clone(), right_constant.clone()));
+                    substitution
+                        .inner
+                        .insert((left_variable.clone(), right_constant.clone()));
                 }
             }
             _ => {}
@@ -313,11 +322,13 @@ impl Default for DifferentialDatalog {
         let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
-            reason(rule_input_source,
-                   fact_input_source,
-                   rule_output_sink,
-                   fact_output_sink,
-                   notification_sink)
+            reason(
+                rule_input_source,
+                fact_input_source,
+                rule_output_sink,
+                fact_output_sink,
+                notification_sink,
+            )
         });
 
         DifferentialDatalog {
@@ -340,7 +351,9 @@ fn typed_row_to_abomonated_row(typed_row: Row, interner: &mut Interner) -> Vec<A
 
     return typed_row
         .into_iter()
-        .map(|typed_value| AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone())))
+        .map(|typed_value| {
+            AbomonatedTerm::Constant(AbomonatedTypedValue::from(typed_value.clone()))
+        })
         .collect();
 }
 
@@ -351,40 +364,58 @@ impl DifferentialDatalog {
         };
     }
     fn noop_typed(&mut self, table: &str, row: Row) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
+        let abomonated_atom = (
+            self.interner.rodeo.get_or_intern(table).into_inner(),
+            true,
+            typed_row_to_abomonated_row(row, &mut self.interner),
+        );
 
-        self.fact_input_sink.send((abomonated_atom, self.epoch, 0)).unwrap();
+        self.fact_input_sink
+            .send((abomonated_atom, self.epoch, 0))
+            .unwrap();
     }
 }
 
 impl DynamicTyped for DifferentialDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row, &mut self.interner));
+        let abomonated_atom = (
+            self.interner.rodeo.get_or_intern(table).into_inner(),
+            true,
+            typed_row_to_abomonated_row(row, &mut self.interner),
+        );
 
-        self.fact_input_sink.send((abomonated_atom, self.epoch, 1)).unwrap();
+        self.fact_input_sink
+            .send((abomonated_atom, self.epoch, 1))
+            .unwrap();
     }
 
     fn delete_typed(&mut self, table: &str, row: &Row) {
-        let abomonated_atom = (self.interner.rodeo.get_or_intern(table).into_inner(), true, typed_row_to_abomonated_row(row.clone(), &mut self.interner));
+        let abomonated_atom = (
+            self.interner.rodeo.get_or_intern(table).into_inner(),
+            true,
+            typed_row_to_abomonated_row(row.clone(), &mut self.interner),
+        );
 
-        self.fact_input_sink.send((abomonated_atom, self.epoch, -1)).unwrap();
+        self.fact_input_sink
+            .send((abomonated_atom, self.epoch, -1))
+            .unwrap();
     }
 }
 
 const NOOP_DUMMY_LHS: &'static str = "NOOP";
 const NOOP_DUMMY_RHS: &'static str = "SKIP";
 
-fn insert_atom_with_diff(fresh_intensional_atom: AbomonatedAtom, multiplicity: isize, instance: &mut HashSetDatabase) {
+fn insert_atom_with_diff(
+    fresh_intensional_atom: AbomonatedAtom,
+    multiplicity: isize,
+    instance: &mut HashSetDatabase,
+) {
     let boxed_vec = fresh_intensional_atom
         .2
         .iter()
-        .map(|abomonated_term| {
-            match abomonated_term {
-                AbomonatedTerm::Constant(inner) => {
-                    inner.clone().into()
-                }
-                AbomonatedTerm::Variable(_) => unreachable!()
-            }
+        .map(|abomonated_term| match abomonated_term {
+            AbomonatedTerm::Constant(inner) => inner.clone().into(),
+            AbomonatedTerm::Variable(_) => unreachable!(),
         })
         .collect();
 
@@ -401,16 +432,32 @@ impl Materializer for DifferentialDatalog {
             let interned_rule = self.interner.intern_rule(rule);
 
             self.materialization.push(interned_rule.clone());
-            self.rule_input_sink.send((abomonate_rule(interned_rule), self.epoch, 1)).unwrap();
+            self.rule_input_sink
+                .send((abomonate_rule(interned_rule), self.epoch, 1))
+                .unwrap();
         });
         self.epoch += 1;
         let noop_rule: AbomonatedRule = (
-            (self.interner.rodeo.get_or_intern(NOOP_DUMMY_LHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)]),
-            vec![
-                (self.interner.rodeo.get_or_intern(NOOP_DUMMY_RHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)])
-            ]
+            (
+                self.interner
+                    .rodeo
+                    .get_or_intern(NOOP_DUMMY_LHS.to_string())
+                    .into_inner(),
+                true,
+                vec![AbomonatedTerm::Variable(0)],
+            ),
+            vec![(
+                self.interner
+                    .rodeo
+                    .get_or_intern(NOOP_DUMMY_RHS.to_string())
+                    .into_inner(),
+                true,
+                vec![AbomonatedTerm::Variable(0)],
+            )],
         );
-        self.rule_input_sink.send((noop_rule, self.epoch, 0)).unwrap();
+        self.rule_input_sink
+            .send((noop_rule, self.epoch, 0))
+            .unwrap();
 
         self.update(vec![]);
     }
@@ -432,13 +479,27 @@ impl Materializer for DifferentialDatalog {
         let noop_row = vec![TypedValue::Bool(false)].into_boxed_slice();
         self.noop_typed("noop", noop_row);
 
-        let noop_rule: AbomonatedRule =  (
-            (self.interner.rodeo.get_or_intern(NOOP_DUMMY_LHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)]),
-            vec![
-                (self.interner.rodeo.get_or_intern(NOOP_DUMMY_RHS.to_string()).into_inner(), true, vec![AbomonatedTerm::Variable(0)])
-            ]
+        let noop_rule: AbomonatedRule = (
+            (
+                self.interner
+                    .rodeo
+                    .get_or_intern(NOOP_DUMMY_LHS.to_string())
+                    .into_inner(),
+                true,
+                vec![AbomonatedTerm::Variable(0)],
+            ),
+            vec![(
+                self.interner
+                    .rodeo
+                    .get_or_intern(NOOP_DUMMY_RHS.to_string())
+                    .into_inner(),
+                true,
+                vec![AbomonatedTerm::Variable(0)],
+            )],
         );
-        self.rule_input_sink.send((noop_rule, self.epoch, 0)).unwrap();
+        self.rule_input_sink
+            .send((noop_rule, self.epoch, 0))
+            .unwrap();
 
         loop {
             select! {

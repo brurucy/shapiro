@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
-use crate::models::datalog::{SugaredRule, SugaredAtom, Term, TypedValue};
+use crate::models::datalog::{SugaredAtom, SugaredRule, Term, TypedValue};
 
 fn parse_lexed_sugared_atom<'a>(
     lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>,
@@ -84,7 +84,8 @@ pub fn parse_sugared_rule(rule: &str) -> SugaredRule {
         match token {
             DatalogToken::Str(symbol) => {
                 if look_ahead == DatalogToken::LParen {
-                    let mut parsed_sugared_atom = parse_lexed_sugared_atom(&mut lexer, &mut interner);
+                    let mut parsed_sugared_atom =
+                        parse_lexed_sugared_atom(&mut lexer, &mut interner);
                     parsed_sugared_atom.symbol = symbol.parse().unwrap();
                     if look_behind == DatalogToken::HeadDirection
                         || look_behind == DatalogToken::Error

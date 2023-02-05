@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::models::datalog::SugaredRule;
 use petgraph::graphmap::DiGraphMap;
 use petgraph::prelude::GraphMap;
 use petgraph::{algo, Directed};
-use crate::models::datalog::SugaredRule;
 
 type RuleGraph<'a> = GraphMap<&'a SugaredRule, bool, Directed>;
 
@@ -65,7 +65,8 @@ mod tests {
         let not_recursive_program = vec![r_1.clone(), r_2.clone(), r_3.clone(), r_4.clone()];
 
         let graph = generate_rule_dependency_graph(&not_recursive_program);
-        let edges: HashSet<(&SugaredRule, &SugaredRule, &bool)> = graph.all_edges().into_iter().collect();
+        let edges: HashSet<(&SugaredRule, &SugaredRule, &bool)> =
+            graph.all_edges().into_iter().collect();
         assert_eq!(edges.contains(&(&r_2, &r_3, &false)), true);
         assert_eq!(edges.contains(&(&r_3, &r_4, &false)), true);
         assert_eq!(edges.contains(&(&r_1, &r_4, &false)), true);

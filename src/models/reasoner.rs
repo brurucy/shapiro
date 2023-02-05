@@ -1,6 +1,7 @@
-use ahash::{HashMap, HashSet};
-use crate::models::datalog::{SugaredProgram, SugaredAtom, SugaredRule, Ty, TypedValue};
+use crate::models::datalog::{SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::relational_algebra::Row;
+use ahash::{HashMap, HashSet};
+use indexmap::IndexSet;
 
 // Utility interface for reasoners that only logically delete data, and require a "flushing"
 // step in order to physically do so.
@@ -44,13 +45,16 @@ pub trait Queryable {
     fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool;
 }
 
-
-pub type EvaluationResult = HashMap<String, HashSet<Row>>;
+pub type EvaluationResult = HashMap<String, IndexSet<Row, ahash::RandomState>>;
 
 pub trait BottomUpEvaluator {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult;
 }
 
 pub trait TopDownEvaluator {
-    fn evaluate_program_top_down(&mut self, program: &Vec<SugaredRule>, query: &SugaredRule) -> EvaluationResult;
+    fn evaluate_program_top_down(
+        &mut self,
+        program: &Vec<SugaredRule>,
+        query: &SugaredRule,
+    ) -> EvaluationResult;
 }

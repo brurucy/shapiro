@@ -10,15 +10,18 @@ pub struct Interner {
 impl Interner {
     // Interns both the symbol and the terms.
     pub(crate) fn intern_atom(&mut self, sugared_atom: &SugaredAtom) -> Atom {
-        let new_terms = sugared_atom.terms.iter().map(|term| match term {
-            Term::Constant(inner) => match inner {
-                TypedValue::Str(inner) => Term::Constant(TypedValue::InternedStr(
-                    self.rodeo.get_or_intern(inner.as_str()).into_inner(),
-                )),
-                not_str => Term::Constant(not_str.clone()),
-            },
-            variable => variable.clone(),
-        })
+        let new_terms = sugared_atom
+            .terms
+            .iter()
+            .map(|term| match term {
+                Term::Constant(inner) => match inner {
+                    TypedValue::Str(inner) => Term::Constant(TypedValue::InternedStr(
+                        self.rodeo.get_or_intern(inner.as_str()).into_inner(),
+                    )),
+                    not_str => Term::Constant(not_str.clone()),
+                },
+                variable => variable.clone(),
+            })
             .collect();
 
         let relation_id = self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner();
@@ -36,7 +39,7 @@ impl Interner {
             terms: sugared_atom.terms.clone(),
             relation_id: self.rodeo.get_or_intern(&sugared_atom.symbol).into_inner(),
             positive: true,
-        }
+        };
     }
 
     pub(crate) fn intern_sugared_atom(&mut self, sugared_atom: &SugaredAtom) -> SugaredAtom {
@@ -75,10 +78,10 @@ impl Interner {
             .map(|typed_value| match typed_value {
                 TypedValue::Str(inner) => {
                     if let Some(interned_inner) = self.rodeo.get(&inner) {
-                        return Some(TypedValue::InternedStr(interned_inner.into_inner()))
+                        return Some(TypedValue::InternedStr(interned_inner.into_inner()));
                     }
 
-                    return None
+                    return None;
                 }
                 not_str => Some(not_str.clone()),
             })

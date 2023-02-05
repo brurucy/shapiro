@@ -11,12 +11,12 @@ use shapiro::models::index::{
 };
 use shapiro::models::reasoner::{Diff, Materializer};
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
-use shapiro::reasoning::reasoners::simple::SimpleDatalog;
+use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
+use shapiro::reasoning::reasoners::simple::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -94,7 +94,7 @@ impl SugaredAtomParser for NTripleParser {
             "rdfs:subClassOf" => "SubClassOf",
             "rdfs:domain" => "Domain",
             "rdfs:range" => "Range",
-            _ => "Property"
+            _ => "Property",
         };
 
         let terms = match symbol {
@@ -106,7 +106,7 @@ impl SugaredAtomParser for NTripleParser {
             _ => vec![
                 Term::Constant(TypedValue::Str(digit_one)),
                 Term::Constant(TypedValue::Str(digit_three)),
-            ]
+            ],
         };
 
         return SugaredAtom {
@@ -165,9 +165,13 @@ impl Parser {
             }
         }
     }
-    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item =SugaredRule> + '_ {
+    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item = SugaredRule> + '_ {
         match read_file(filename) {
-            Ok(file) => return file.into_iter().map(|line| SugaredRule::from(line.as_str())),
+            Ok(file) => {
+                return file
+                    .into_iter()
+                    .map(|line| SugaredRule::from(line.as_str()))
+            }
             Err(e) => {
                 panic!("{}", e)
             }
@@ -228,22 +232,29 @@ fn main() {
                 .index(4),
         )
         .arg(
+            Arg::new("INTERN")
+                .help("Sets whether the reasoner should intern string values")
+                .required(true)
+                .index(5),
+        )
+        .arg(
             Arg::new("BATCH_SIZE")
                 .help("Sets the batch size, from 0-1.0")
                 .required(true)
-                .index(5),
+                .index(6),
         )
         .arg(
             Arg::new("PARSER")
                 .help("Sets the parser, nt or free")
                 .required(true)
-                .index(6),
+                .index(7),
         )
         .get_matches();
 
     let data_path: String = matches.value_of("DATA_PATH").unwrap().to_string();
     let program_path: String = matches.value_of("PROGRAM_PATH").unwrap().to_string();
     let parallel: bool = matches.value_of("PARALLEL").unwrap().parse().unwrap();
+    let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
         "differential" => Differential,
@@ -268,15 +279,13 @@ fn main() {
     };
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
-        Chibi => Box::new(ChibiDatalog::new(parallel)),
+        Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
         Differential => Box::new(DifferentialDatalog::new()),
-        SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel)),
-        SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel)),
-        SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel)),
-        SimpleImmutableVector => {
-            Box::new(SimpleDatalog::<ImmutableVectorIndex>::new(parallel))
-        }
-        SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel)),
+        SimpleHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
+        SimpleBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
+        SimpleVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
+        SimpleImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(parallel, intern)),
+        SimpleSpine => Box::new(RelationalDatalog::<SpineIndex>::new(parallel, intern)),
     };
 
     let facts: Vec<SugaredAtom> = parser.read_fact_file(&data_path).collect();
@@ -290,8 +299,8 @@ fn main() {
     }
 
     println!(
-        "data: {}\nprogram: {}\nparallel: {}\nreasoner: {}\nbatch_size: {}",
-        data_path, program_path, parallel, reasoner, batch_size
+        "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
+        data_path, program_path, parallel, intern, reasoner, batch_size
     );
 
     evaluator.materialize(&parser.read_datalog_file(&program_path).collect());

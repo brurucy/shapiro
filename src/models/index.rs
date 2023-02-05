@@ -1,14 +1,15 @@
-use crate::data_structures::hashmap::IndexedHashMap;
 use crate::data_structures::spine::Spine;
 use crate::misc::joins::sort_merge_join;
 use crate::models::datalog::TypedValue;
 use im::{HashMap, Vector};
 use rayon::prelude::*;
 use std::collections::BTreeSet;
+use indexmap::IndexMap;
+
 
 pub type ValueRowId = (TypedValue, usize);
 pub type HashMapIndex = HashMap<TypedValue, Vec<usize>, ahash::RandomState>;
-pub type IndexedHashMapIndex = IndexedHashMap<TypedValue, Vec<usize>>;
+pub type IndexedHashMapIndex = IndexMap<TypedValue, Vec<usize>, ahash::RandomState>;
 pub type ImmutableVectorIndex = Vector<ValueRowId>;
 pub type VecIndex = Vec<ValueRowId>;
 pub type SpineIndex = Spine<ValueRowId>;
@@ -90,7 +91,7 @@ impl IndexBacking for IndexedHashMapIndex {
             if let Some(right_row_set) = other.get(value) {
                 left_row_set.iter().for_each(|left_row_idx| {
                     right_row_set.iter().for_each(|right_row_idx| {
-                        f(*left_row_idx, *right_row_idx);
+                        f(left_row_idx.clone(), right_row_idx.clone());
                     })
                 })
             }
@@ -113,7 +114,7 @@ impl IndexBacking for HashMapIndex {
             if let Some(right_row_set) = other.get(value) {
                 left_row_set.iter().for_each(|left_row_idx| {
                     right_row_set.iter().for_each(|right_row_idx| {
-                        f(*left_row_idx, *right_row_idx);
+                        f(left_row_idx.clone(), right_row_idx.clone());
                     })
                 })
             }

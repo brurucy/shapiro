@@ -1,7 +1,7 @@
 use crate::data_structures::substitutions::Substitutions;
 use crate::misc::helpers::terms_to_row;
 use crate::models::datalog::{Atom, Rule, Term};
-use crate::models::instance::{Database, HashSetBacking, HashSetDatabase};
+use crate::models::instance::{Database, HashSetDatabase, IndexedHashSetBacking};
 
 pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -119,8 +119,7 @@ pub fn accumulate_substitutions(
 pub fn accumulate_body_substitutions(
     knowledge_base: &HashSetDatabase,
     body: &Vec<Atom>,
-) -> Vec<Substitutions>
-{
+) -> Vec<Substitutions> {
     return body
         .into_iter()
         .fold(vec![Default::default()], |acc, item| {
@@ -128,12 +127,15 @@ pub fn accumulate_body_substitutions(
         });
 }
 
-pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<HashSetBacking> {
+pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<IndexedHashSetBacking> {
     let mut output_instance: HashSetDatabase = Default::default();
 
     substitutions.into_iter().for_each(|substitutions| {
         let rewrite_attempt = attempt_to_rewrite(&substitutions, head);
-        output_instance.insert_at(rewrite_attempt.relation_id.get(), terms_to_row(rewrite_attempt.terms));
+        output_instance.insert_at(
+            rewrite_attempt.relation_id.get(),
+            terms_to_row(rewrite_attempt.terms),
+        );
     });
 
     let mut out = None;
@@ -149,7 +151,7 @@ pub fn ground_head(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Has
     return out;
 }
 
-pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<HashSetBacking> {
+pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<IndexedHashSetBacking> {
     return ground_head(
         &rule.head,
         accumulate_body_substitutions(knowledge_base, &rule.body),
@@ -162,8 +164,11 @@ mod tests {
     use crate::misc::helpers::terms_to_row;
     use crate::misc::string_interning::Interner;
     use crate::models::datalog::{Atom, SugaredRule, Ty, TypedValue};
-    use crate::models::instance::{Database, HashSetBacking, HashSetDatabase};
-    use crate::reasoning::algorithms::rewriting::{accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, evaluate_rule, ground_head, is_ground, make_substitutions};
+    use crate::models::instance::{Database, HashSetDatabase, IndexedHashSetBacking};
+    use crate::reasoning::algorithms::rewriting::{
+        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, evaluate_rule,
+        ground_head, is_ground, make_substitutions,
+    };
 
     use super::generate_all_substitutions;
 
@@ -218,13 +223,13 @@ mod tests {
                 inner: vec![
                     (0, TypedValue::Str("b".to_string())),
                     (1, TypedValue::Str("c".to_string())),
-                ]
+                ],
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("a".to_string())),
                     (1, TypedValue::Str("b".to_string())),
-                ]
+                ],
             },
         ];
         expected_subs.sort();
@@ -232,10 +237,7 @@ mod tests {
         let mut actual_subs = generate_all_substitutions(&fact_store, &rule_atom_0);
         actual_subs.sort();
 
-        assert_eq!(
-            expected_subs,
-            actual_subs,
-        )
+        assert_eq!(expected_subs, actual_subs,)
     }
 
     #[test]
@@ -243,7 +245,8 @@ mod tests {
         let mut interner: Interner = Default::default();
 
         let rule_atom_0 = Atom::from_str_with_interner("T(?X, ?Y, PLlab)", &mut interner);
-        let data_0 = Atom::from_str_with_interner("T(student, takesClassesFrom, PLlab)", &mut interner);
+        let data_0 =
+            Atom::from_str_with_interner("T(student, takesClassesFrom, PLlab)", &mut interner);
 
         assert_eq!(is_ground(&rule_atom_0), false);
         assert_eq!(is_ground(&data_0), true)
@@ -255,7 +258,8 @@ mod tests {
         let mut fact_store: HashSetDatabase = Default::default();
 
         let rule_atom_0 = Atom::from_str_with_interner("T(?X, ?Y, PLlab)", &mut interner);
-        let fact_0 = Atom::from_str_with_interner("T(student, takesClassesFrom, PLlab)", &mut interner);
+        let fact_0 =
+            Atom::from_str_with_interner("T(student, takesClassesFrom, PLlab)", &mut interner);
         let fact_1 = Atom::from_str_with_interner("T(professor, worksAt, PLlab)", &mut interner);
 
         fact_store.insert_at(fact_0.relation_id.get(), terms_to_row(fact_0.terms));
@@ -276,23 +280,20 @@ mod tests {
                 inner: vec![
                     (0, TypedValue::Str("student".to_string())),
                     (1, TypedValue::Str("takesClassesFrom".to_string())),
-                ]
+                ],
             },
             Substitutions {
                 inner: vec![
                     (0, TypedValue::Str("professor".to_string())),
                     (1, TypedValue::Str("worksAt".to_string())),
-                ]
+                ],
             },
         ];
 
         actual_subs.sort();
         expected_subs.sort();
 
-        assert_eq!(
-            actual_subs,
-            expected_subs
-        )
+        assert_eq!(actual_subs, expected_subs)
     }
 
     #[test]
@@ -314,15 +315,11 @@ mod tests {
         let fact_2 = Atom::from_str_with_interner("ancestor(eve, adam)", &mut interner);
         let fact_3 = Atom::from_str_with_interner("ancestor(jumala, cthulu)", &mut interner);
 
-        vec![fact_0,
-             fact_1,
-             fact_2,
-             fact_3]
+        vec![fact_0, fact_1, fact_2, fact_3]
             .iter()
             .for_each(|atom| {
                 fact_store.insert_at(atom.relation_id.get(), terms_to_row(atom.terms.clone()))
             });
-
 
         let mut expected_subs = vec![
             Substitutions {
@@ -388,14 +385,25 @@ mod tests {
         ];
 
         let actual_output = ground_head(&rule_head, subs).unwrap();
-        let mut expected_output: HashSetBacking = Default::default();
+        let mut expected_output: IndexedHashSetBacking = Default::default();
         vec![
-            Box::new([Box::new("adam").to_typed_value(), Box::new("cthulu").to_typed_value()]),
-            Box::new([Box::new("vanasarvik").to_typed_value(), Box::new("cthulu").to_typed_value()]),
-            Box::new([Box::new("eve").to_typed_value(), Box::new("jumala").to_typed_value()]),
+            Box::new([
+                Box::new("adam").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("vanasarvik").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("eve").to_typed_value(),
+                Box::new("jumala").to_typed_value(),
+            ]),
         ]
-            .into_iter()
-            .for_each(|row| { expected_output.insert(row); });
+        .into_iter()
+        .for_each(|row| {
+            expected_output.insert(row);
+        });
 
         assert_eq!(actual_output, expected_output);
     }
@@ -404,7 +412,8 @@ mod tests {
     fn test_evaluate_rule() {
         let mut interner: Interner = Default::default();
 
-        let sugared_rule = SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let sugared_rule =
+            SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
         let rule = interner.intern_rule_weak(&sugared_rule);
 
         let mut fact_store: HashSetDatabase = Default::default();
@@ -414,23 +423,31 @@ mod tests {
         let fact_2 = Atom::from_str_with_interner("ancestor(eve, adam)", &mut interner);
         let fact_3 = Atom::from_str_with_interner("ancestor(jumala, cthulu)", &mut interner);
 
-        vec![fact_0,
-             fact_1,
-             fact_2,
-             fact_3]
+        vec![fact_0, fact_1, fact_2, fact_3]
             .iter()
             .for_each(|atom| {
                 fact_store.insert_at(atom.relation_id.get(), terms_to_row(atom.terms.clone()))
             });
 
-        let mut expected_output: HashSetBacking = Default::default();
+        let mut expected_output: IndexedHashSetBacking = Default::default();
         vec![
-            Box::new([Box::new("adam").to_typed_value(), Box::new("cthulu").to_typed_value()]),
-            Box::new([Box::new("vanasarvik").to_typed_value(), Box::new("cthulu").to_typed_value()]),
-            Box::new([Box::new("eve").to_typed_value(), Box::new("jumala").to_typed_value()]),
+            Box::new([
+                Box::new("adam").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("vanasarvik").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("eve").to_typed_value(),
+                Box::new("jumala").to_typed_value(),
+            ]),
         ]
-            .into_iter()
-            .for_each(|row| { expected_output.insert(row); });
+        .into_iter()
+        .for_each(|row| {
+            expected_output.insert(row);
+        });
 
         let evaluation = evaluate_rule(&fact_store, &rule).unwrap();
 

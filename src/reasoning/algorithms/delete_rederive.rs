@@ -47,17 +47,18 @@ pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<Su
 
 pub type TypedDiff<'a> = (&'a str, Row);
 
-pub fn delete_rederive<'a, T>(instance: &mut T, program: &'a Vec<SugaredRule>, updates: Vec<TypedDiff<'a>>)
-where
-    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator + RelationDropper,
+pub fn delete_rederive<'a, T>(
+    instance: &mut T,
+    program: &'a Vec<SugaredRule>,
+    updates: Vec<TypedDiff<'a>>,
+) where
+    T: DynamicTyped + Dynamic + BottomUpEvaluator + RelationDropper,
 {
-    let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
     updates.into_iter().for_each(|(symbol, update)| {
         let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
         instance.insert_typed(&del_sym, update);
         relations_to_be_dropped.insert(del_sym.to_string());
-        relations_to_be_flushed.insert(symbol.to_string());
     });
     // Overdeletion and Rederivation programs
     let overdeletion_program = make_overdeletion_program(program);
@@ -67,28 +68,19 @@ where
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         relations_to_be_dropped.insert(del_sym.clone());
-        relations_to_be_flushed.insert(sym.to_string());
-        row_set
-            .into_iter()
-            .for_each(|row| {
-                instance.delete_typed(sym, &row);
-                instance.insert_typed(&del_sym, row);
-            });
-    });
-
-    relations_to_be_flushed.into_iter().for_each(|sym| {
-        instance.flush(&sym);
+        row_set.into_iter().for_each(|row| {
+            instance.delete_typed(sym, &row);
+            instance.insert_typed(&del_sym, row);
+        });
     });
 
     // Stage 2 - rederivation
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        row_set
-            .into_iter()
-            .for_each(|row| {
-                instance.insert_typed(&sym, row);
-            })
+        row_set.into_iter().for_each(|row| {
+            instance.insert_typed(&sym, row);
+        })
     });
 
     relations_to_be_dropped.into_iter().for_each(|del_sym| {

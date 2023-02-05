@@ -1,4 +1,4 @@
-use crate::models::instance::{Database};
+use crate::models::instance::Database;
 
 pub trait InstanceEvaluator<T>
 where
@@ -17,15 +17,14 @@ pub trait Empty {
     fn is_empty(&self) -> bool;
 }
 
-pub struct Evaluation<'a, T : Database + Set + Empty> {
+pub struct Evaluation<'a, T: Database + Set + Empty> {
     pub input: &'a T,
     pub evaluator: Box<dyn InstanceEvaluator<T>>,
     pub delta: T,
     pub output: T,
 }
 
-impl<'a, T : Database + Set + Empty> Evaluation<'a, T>
-{
+impl<'a, T: Database + Set + Empty> Evaluation<'a, T> {
     pub(crate) fn new(database: &'a T, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
             input: database,

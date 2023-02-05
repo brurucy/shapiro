@@ -1,80 +1,59 @@
+use crate::models::datalog::SugaredAtom;
+use ordered_float::OrderedFloat;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
-use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::datalog::SugaredAtom;
-use ordered_float::OrderedFloat;
-
 use super::datalog::{self, SugaredRule, TypedValue};
 use crate::data_structures;
 use crate::models::index::IndexBacking;
+use crate::models::instance::IndexedHashSetBacking;
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
-
-
 pub trait Container {
     fn insert_row(&mut self, row: Row);
-    fn remove_row(&mut self, row: Row);
+    fn remove_row(&mut self, row: &Row);
 }
 
 pub trait Relation {
-    // Select mutates
-    fn select_value(&mut self, column_idx: usize, value: &SelectionTypedValue);
-    fn select_equality(&mut self, left_column_idx: usize, right_column_idx: usize);
-    fn product(&self, other: &Self) -> Self;
-    fn join(&self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self;
-    fn project(&self, new_column_indexes_and_values: Vec<SelectionTypedValue>, new_symbol: String) -> Self;
+    fn select_value(self, column_idx: usize, value: SelectionTypedValue) -> Self;
+    fn select_equality(self, left_column_idx: usize, right_column_idx: usize) -> Self;
+    fn product(self, other: &Self) -> Self;
+    fn join(self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self;
+    fn project(
+        self,
+        new_column_indexes_and_values: Vec<SelectionTypedValue>,
+        new_symbol: String,
+    ) -> Self;
     fn symbol(&self) -> String;
 }
 
 #[derive(Clone, Debug)]
-pub struct SimpleRelationWithOneIndexBacking<T : IndexBacking> {
+pub struct SimpleRelationWithOneIndexBacking<T: IndexBacking> {
     pub symbol: String,
-    pub ward: IndexedHashMap<Row, bool>,
+    pub ward: IndexedHashSetBacking,
     pub index: T,
 }
 
-impl<T : IndexBacking> PartialEq for SimpleRelationWithOneIndexBacking<T> {
+impl<T: IndexBacking> PartialEq for SimpleRelationWithOneIndexBacking<T> {
     fn eq(&self, other: &Self) -> bool {
-        return self.symbol == other.symbol && self.ward == other.ward
+        return self.symbol == other.symbol && self.ward == other.ward;
     }
 }
 
-impl<T : IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
+impl<T: IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
     fn insert_row(&mut self, row: Row) {
-        if !self.ward.contains_key(&row) {
-            self.ward.insert(row, true);
-        } else {
-            let sign = self.ward.get_mut(&row).unwrap();
-            if !*sign {
-                *sign = true
-            }
-        }
+        self.ward.insert(row);
     }
 
-    fn remove_row(&mut self, row: Row) {
-        self.mark_deleted(&row);
+    fn remove_row(&mut self, row: &Row) {
+        self.ward.remove(row);
     }
 }
 
-impl<T : IndexBacking> SimpleRelationWithOneIndexBacking<T> {
-    pub fn mark_deleted(&mut self, row: &Row) {
-        if let Some(sign) = self.ward.get_mut(row) {
-            *sign = false
-        }
-    }
-
-    pub fn compact_physical(&mut self) {
-        self.ward.retain(|_k, v| *v);
-    }
-
-    pub fn compact(&mut self) {
-        self.ward.retain(|_k, v| *v);
-    }
-
+impl<T: IndexBacking> SimpleRelationWithOneIndexBacking<T> {
     pub fn new(symbol: String) -> Self {
         SimpleRelationWithOneIndexBacking {
             symbol,
@@ -175,7 +154,6 @@ impl Display for Term {
     }
 }
 
-// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 pub type RelationalExpression = Tree<Term>;
 
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
@@ -514,8 +492,9 @@ mod tests {
 
     #[test]
     fn test_rule_to_expression() {
-        let rule =
-            SugaredRule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
+        let rule = SugaredRule::from(
+            "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]",
+        );
 
         let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?0, ?2), ⋈_0=0(T(?10, ?1), σ_1=hardcore(U(?12, ?9))))))";
 
@@ -525,7 +504,8 @@ mod tests {
 
     #[test]
     fn test_rule_to_expression_complex() {
-        let rule = SugaredRule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
+        let rule =
+            SugaredRule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
         let expected_expression =
             "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";
