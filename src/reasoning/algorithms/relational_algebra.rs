@@ -389,9 +389,9 @@ mod tests {
         let expression = RelationalExpression::from(&SugaredRule::from(rule));
 
         let mut interner = Interner::default();
-        let mut child_id = interner.rodeo.get_or_intern("child");
-        let mut sub_class_of_id = interner.rodeo.get_or_intern("subClassOf");
-        let mut ancestor_id = interner.rodeo.get_or_intern("ancestor");
+        let child_id = interner.rodeo.get_or_intern("child");
+        let sub_class_of_id = interner.rodeo.get_or_intern("subClassOf");
+        let ancestor_id = interner.rodeo.get_or_intern("ancestor");
 
         let mut instance: SimpleDatabaseWithIndex<BTreeIndex> =
             SimpleDatabaseWithIndex::new(interner);

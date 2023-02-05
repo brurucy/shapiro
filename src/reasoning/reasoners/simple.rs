@@ -294,9 +294,14 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
 impl<T: IndexBacking + PartialEq> Queryable for RelationalDatalog<T> {
     fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool {
         if let Some(relation) = self.fact_store.storage.get(table) {
-            if let Some(typed_row) = self.row_interner.try_intern_row(&ty_to_row(row)) {
-                return relation.ward.contains(&typed_row);
+            let mut typed_row = Some(ty_to_row(row));
+            if self.intern {
+                typed_row = self.row_interner.try_intern_row(&typed_row.unwrap());
+                if typed_row == None {
+                    return false
+                }
             }
+            return relation.ward.contains(&typed_row.unwrap());
         }
 
         return false;
@@ -313,10 +318,41 @@ impl<T: IndexBacking + PartialEq> RelationDropper for RelationalDatalog<T> {
 mod tests {
     use crate::models::datalog::{SugaredRule, TypedValue};
     use crate::models::index::BTreeIndex;
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer, Queryable};
     use crate::models::relational_algebra::Row;
     use crate::reasoning::reasoners::simple::RelationalDatalog;
     use indexmap::IndexSet;
+
+    #[test]
+    fn test_simple_operations() {
+        let mut reasoner: RelationalDatalog<BTreeIndex> = RelationalDatalog::new(false, false);
+
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+
+        assert_eq!(reasoner.triple_count(), 0);
+
+        reasoner.insert("edge", vec![Box::new("a"), Box::new("b")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
+        reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);
+
+        assert_eq!(reasoner.triple_count(), 3);
+
+        assert!(reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+
+        reasoner.delete("edge", &vec![Box::new("a"), Box::new("b")]);
+        reasoner.delete("edge", &vec![Box::new("b"), Box::new("c")]);
+        reasoner.delete("edge", &vec![Box::new("b"), Box::new("d")]);
+
+        assert_eq!(reasoner.triple_count(), 0);
+
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("a"), Box::new("b")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("c")]));
+        assert!(!reasoner.contains_row("edge", &vec![Box::new("b"), Box::new("d")]));
+    }
 
     #[test]
     fn test_simple_datalog() {

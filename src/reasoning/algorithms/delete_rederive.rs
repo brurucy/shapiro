@@ -54,17 +54,16 @@ pub fn delete_rederive<'a, T>(
 ) where
     T: DynamicTyped + Dynamic + BottomUpEvaluator + RelationDropper,
 {
-    let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
-    deletions.into_iter().for_each(|(symbol, update)| {
+    deletions.iter().for_each(|(symbol, deletion)| {
         let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
-        instance.insert_typed(&del_sym, update);
-        relations_to_be_dropped.insert(del_sym);
+        instance.insert_typed(&del_sym, deletion.clone());
     });
     // Overdeletion and Rederivation programs
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
-    // Stage 1 - overdeletion
+    // Stage 1 - intensional overdeletion
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
+    let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {
@@ -73,12 +72,18 @@ pub fn delete_rederive<'a, T>(
         });
         relations_to_be_dropped.insert(del_sym);
     });
+    // Step 1.5 - extensional deletion
+    deletions.into_iter().for_each(|(sym, row)| {
+        instance.delete_typed(sym, &row)
+    });
 
-    // Stage 2 - rederivation
+    // Stage 2 - intensional rederivation
+    let mut rederived = 0;
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {
+            rederived += 1;
             instance.insert_typed(&sym, row);
         })
     });

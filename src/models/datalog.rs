@@ -74,8 +74,8 @@ impl Into<Box<dyn Ty>> for TypedValue {
     }
 }
 
-// Ty is a short-lived type used only to allow for the convenience of being able to use regular vanilla
-// rust types.
+// Ty is a short-lived type used only to allow for the convenience of being able to use regular
+// vanilla rust types.
 pub trait Ty {
     fn to_typed_value(&self) -> TypedValue;
 }
