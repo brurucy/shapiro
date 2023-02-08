@@ -3,7 +3,7 @@ mod abomonated_vertebra;
 
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, TypedValue};
-use crossbeam_channel::{select, unbounded, Receiver, Sender};
+use crossbeam_channel::{select, unbounded, Receiver, Sender, bounded};
 use differential_dataflow::algorithms::identifiers::Identifiers;
 use differential_dataflow::input::Input;
 use differential_dataflow::lattice::Lattice;
@@ -105,7 +105,191 @@ fn is_ground(atom: &AbomonatedAtom) -> bool {
     return true;
 }
 
-pub fn reason(
+pub fn reason_arranged_by_relation(
+    cores: usize,
+    parallel: bool,
+    rule_input_source: RuleSource,
+    fact_input_source: AtomSource,
+    rule_output_sink: RuleSink,
+    fact_output_sink: AtomSink,
+    notification_sink: NotificationSink,
+) {
+    timely::execute(
+        if parallel { timely::Config::process(cores) } else { timely::Config::thread() },
+        move |worker: &mut Worker<Generic>| {
+            let local_notification_sink = notification_sink.clone();
+            let (mut rule_input_session, mut rule_trace, rule_probe) = worker
+                .dataflow_named::<usize, _, _>("rule_ingestion", |local| {
+                    let local_rule_output_sink = rule_output_sink.clone();
+
+                    let (rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
+                    rule_collection.inspect(move |x| {
+                        local_rule_output_sink.send((x.0.clone(), x.1, x.2)).unwrap();
+                    });
+
+                    (
+                        rule_input,
+                        rule_collection.arrange_by_self().trace,
+                        rule_collection.probe(),
+                    )
+                });
+
+            let (mut fact_input_session, fact_probe) = worker
+                .dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
+                    let (fact_input_session, fact_collection) =
+                        local.new_collection::<AbomonatedAtom, isize>();
+
+                    let local_fact_output_sink = fact_output_sink.clone();
+
+                    let rule_collection = rule_trace
+                        .import(local)
+                        .as_collection(|x, _y| x.clone());
+
+                    let facts_by_symbol = fact_collection
+                        .map(|ground_fact| (ground_fact.0, ground_fact));
+
+                    let indexed_rules = rule_collection.identifiers();
+                    let goals = indexed_rules
+                        .flat_map(|(rule, rule_id)| {
+                            rule
+                                .1
+                                .into_iter()
+                                .enumerate()
+                                .map(move |(atom_id, atom)| {
+                                    ((rule_id, atom_id), atom)
+                                })
+                        });
+
+                    let heads = indexed_rules
+                        .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.0));
+
+                    let subs_product = heads
+                        .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
+
+                    let output = local
+                        .iterative::<usize, _, _>(|inner| {
+                            let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
+                            let facts_var = iterate::Variable::new_from(facts_by_symbol.enter(inner), Product::new(Default::default(), 1));
+
+                            let g = goals.enter(inner);
+
+                            let s_old_arr = subs_product_var.distinct().arrange_by_key();
+                            let facts = facts_var.distinct();
+                            let facts_by_symbol_arr = facts.arrange_by_key();
+
+                            let goal_x_subs = g
+                                .arrange_by_key()
+                                .join_core(&s_old_arr, |key, goal, sub| {
+                                    let rewrite_attempt = &attempt_to_rewrite(sub, goal);
+                                    if !is_ground(rewrite_attempt) {
+                                        return Some((goal.0, (key.clone(), rewrite_attempt.clone(), sub.clone())));
+                                    }
+                                    return None;
+                                });
+
+                            let current_goals = goal_x_subs
+                                .arrange_by_key();
+
+                            let new_substitutions = facts_by_symbol_arr
+                                .join_core(&current_goals, |_interned_symbol, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, old_sub)| {
+                                    let ground_terms = ground_fact
+                                        .2
+                                        .iter()
+                                        .map(|row_element| AbomonatedTerm::Constant(AbomonatedTypedValue::try_from(row_element.clone()).unwrap()))
+                                        .collect();
+
+                                    let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
+
+                                    let sub = make_substitutions(
+                                        &rewrite_attempt,
+                                        &proposed_atom,
+                                    );
+
+                                    match sub {
+                                        None => {
+                                            None
+                                        }
+                                        Some(sub) => {
+                                            let (previous_iter, new_sub) = ((new_key, old_sub.clone()), sub);
+                                            let (iter, mut previous_sub) = previous_iter;
+                                            previous_sub.inner.extend(&new_sub.inner);
+
+                                            Some(((iter.0, iter.1 + 1), previous_sub))
+                                        }
+                                    }
+                                });
+
+                            let groundington = heads
+                                .enter(inner)
+                                .join(&new_substitutions.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
+                                .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
+                                .filter(|atom| is_ground(atom))
+                                .map(|atom| (atom.0, atom))
+                                .consolidate();
+
+                            subs_product_var.set(&subs_product.enter(inner).concat(&new_substitutions));
+                            facts_var.set(&facts_by_symbol.enter(inner).concat(&groundington)).leave()
+                        })
+                        .consolidate()
+                        .inspect_batch(move |_t, xs| {
+                            for (atom, time, diff) in xs {
+                                local_fact_output_sink.send((atom.1.clone(), *time, *diff)).unwrap()
+                            }
+                        });
+
+                    (fact_input_session, output.probe())
+                });
+            if worker.index() == 0 {
+                let mut fact_input_source = fact_input_source.iter().peekable();
+                let mut rule_input_source = rule_input_source.iter().peekable();
+                let mut fact_epoch = 0;
+                let mut rule_epoch = 0;
+                loop {
+                    while let Some(fact) = rule_input_source.next_if(|cond| {
+                        cond.1 == rule_epoch
+                    }) {
+                        rule_input_session.update(fact.0, fact.2);
+                    }
+
+                    if let Some((_atom, time, _diff)) = rule_input_source.peek() {
+                        if rule_epoch < *time {
+                            rule_epoch = *time;
+                            rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
+                        }
+                    }
+                    rule_input_session.flush();
+
+                    while let Some(fact) = fact_input_source.next_if(|cond| {
+                        cond.1 == fact_epoch
+                    }) {
+                        fact_input_session.update(fact.0, fact.2);
+                    }
+
+                    if let Some((_atom, time, _diff)) = fact_input_source.peek() {
+                        if fact_epoch < *time {
+                            fact_epoch = *time;
+                            fact_input_session.advance_to(fact_epoch.join(&rule_epoch));
+                        }
+                    }
+                    fact_input_session.flush();
+
+                    rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
+                    rule_input_session.flush();
+                    // timeout not needed when channel blocking iterator is used (on both channels!)
+                    worker.step_or_park_while(Some(Duration::from_millis(1)), || {
+                        fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
+                    });
+
+                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
+                }
+            }
+        },
+    ).unwrap();
+}
+
+pub fn reason_with_masked_atoms(
+    cores: usize,
+    parallel: bool,
     rule_input_source: RuleSource,
     fact_input_source: AtomSource,
     rule_output_sink: RuleSink,
@@ -113,7 +297,7 @@ pub fn reason(
     notification_sink: NotificationSink,
 ) -> () {
     timely::execute(
-        timely::Config::process(8),
+        if parallel { timely::Config::process(cores) } else { timely::Config::thread() },
         move |worker: &mut Worker<Generic>| {
             let local_notification_sink = notification_sink.clone();
             let (mut rule_input_session, mut rule_trace, rule_probe) = worker
@@ -188,7 +372,8 @@ pub fn reason(
                                         return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())))
                                     }
                                     return None;
-                                });
+                                })
+                                .consolidate();
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key();
@@ -196,9 +381,8 @@ pub fn reason(
                             let new_substitutions = facts_by_masked_arr
                                 .join_core(&current_goals, |_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, _old_sub)| {
                                     let ground_terms = ground_fact
-                                        .clone()
                                         .2
-                                        .into_iter()
+                                        .iter()
                                         .map(|row_element| AbomonatedTerm::Constant(AbomonatedTypedValue::try_from(row_element.clone()).unwrap()))
                                         .collect();
 
@@ -308,6 +492,7 @@ pub struct DifferentialDatalog {
     pub fact_output_source: AtomSource,
     pub notification_source: NotificationSource,
     pub interner: Interner,
+    cores: usize,
     materialization: Program,
 }
 
@@ -319,10 +504,13 @@ impl Default for DifferentialDatalog {
         let (rule_output_sink, rule_output_source) = unbounded();
         let (fact_output_sink, fact_output_source) = unbounded();
 
+        let cores = thread::available_parallelism().unwrap().get();
         let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
-            reason(
+            reason_arranged_by_relation(
+                cores,
+                true,
                 rule_input_source,
                 fact_input_source,
                 rule_output_sink,
@@ -333,13 +521,14 @@ impl Default for DifferentialDatalog {
 
         DifferentialDatalog {
             epoch: 0,
+            cores,
             rule_input_sink,
             rule_output_source,
             fact_input_sink,
             fact_output_source,
             notification_source,
-            fact_store: Default::default(),
             _ddflow: handle,
+            fact_store: Default::default(),
             interner: Default::default(),
             materialization: vec![],
         }
@@ -358,10 +547,51 @@ fn typed_row_to_abomonated_row(typed_row: Row, interner: &mut Interner) -> Vec<A
 }
 
 impl DifferentialDatalog {
-    pub fn new() -> Self {
-        return Self {
+    pub fn new(parallel: bool, shard_by_relation: bool) -> Self {
+        let (rule_input_sink, rule_input_source) = unbounded();
+        let (fact_input_sink, fact_input_source) = unbounded();
+
+        let (rule_output_sink, rule_output_source) = unbounded();
+        let (fact_output_sink, fact_output_source) = unbounded();
+
+        let cores = thread::available_parallelism().unwrap().get();
+        let (notification_sink, notification_source) = unbounded();
+
+        let handle = thread::spawn(move || {
+            if shard_by_relation {
+                reason_arranged_by_relation(
+                    cores,
+                    parallel,
+                    rule_input_source,
+                    fact_input_source,
+                    rule_output_sink,
+                    fact_output_sink,
+                    notification_sink,
+                )
+            } else {
+                reason_with_masked_atoms(
+                    cores,
+                    parallel,
+                    rule_input_source,
+                    fact_input_source,
+                    rule_output_sink,
+                    fact_output_sink,
+                    notification_sink,
+                )
+            }
+        });
+
+        DifferentialDatalog {
+            epoch: 0,
+            cores,
+            rule_input_sink,
+            rule_output_source,
+            fact_input_sink,
+            fact_output_source,
+            notification_source,
+            _ddflow: handle,
             ..Default::default()
-        };
+        }
     }
     fn noop_typed(&mut self, table: &str, row: Row) {
         let abomonated_atom = (

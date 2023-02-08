@@ -1,8 +1,6 @@
 extern crate core;
 
-use crate::Reasoners::{
-    Chibi, Differential, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec,
-};
+use crate::Reasoners::{Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec};
 use clap::{Arg, Command};
 use phf::phf_map;
 use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
@@ -168,6 +166,7 @@ impl Parser {
 pub enum Reasoners {
     Chibi,
     Differential,
+    DifferentialTabled,
     RelationalHashMap,
     RelationalBTree,
     RelationalVec,
@@ -180,6 +179,7 @@ impl Display for Reasoners {
         match self {
             Chibi => write!(f, "chibi"),
             Differential => write!(f, "differential"),
+            DifferentialTabled => write!(f, "differential-tabled"),
             RelationalHashMap => write!(f, "relational-hashmap"),
             RelationalBTree => write!(f, "relational-btree"),
             RelationalVec => write!(f, "relational-vec"),
@@ -244,6 +244,7 @@ fn main() {
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
         "differential" => Differential,
+        "differential-tabled" => DifferentialTabled,
         "relational-hashmap" => RelationalHashMap,
         "relational-btree" => RelationalBTree,
         "relational-vec" => RelationalVec,
@@ -266,7 +267,8 @@ fn main() {
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
         Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
-        Differential => Box::new(DifferentialDatalog::new()),
+        Differential => Box::new(DifferentialDatalog::new(parallel, true)),
+        DifferentialTabled => Box::new(DifferentialDatalog::new(parallel, false)),
         RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
         RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
         RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
