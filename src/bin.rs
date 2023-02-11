@@ -75,6 +75,29 @@ pub struct NTripleParser;
 
 impl SugaredAtomParser for NTripleParser {
     fn parse_line(&self, line: &str) -> SugaredAtom {
+        // let mut split_line = line.split(' ');
+        //
+        // let digit_one: String = split_line.next().unwrap().to_string();
+        // let mut digit_two: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_two) {
+        //     digit_two = alias.to_string();
+        // }
+        // let mut digit_three: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_three) {
+        //     digit_three = alias.to_string()
+        // }
+        //
+        // let terms = vec![
+        //     Term::Constant(TypedValue::Str(digit_one)),
+        //     Term::Constant(TypedValue::Str(digit_two)),
+        //     Term::Constant(TypedValue::Str(digit_three))
+        // ];
+        //
+        // return SugaredAtom {
+        //     terms,
+        //     symbol: "T".to_string(),
+        //     positive: true,
+        // };
         let mut split_line = line.split(' ');
 
         let digit_one: String = split_line.next().unwrap().to_string();
@@ -86,17 +109,31 @@ impl SugaredAtomParser for NTripleParser {
         if let Some(alias) = OWL.get(&digit_three) {
             digit_three = alias.to_string()
         }
+        let symbol = match &digit_two[..] {
+            "rdf:type" => "Type",
+            "rdfs:subPropertyOf" => "SubPropertyOf",
+            "rdfs:subClassOf" => "SubClassOf",
+            "rdfs:domain" => "Domain",
+            "rdfs:range" => "Range",
+            _ => "Property"
+        };
 
-        let terms = vec![
-            Term::Constant(TypedValue::Str(digit_one)),
-            Term::Constant(TypedValue::Str(digit_two)),
-            Term::Constant(TypedValue::Str(digit_three))
-        ];
+        let terms = match symbol {
+            "Property" => vec![
+                Term::Constant(TypedValue::Str(digit_one)),
+                Term::Constant(TypedValue::Str(digit_two)),
+                Term::Constant(TypedValue::Str(digit_three)),
+            ],
+            _ => vec![
+                Term::Constant(TypedValue::Str(digit_one)),
+                Term::Constant(TypedValue::Str(digit_three)),
+            ]
+        };
 
         return SugaredAtom {
             terms,
-            symbol: "T".to_string(),
-            positive: true,
+            symbol: symbol.to_string(),
+            positive: false,
         };
     }
 }

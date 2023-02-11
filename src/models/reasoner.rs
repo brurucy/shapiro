@@ -1,6 +1,6 @@
-use crate::models::datalog::{SugaredAtom, SugaredProgram, SugaredRule, Ty, TypedValue};
+use crate::models::datalog::{SugaredProgram, SugaredRule, Ty, TypedValue};
 use crate::models::relational_algebra::Row;
-use ahash::{HashMap, HashSet};
+use ahash::HashMap;
 use indexmap::IndexSet;
 
 // Utility interface for reasoners that only logically delete data, and require a "flushing"

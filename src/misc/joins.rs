@@ -1,18 +1,19 @@
 use std::cmp::Ordering;
 
-pub fn nested_loop_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
+pub fn nested_loop_join<'a, K: 'a, V: 'a, T: 'a, Left: 'a, Right: 'a>(
     left_iter: &'a Left,
     right_iter: &'a Right,
-    mut f: impl FnMut(V, V),
+    mut f: impl FnMut(&K, &V, &T),
 ) where
     &'a Left: 'a + IntoIterator<Item = &'a (K, V)>,
-    &'a Right: 'a + IntoIterator<Item = &'a (K, V)>,
+    &'a Right: 'a + IntoIterator<Item = &'a (K, T)>,
     K: Ord + Clone,
     V: Clone,
+    T: Clone
 {
-    left_iter.into_iter().for_each(|left_row| {
-        right_iter.into_iter().for_each(|right_row| {
-            f(left_row.1.clone(), right_row.1.clone());
+    left_iter.into_iter().for_each(|(left_key, left_value)| {
+        right_iter.into_iter().for_each(|(right_key, right_value)| {
+            f(left_key, left_value, right_value)
         })
     })
 }

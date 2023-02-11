@@ -95,7 +95,7 @@ pub fn delete_rederive<'a, T>(
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{SugaredAtom, SugaredRule, Ty};
+    use crate::models::datalog::{SugaredRule, Ty};
     use crate::models::reasoner::{Dynamic, Materializer, Queryable};
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,

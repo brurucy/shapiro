@@ -1,6 +1,6 @@
 use crate::misc::string_interning::Interner;
 use lasso::{Key, Spur};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use indexmap::IndexSet;
 
 use crate::models::index::IndexBacking;

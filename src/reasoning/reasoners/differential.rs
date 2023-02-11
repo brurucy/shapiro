@@ -3,7 +3,7 @@ mod abomonated_vertebra;
 
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, TypedValue};
-use crossbeam_channel::{select, unbounded, Receiver, Sender, bounded};
+use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use differential_dataflow::algorithms::identifiers::Identifiers;
 use differential_dataflow::input::Input;
 use differential_dataflow::lattice::Lattice;
@@ -173,7 +173,7 @@ pub fn reason_arranged_by_relation(
 
                             let g = goals.enter(inner);
 
-                            let s_old_arr = subs_product_var.distinct().arrange_by_key();
+                            let s_old_arr = subs_product_var.arrange_by_key();
                             let facts = facts_var.distinct();
                             let facts_by_symbol_arr = facts.arrange_by_key();
 
@@ -492,7 +492,6 @@ pub struct DifferentialDatalog {
     pub fact_output_source: AtomSource,
     pub notification_source: NotificationSource,
     pub interner: Interner,
-    cores: usize,
     materialization: Program,
 }
 
@@ -521,7 +520,6 @@ impl Default for DifferentialDatalog {
 
         DifferentialDatalog {
             epoch: 0,
-            cores,
             rule_input_sink,
             rule_output_source,
             fact_input_sink,
@@ -583,7 +581,6 @@ impl DifferentialDatalog {
 
         DifferentialDatalog {
             epoch: 0,
-            cores,
             rule_input_sink,
             rule_output_source,
             fact_input_sink,
