@@ -12,7 +12,7 @@ use crate::models::reasoner::{
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
-use crate::reasoning::algorithms::rewriting::evaluate_rule;
+use crate::reasoning::algorithms::alternative_rewriting::evaluate_rule;
 use lasso::{Key, Spur};
 use rayon::prelude::*;
 

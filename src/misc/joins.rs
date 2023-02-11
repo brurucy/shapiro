@@ -7,13 +7,15 @@ pub fn nested_loop_join<'a, K: 'a, V: 'a, T: 'a, Left: 'a, Right: 'a>(
 ) where
     &'a Left: 'a + IntoIterator<Item = &'a (K, V)>,
     &'a Right: 'a + IntoIterator<Item = &'a (K, T)>,
-    K: Ord + Clone,
+    K: PartialEq + Clone,
     V: Clone,
     T: Clone
 {
     left_iter.into_iter().for_each(|(left_key, left_value)| {
         right_iter.into_iter().for_each(|(right_key, right_value)| {
-            f(left_key, left_value, right_value)
+            if left_key == right_key {
+                f(left_key, left_value, right_value)
+            }
         })
     })
 }

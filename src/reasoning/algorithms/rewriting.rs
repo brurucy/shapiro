@@ -17,11 +17,11 @@ pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
             }
             (Term::Variable(left_variable), Term::Constant(right_constant)) => {
                 if let Some(constant) = substitution.get(*left_variable) {
-                    if constant.clone() != *right_constant {
+                    if constant != *right_constant {
                         return None;
                     }
                 } else {
-                    substitution.insert((left_variable.clone(), right_constant.clone()));
+                    substitution.insert((*left_variable, right_constant.clone()));
                 }
             }
             _ => {}
@@ -35,19 +35,18 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
     return Atom {
         terms: atom
             .terms
-            .clone()
-            .into_iter()
+            .iter()
             .map(|term| {
-                if let Term::Variable(identifier) = term.clone() {
-                    if let Some(constant) = rewrite.get(identifier) {
+                if let Term::Variable(identifier) = term {
+                    if let Some(constant) = rewrite.get(*identifier) {
                         return Term::Constant(constant.clone());
                     }
                 }
-                return term;
+                return term.clone();
             })
             .collect(),
         relation_id: atom.relation_id,
-        positive: atom.clone().positive,
+        positive: atom.positive,
     };
 }
 
