@@ -134,17 +134,17 @@ impl ChibiDatalog {
 
 impl Dynamic for ChibiDatalog {
     fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
-        self.insert_typed(table, row.iter().map(|ty| ty.to_typed_value()).collect())
+        self.insert_typed(table, ty_to_row(&row))
     }
 
     fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>) {
-        self.delete_typed(table, &row.iter().map(|ty| ty.to_typed_value()).collect())
+        self.delete_typed(table, &ty_to_row(row))
     }
 }
 
 impl DynamicTyped for ChibiDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        let (relation_id, typed_row) = idempotent_intern(&mut self.interner, self.intern, table, row.clone());
+        let (relation_id, typed_row) = idempotent_intern(&mut self.interner, self.intern, table, row);
 
         self.fact_store.insert_at(relation_id, typed_row)
     }
@@ -248,14 +248,20 @@ impl RelationDropper for ChibiDatalog {
 impl Queryable for ChibiDatalog {
     fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool {
         if let Some(relation_id) = self.interner.rodeo.get(table) {
-            if let Some(typed_row) = self.interner.try_intern_row(&ty_to_row(row)) {
-                return self
-                    .fact_store
-                    .storage
-                    .get(&relation_id.into_inner().get())
-                    .unwrap()
-                    .contains(&typed_row);
+            let mut typed_row = ty_to_row(row);
+            if self.intern {
+                if let Some(existing_typed_row) = self.interner.try_intern_row(&typed_row) {
+                    typed_row = existing_typed_row
+                } else {
+                    return false
+                }
             }
+            return self
+                .fact_store
+                .storage
+                .get(&relation_id.into_inner().get())
+                .unwrap()
+                .contains(&typed_row);
         }
 
         return false;

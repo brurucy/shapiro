@@ -376,17 +376,17 @@ fn main() {
         }
     });
 
-    let mut now = Instant::now();
+    let now = Instant::now();
     evaluator.update(initial_materialization);
     println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
-    now = Instant::now();
+    let now = Instant::now();
     evaluator.update(positive_update);
     println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
-    now = Instant::now();
+    let now = Instant::now();
     evaluator.update(negative_update);
     println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());

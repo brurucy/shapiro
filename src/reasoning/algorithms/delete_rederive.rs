@@ -1,3 +1,4 @@
+use std::time::{Duration, Instant};
 use crate::models::datalog::SugaredRule;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
@@ -54,36 +55,47 @@ pub fn delete_rederive<'a, T>(
 ) where
     T: DynamicTyped + Dynamic + BottomUpEvaluator + RelationDropper,
 {
-    deletions.iter().for_each(|(symbol, deletion)| {
-        let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
+    let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
+    deletions.iter().for_each(|(sym, deletion)| {
+        let del_sym = format!("{}{}", OVERDELETION_PREFIX, sym);
         instance.insert_typed(&del_sym, deletion.clone());
+        relations_to_be_dropped.insert(del_sym);
     });
     // Overdeletion and Rederivation programs
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - intensional overdeletion
+    let now = Instant::now();
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
-    let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
+    println!("time taken to compute overdeletions: {}", now.elapsed().as_millis());
+
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {
+            println!("overdeletion: {:?}", &row);
             instance.delete_typed(sym, &row);
             instance.insert_typed(&del_sym, row);
         });
         relations_to_be_dropped.insert(del_sym);
     });
     // Step 1.5 - extensional deletion
+    let now = Instant::now();
     deletions.into_iter().for_each(|(sym, row)| {
         instance.delete_typed(sym, &row)
     });
+    println!("time taken to physically delete the data: {}", now.elapsed().as_millis());
 
     // Stage 2 - intensional rederivation
-    let mut rederived = 0;
+    let now = Instant::now();
+    rederivation_program
+        .iter()
+        .for_each(|rule| println!("{}", rule));
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+    println!("time taken to compute rederivations: {}", now.elapsed().as_millis());
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {
-            rederived += 1;
+            println!("reincarnation: {:?}", &row);
             instance.insert_typed(&sym, row);
         })
     });
@@ -155,7 +167,7 @@ mod tests {
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
     fn test_delete_rederive() {
-        let mut chibi: ChibiDatalog = Default::default();
+        let mut chibi: ChibiDatalog = ChibiDatalog::new(false, false);
 
         vec![
             ("a", "b"),
@@ -176,7 +188,7 @@ mod tests {
 
         let program = vec![
             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?z) <- [edge(?x, ?y), reach(?y, ?z)]"),
         ];
 
         chibi.materialize(&program);
@@ -191,6 +203,16 @@ mod tests {
         assert!(chibi.contains_row("reach", &expected_deletion_3));
         assert!(chibi.contains_row("reach", &expected_deletion_4));
 
+        chibi
+            .fact_store
+            .storage
+            .iter()
+            .for_each(|(relation_id, values)| {
+                values
+                    .iter()
+                    .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+            });
+
         delete_rederive(
             &mut chibi,
             &program,
@@ -199,6 +221,18 @@ mod tests {
                 Box::new(["e".to_typed_value(), "f".to_typed_value()]),
             )],
         );
+
+        println!("post delete rederive");
+
+        chibi
+            .fact_store
+            .storage
+            .iter()
+            .for_each(|(relation_id, values)| {
+                values
+                    .iter()
+                    .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+            });
 
         assert!(!chibi.contains_row("reach", &expected_deletion_1));
         assert!(!chibi.contains_row("reach", &expected_deletion_2));
