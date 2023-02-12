@@ -3,13 +3,6 @@ use crate::models::relational_algebra::Row;
 use ahash::HashMap;
 use indexmap::IndexSet;
 
-// Utility interface for reasoners that only logically delete data, and require a "flushing"
-// step in order to physically do so.
-pub trait Flusher {
-    // Deletes all marked as deleted
-    fn flush(&mut self, table: &str);
-}
-
 // General API
 pub trait Dynamic {
     // Inserts data
@@ -48,13 +41,13 @@ pub trait Queryable {
 pub type EvaluationResult = HashMap<String, IndexSet<Row, ahash::RandomState>>;
 
 pub trait BottomUpEvaluator {
-    fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult;
+    fn evaluate_program_bottom_up(&mut self, program: &SugaredProgram) -> EvaluationResult;
 }
 
 pub trait TopDownEvaluator {
     fn evaluate_program_top_down(
         &mut self,
-        program: &Vec<SugaredRule>,
+        program: &SugaredProgram,
         query: &SugaredRule,
     ) -> EvaluationResult;
 }

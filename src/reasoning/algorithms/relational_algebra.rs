@@ -161,6 +161,7 @@ where
 
                         let join_result =
                             left_relation.join(&right_relation, left_column_idx, right_column_idx);
+
                         return Some(join_result);
                     }
                 }

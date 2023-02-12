@@ -14,7 +14,8 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use shapiro::reasoning::reasoners::simple::RelationalDatalog;
+use shapiro::reasoning::algorithms::constant_specialization::specialize_to_constants;
+use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -75,29 +76,6 @@ pub struct NTripleParser;
 
 impl SugaredAtomParser for NTripleParser {
     fn parse_line(&self, line: &str) -> SugaredAtom {
-        // let mut split_line = line.split(' ');
-        //
-        // let digit_one: String = split_line.next().unwrap().to_string();
-        // let mut digit_two: String = split_line.next().unwrap().to_string();
-        // if let Some(alias) = OWL.get(&digit_two) {
-        //     digit_two = alias.to_string();
-        // }
-        // let mut digit_three: String = split_line.next().unwrap().to_string();
-        // if let Some(alias) = OWL.get(&digit_three) {
-        //     digit_three = alias.to_string()
-        // }
-        //
-        // let terms = vec![
-        //     Term::Constant(TypedValue::Str(digit_one)),
-        //     Term::Constant(TypedValue::Str(digit_two)),
-        //     Term::Constant(TypedValue::Str(digit_three))
-        // ];
-        //
-        // return SugaredAtom {
-        //     terms,
-        //     symbol: "T".to_string(),
-        //     positive: true,
-        // };
         let mut split_line = line.split(' ');
 
         let digit_one: String = split_line.next().unwrap().to_string();
@@ -109,32 +87,55 @@ impl SugaredAtomParser for NTripleParser {
         if let Some(alias) = OWL.get(&digit_three) {
             digit_three = alias.to_string()
         }
-        let symbol = match &digit_two[..] {
-            "rdf:type" => "Type",
-            "rdfs:subPropertyOf" => "SubPropertyOf",
-            "rdfs:subClassOf" => "SubClassOf",
-            "rdfs:domain" => "Domain",
-            "rdfs:range" => "Range",
-            _ => "Property"
-        };
 
-        let terms = match symbol {
-            "Property" => vec![
-                Term::Constant(TypedValue::Str(digit_one)),
-                Term::Constant(TypedValue::Str(digit_two)),
-                Term::Constant(TypedValue::Str(digit_three)),
-            ],
-            _ => vec![
-                Term::Constant(TypedValue::Str(digit_one)),
-                Term::Constant(TypedValue::Str(digit_three)),
-            ]
-        };
+        let terms = vec![
+            Term::Constant(TypedValue::Str(digit_one)),
+            Term::Constant(TypedValue::Str(digit_two)),
+            Term::Constant(TypedValue::Str(digit_three))
+        ];
 
         return SugaredAtom {
             terms,
-            symbol: symbol.to_string(),
-            positive: false,
+            symbol: "T".to_string(),
+            positive: true,
         };
+        // let mut split_line = line.split(' ');
+        //
+        // let digit_one: String = split_line.next().unwrap().to_string();
+        // let mut digit_two: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_two) {
+        //     digit_two = alias.to_string();
+        // }
+        // let mut digit_three: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_three) {
+        //     digit_three = alias.to_string()
+        // }
+        // let symbol = match &digit_two[..] {
+        //     "rdf:type" => "Type",
+        //     "rdfs:subPropertyOf" => "SubPropertyOf",
+        //     "rdfs:subClassOf" => "SubClassOf",
+        //     "rdfs:domain" => "Domain",
+        //     "rdfs:range" => "Range",
+        //     _ => "Property"
+        // };
+        //
+        // let terms = match symbol {
+        //     "Property" => vec![
+        //         Term::Constant(TypedValue::Str(digit_one)),
+        //         Term::Constant(TypedValue::Str(digit_two)),
+        //         Term::Constant(TypedValue::Str(digit_three)),
+        //     ],
+        //     _ => vec![
+        //         Term::Constant(TypedValue::Str(digit_one)),
+        //         Term::Constant(TypedValue::Str(digit_three)),
+        //     ]
+        // };
+        //
+        // return SugaredAtom {
+        //     terms,
+        //     symbol: symbol.to_string(),
+        //     positive: false,
+        // };
     }
 }
 
@@ -272,12 +273,19 @@ fn main() {
                 .required(true)
                 .index(7),
         )
+        .arg(
+            Arg::new("SPECIALIZE")
+                .help("Specializes the constants in the program unto their own relations")
+                .required(true)
+                .index(8)
+        )
         .get_matches();
 
     let data_path: String = matches.value_of("DATA_PATH").unwrap().to_string();
     let program_path: String = matches.value_of("PROGRAM_PATH").unwrap().to_string();
     let parallel: bool = matches.value_of("PARALLEL").unwrap().parse().unwrap();
     let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
+    let specialize: bool = matches.value_of("SPECIALIZE").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
         "differential" => Differential,
@@ -328,7 +336,12 @@ fn main() {
         data_path, program_path, parallel, intern, reasoner, batch_size
     );
 
-    evaluator.materialize(&parser.read_datalog_file(&program_path).collect());
+
+    let mut sugared_program = parser.read_datalog_file(&program_path).collect();
+    if specialize {
+        sugared_program = specialize_to_constants(&sugared_program);
+    }
+    evaluator.materialize(&sugared_program);
 
     let mut initial_materialization: Vec<Diff> = vec![];
     let mut positive_update: Vec<Diff> = vec![];

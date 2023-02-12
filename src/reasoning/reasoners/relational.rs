@@ -18,7 +18,7 @@ pub struct RelationalAlgebra {
 }
 
 impl RelationalAlgebra {
-    fn new(program: &Vec<SugaredRule>) -> Self {
+    fn new(program: &SugaredProgram) -> Self {
         return RelationalAlgebra {
             program: program
                 .iter()
@@ -64,7 +64,7 @@ pub struct ParallelRelationalAlgebra {
 }
 
 impl ParallelRelationalAlgebra {
-    fn new(program: &Vec<SugaredRule>) -> Self {
+    fn new(program: &SugaredProgram) -> Self {
         return ParallelRelationalAlgebra {
             program: program
                 .iter()
@@ -134,7 +134,7 @@ where
             row_interner: Default::default(),
             parallel: true,
             intern: true,
-            sugared_program: vec![],
+            sugared_program: Default::default(),
         }
     }
 }
@@ -320,7 +320,7 @@ mod tests {
     use crate::models::index::BTreeIndex;
     use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Materializer, Queryable};
     use crate::models::relational_algebra::Row;
-    use crate::reasoning::reasoners::simple::RelationalDatalog;
+    use crate::reasoning::reasoners::relational::RelationalDatalog;
     use indexmap::IndexSet;
 
     #[test]
