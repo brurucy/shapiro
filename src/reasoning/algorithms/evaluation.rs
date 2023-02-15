@@ -1,3 +1,4 @@
+use std::time::Instant;
 use crate::models::instance::Database;
 
 pub trait InstanceEvaluator<T>
@@ -34,10 +35,14 @@ impl<'a, T: Database + Set + Empty> Evaluation<'a, T> {
         };
     }
     fn semi_naive_immediate_consequence(&mut self) {
-        let evaluation = self.evaluator.evaluate(self.input.union(&self.delta));
+        let union = self.input.union(&self.delta);
+
+        let evaluation = self.evaluator.evaluate(union);
+
         self.delta = evaluation.difference(&self.output);
 
-        self.output.merge(evaluation)
+
+        self.output.merge(evaluation);
     }
     pub fn semi_naive(&mut self) {
         loop {

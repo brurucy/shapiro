@@ -1,3 +1,4 @@
+use std::time::Instant;
 use crate::misc::helpers::{idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
@@ -118,7 +119,9 @@ impl ChibiDatalog {
     fn update_materialization(&mut self) {
         let mut evaluation = self.new_evaluation(&self.program);
 
+        let now = Instant::now();
         evaluation.semi_naive();
+        //println!("sne time: {}", now.elapsed().as_millis());
 
         evaluation
             .output
@@ -164,7 +167,9 @@ impl BottomUpEvaluator for ChibiDatalog {
 
         let mut evaluation = self.new_evaluation(&savory_program);
 
+        let now = Instant::now();
         evaluation.semi_naive();
+        //println!("sne {}", now.elapsed().as_millis());
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),
@@ -188,6 +193,7 @@ impl Materializer for ChibiDatalog {
             });
 
         self.sugared_program = sort_program(&self.sugared_program);
+
         self.program = self
             .sugared_program
             .iter()
@@ -219,11 +225,13 @@ impl Materializer for ChibiDatalog {
         }
 
         if additions.len() > 0 {
+            let now = Instant::now();
             additions.into_iter().for_each(|(sym, row)| {
                 self.insert_typed(sym, row);
             });
 
-            self.update_materialization()
+            let now = Instant::now();
+            self.update_materialization();
         }
     }
 

@@ -1,11 +1,12 @@
 use std::num::NonZeroU32;
+use std::time::Instant;
 use crate::data_structures::substitutions::Substitutions;
 use crate::misc::helpers::terms_to_row;
 use crate::misc::joins::nested_loop_join;
 use crate::models::datalog::{Atom, Rule, Term};
 use crate::models::instance::{HashSetDatabase, IndexedHashSetBacking};
 
-pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
+pub fn unify(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
 
     let left_and_right = left.terms.iter().zip(right.terms.iter());
@@ -82,17 +83,24 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
     let mut subs_product = vec![(0usize, Substitutions::default())];
 
     for current_atom_id in 0..goals.len() {
+        //println!("ITERATION {} START", current_atom_id);
         let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
         subs_product = subs_product.into_iter().filter(|(round, _)| *round == current_atom_id).collect();
 
+        let now = Instant::now();
         nested_loop_join(&vec![goals[current_atom_id]], &subs_product, |current_local_atom_id, left_value, subs| {
             let rewrite_attempt = attempt_to_rewrite(subs, left_value);
             if !is_ground(&rewrite_attempt) {
                 current_goals_x_subs.push((left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone())));
             }
         });
+        //println!("FIRST NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
+
+        let now = Instant::now();
+        let current_goals_x_subs_len = current_goals_x_subs.len();
 
         nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, fact_set, (current_local_atom_id, rewrite_attempt, previous_subs)| {
+            //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
             fact_set
                 .iter()
                 .for_each(|ground_fact| {
@@ -105,7 +113,7 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
 
                     let proposed_atom = Atom{ terms: ground_terms, relation_id: NonZeroU32::try_from(*key).unwrap(), positive: true };
 
-                    if let Some (new_subs) = make_substitutions(rewrite_attempt, &proposed_atom) {
+                    if let Some (new_subs) = unify(rewrite_attempt, &proposed_atom) {
                         let mut extended_subs = previous_subs.clone();
                         extended_subs.extend(&new_subs);
 
@@ -113,7 +121,9 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
                     }
                 })
         });
+        //println!("SECOND NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
     };
+    //println!("ITERATION END");
 
     subs_product
         .into_iter()

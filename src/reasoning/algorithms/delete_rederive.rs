@@ -1,6 +1,5 @@
-use std::time::{Duration, Instant};
 use crate::models::datalog::SugaredRule;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
 
@@ -59,50 +58,48 @@ pub fn delete_rederive<'a, T>(
     deletions.iter().for_each(|(sym, deletion)| {
         let del_sym = format!("{}{}", OVERDELETION_PREFIX, sym);
         instance.insert_typed(&del_sym, deletion.clone());
+        instance.delete_typed(sym, &deletion);
         relations_to_be_dropped.insert(del_sym);
     });
     // Overdeletion and Rederivation programs
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - intensional overdeletion
-    let now = Instant::now();
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
-    println!("time taken to compute overdeletions: {}", now.elapsed().as_millis());
 
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {
-            println!("overdeletion: {:?}", &row);
+            //println!("overdeletion: {:?}", &row);
             instance.delete_typed(sym, &row);
             instance.insert_typed(&del_sym, row);
         });
         relations_to_be_dropped.insert(del_sym);
     });
+
     // Step 1.5 - extensional deletion
-    let now = Instant::now();
-    deletions.into_iter().for_each(|(sym, row)| {
-        instance.delete_typed(sym, &row)
-    });
-    println!("time taken to physically delete the data: {}", now.elapsed().as_millis());
+    // deletions.into_iter().for_each(|(sym, row)| {
+    //
+    // });
 
     // Stage 2 - intensional rederivation
-    let now = Instant::now();
-    rederivation_program
-        .iter()
-        .for_each(|rule| println!("{}", rule));
-    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
-    println!("time taken to compute rederivations: {}", now.elapsed().as_millis());
-    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
-        let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        row_set.into_iter().for_each(|row| {
-            println!("reincarnation: {:?}", &row);
-            instance.insert_typed(&sym, row);
-        })
-    });
+    // rederivation_program
+    //     .iter()
+    //     .for_each(|rule| println!("{}", rule));
+    // let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+    //
+    // rederivations.into_iter().for_each(|(alt_sym, row_set)| {
+    //     let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
+    //     row_set.into_iter().for_each(|row| {
+    //         instance.insert_typed(&sym, row);
+    //     })
+    // });
 
     relations_to_be_dropped.into_iter().for_each(|del_sym| {
         instance.drop_relation(&del_sym);
-    })
+    });
+
+
 }
 
 #[cfg(test)]
@@ -203,15 +200,15 @@ mod tests {
         assert!(chibi.contains_row("reach", &expected_deletion_3));
         assert!(chibi.contains_row("reach", &expected_deletion_4));
 
-        chibi
-            .fact_store
-            .storage
-            .iter()
-            .for_each(|(relation_id, values)| {
-                values
-                    .iter()
-                    .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
-            });
+        // chibi
+        //     .fact_store
+        //     .storage
+        //     .iter()
+        //     .for_each(|(relation_id, values)| {
+        //         values
+        //             .iter()
+        //             .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+        //     });
 
         delete_rederive(
             &mut chibi,
@@ -222,17 +219,17 @@ mod tests {
             )],
         );
 
-        println!("post delete rederive");
+        //println!("post delete rederive");
 
-        chibi
-            .fact_store
-            .storage
-            .iter()
-            .for_each(|(relation_id, values)| {
-                values
-                    .iter()
-                    .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
-            });
+        // chibi
+        //     .fact_store
+        //     .storage
+        //     .iter()
+        //     .for_each(|(relation_id, values)| {
+        //         values
+        //             .iter()
+        //             .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+        //     });
 
         assert!(!chibi.contains_row("reach", &expected_deletion_1));
         assert!(!chibi.contains_row("reach", &expected_deletion_2));
