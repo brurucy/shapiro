@@ -96,9 +96,6 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
         });
         //println!("FIRST NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
 
-        let now = Instant::now();
-        let current_goals_x_subs_len = current_goals_x_subs.len();
-
         nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, fact_set, (current_local_atom_id, rewrite_attempt, previous_subs)| {
             //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
             fact_set
@@ -127,6 +124,7 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
 
     subs_product
         .into_iter()
+        .filter(|(local_atom_id, _)| *local_atom_id == goals.len())
         .for_each(|(_local_atom_id, subs)| {
             let fresh_atom = attempt_to_rewrite(&subs, &head);
             if is_ground(&fresh_atom) {
@@ -146,8 +144,84 @@ mod tests {
     use crate::misc::helpers::terms_to_row;
     use crate::misc::string_interning::Interner;
     use crate::models::datalog::{Atom, SugaredRule, Ty};
+    use crate::models::index::VecIndex;
     use crate::models::instance::{Database, HashSetDatabase, IndexedHashSetBacking};
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Queryable};
     use crate::reasoning::algorithms::rewriting::evaluate_rule;
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
+    use crate::reasoning::reasoners::relational::RelationalDatalog;
+
+    #[test]
+    fn test_pathological_case() {
+        let mut chibi = ChibiDatalog::new(false, false);
+        let mut relational = RelationalDatalog::<VecIndex>::new(false, false);
+
+        let program = vec![
+            SugaredRule::from("+reach(?x, ?y) <- [-reach(?x, ?y), edge(?x, ?y)]"),
+            SugaredRule::from("+reach(?x, ?z) <- [-reach(?x, ?z), edge(?x, ?y), reach(?y, ?z)]")
+        ];
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("f", "g"),
+            ("f", "h"),
+        ]
+            .into_iter()
+            .for_each(|(source, destination)| {
+                chibi.insert("edge", vec![Box::new(source), Box::new(destination)]);
+                relational.insert("edge", vec![Box::new(source), Box::new(destination)])
+            });
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("f", "g"),
+            ("f", "h"),
+            ("a", "d"),
+            ("a", "e"),
+            ("c", "g"),
+            ("c", "h"),
+            ("e", "h"),
+        ]
+            .into_iter()
+            .for_each(|(source, destination)| {
+                chibi.insert("reach", vec![Box::new(source), Box::new(destination)]);
+                relational.insert("reach", vec![Box::new(source), Box::new(destination)])
+            });
+
+        vec![
+            ("a", "h"),
+            ("b", "g"),
+            ("b", "h"),
+            ("e", "f"),
+            ("e", "g"),
+            ("e", "h"),
+            ("a", "f"),
+            ("b", "f"),
+            ("a", "g")
+        ]
+            .into_iter()
+            .for_each(|(source, destination)| {
+                chibi.insert("-reach", vec![Box::new(source), Box::new(destination)]);
+                relational.insert("-reach", vec![Box::new(source), Box::new(destination)]);
+            });
+
+        let actual_evaluation = chibi.evaluate_program_bottom_up(&program);
+        let expected_evaluation = relational.evaluate_program_bottom_up(&program);
+
+        assert_eq!(expected_evaluation, actual_evaluation);
+    }
 
     #[test]
     fn test_evaluate_rule() {

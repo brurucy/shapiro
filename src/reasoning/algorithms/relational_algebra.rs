@@ -436,7 +436,7 @@ mod tests {
                 ]))
             });
 
-        let mut actual_relation = instance.evaluate(&expression, "ancestor").unwrap();
+        let actual_relation = instance.evaluate(&expression, "ancestor").unwrap();
 
         assert_eq!(expected_relation, actual_relation);
     }

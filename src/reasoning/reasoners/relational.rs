@@ -1,7 +1,7 @@
 use crate::misc::helpers::{idempotent_program_weak_intern, ty_to_row};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{SugaredProgram, SugaredRule, Ty};
+use crate::models::datalog::{SugaredProgram, Ty};
 use crate::models::index::IndexBacking;
 use crate::models::instance::{Database, SimpleDatabaseWithIndex};
 use crate::models::reasoner::{

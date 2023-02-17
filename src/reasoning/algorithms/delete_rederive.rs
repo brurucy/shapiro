@@ -1,5 +1,5 @@
 use crate::models::datalog::SugaredRule;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, RelationDropper};
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
 
@@ -77,40 +77,38 @@ pub fn delete_rederive<'a, T>(
         relations_to_be_dropped.insert(del_sym);
     });
 
-    // Step 1.5 - extensional deletion
-    // deletions.into_iter().for_each(|(sym, row)| {
-    //
-    // });
+    //Stage 2 - intensional rederivation
+    rederivation_program
+        .iter()
+        .for_each(|rule| println!("{}", rule));
+    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
 
-    // Stage 2 - intensional rederivation
-    // rederivation_program
-    //     .iter()
-    //     .for_each(|rule| println!("{}", rule));
-    // let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
-    //
-    // rederivations.into_iter().for_each(|(alt_sym, row_set)| {
-    //     let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-    //     row_set.into_iter().for_each(|row| {
-    //         instance.insert_typed(&sym, row);
-    //     })
-    // });
+    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
+        let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
+        row_set.into_iter().for_each(|row| {
+            instance.insert_typed(&sym, row);
+        })
+    });
 
     relations_to_be_dropped.into_iter().for_each(|del_sym| {
         instance.drop_relation(&del_sym);
     });
-
-
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{SugaredRule, Ty};
-    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
+    use indexmap::IndexSet;
+    use rand::distributions::uniform::SampleBorrow;
+    use crate::models::datalog::{SugaredRule, Ty, TypedValue};
+    use crate::models::index::VecIndex;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable};
+    use crate::models::relational_algebra::Row;
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
         OVERDELETION_PREFIX, REDERIVATION_PREFIX,
     };
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
+    use crate::reasoning::reasoners::relational::RelationalDatalog;
 
     #[test]
     fn test_make_overdeletion_program() {
@@ -163,8 +161,80 @@ mod tests {
 
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
+    fn test_delete_rederive_logic() {
+        let mut chibi = ChibiDatalog::new(false, false);
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("e", "f"),
+            ("f", "g"),
+            ("f", "h"),
+        ]
+            .into_iter()
+            .for_each(|(source, destination)| {
+                chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+            });
+
+        let program = vec![
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [edge(?x, ?y), reach(?y, ?z)]"),
+        ];
+
+        chibi.materialize(&program);
+
+        // Overdeletions
+        let overdeletion_program = make_overdeletion_program(&program);
+
+        chibi.delete("edge", &vec![Box::new("e"), Box::new("f")]);
+        chibi.insert("-edge", vec![Box::new("e"), Box::new("f")]);
+
+        let actual_overdeletions = chibi.evaluate_program_bottom_up(&overdeletion_program);
+        let expected_overdeletions = vec![
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("b".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("b".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("e".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("e".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("e".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("b".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice()
+        ].into_iter().collect::<IndexSet<Row>>();
+
+        assert_eq!(expected_overdeletions, actual_overdeletions.get("-reach").unwrap().clone());
+
+        actual_overdeletions
+            .get("-reach")
+            .unwrap()
+            .into_iter()
+            .for_each(|overdeletion| {
+                chibi.insert_typed("-reach", overdeletion.clone());
+                chibi.delete_typed("reach", overdeletion);
+            });
+
+        let rederivation_program = make_alternative_derivation_program(&program);
+        let actual_rederivations = chibi.evaluate_program_bottom_up(&rederivation_program);
+        let expected_rederivations = vec![
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("b".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("e".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
+            vec![TypedValue::Str("a".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice()
+        ].into_iter().collect::<IndexSet<Row>>();
+
+        assert_eq!(expected_rederivations, actual_rederivations.get("+reach").unwrap().clone());
+    }
+
+    // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
+    #[test]
     fn test_delete_rederive() {
-        let mut chibi: ChibiDatalog = ChibiDatalog::new(false, false);
+        let mut chibi = ChibiDatalog::new(false, false);
 
         vec![
             ("a", "b"),

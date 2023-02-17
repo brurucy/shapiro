@@ -1,4 +1,3 @@
-use std::time::Instant;
 use crate::models::instance::Database;
 
 pub trait InstanceEvaluator<T>
@@ -25,6 +24,7 @@ pub struct Evaluation<'a, T: Database + Set + Empty> {
     pub output: T,
 }
 
+// Evaluation should be different for updates. At the moment it is sub optimal.
 impl<'a, T: Database + Set + Empty> Evaluation<'a, T> {
     pub(crate) fn new(database: &'a T, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
         return Self {
@@ -40,7 +40,6 @@ impl<'a, T: Database + Set + Empty> Evaluation<'a, T> {
         let evaluation = self.evaluator.evaluate(union);
 
         self.delta = evaluation.difference(&self.output);
-
 
         self.output.merge(evaluation);
     }

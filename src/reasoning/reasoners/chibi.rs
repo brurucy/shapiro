@@ -82,7 +82,7 @@ impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
 
 pub struct ChibiDatalog {
     pub fact_store: HashSetDatabase,
-    interner: Interner,
+    pub(crate) interner: Interner,
     parallel: bool,
     intern: bool,
     program: Program,
@@ -218,10 +218,8 @@ impl Materializer for ChibiDatalog {
             }
         });
 
-        let current_sugared_program = self.sugared_program.clone();
-
         if retractions.len() > 0 {
-            delete_rederive(self, &current_sugared_program, retractions)
+            delete_rederive(self, &self.sugared_program.clone(), retractions)
         }
 
         if additions.len() > 0 {
