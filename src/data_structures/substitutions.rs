@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Display, Formatter, write};
 use crate::models::datalog::TypedValue;
 
 pub type Substitution = (u8, TypedValue);
@@ -47,6 +48,22 @@ impl Substitutions {
 impl Default for Substitutions {
     fn default() -> Self {
         return Self { inner: Vec::new() };
+    }
+}
+
+impl Display for Substitutions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut subs = vec![];
+
+        self
+            .inner
+            .iter()
+            .for_each(|substitution| {
+                let formatted_sub = format!("{} |-> {}", substitution.0, substitution.1);
+                subs.push(formatted_sub);
+            });
+
+        write!(f, "[{}]", subs.join(", "))
     }
 }
 

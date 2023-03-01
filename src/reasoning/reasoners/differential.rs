@@ -190,8 +190,7 @@ pub fn reason_arranged_by_relation(
                             let current_goals = goal_x_subs
                                 .arrange_by_key();
 
-                            let new_substitutions = facts_by_symbol_arr
-                                .join_core(&current_goals, |_interned_symbol, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, old_sub)| {
+                            let new_substitutions = facts_by_symbol_arr.join_core(&current_goals, |_interned_symbol, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, old_sub)| {
                                     let ground_terms = ground_fact
                                         .2
                                         .iter()

@@ -66,6 +66,7 @@ pub fn is_ground(atom: &Atom) -> bool {
 }
 
 pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<IndexedHashSetBacking> {
+    let now = Instant::now();
     let borrowed_knowledge_base: Vec<_> = knowledge_base.storage.iter().map(|(relation_id, row_set)| (*relation_id, row_set)).collect();
 
     let mut out: IndexedHashSetBacking = Default::default();
@@ -87,18 +88,25 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
         let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
         subs_product = subs_product.into_iter().filter(|(round, _)| *round == current_atom_id).collect();
 
-        let now = Instant::now();
+        //let now = Instant::now();
         nested_loop_join(&vec![goals[current_atom_id]], &subs_product, |current_local_atom_id, left_value, subs| {
             let rewrite_attempt = attempt_to_rewrite(subs, left_value);
-            if !is_ground(&rewrite_attempt) {
-                current_goals_x_subs.push((left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone())));
-            }
+            //println!("rewriting {} with {}:", subs, left_value);
+            //if !is_ground(&rewrite_attempt) {
+            let current_goal_x_sub = (left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone()));
+            current_goals_x_subs.push(current_goal_x_sub.clone());
+            //println!("result: {}", rewrite_attempt);
+            //}
         });
         //println!("FIRST NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
 
-        nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, fact_set, (current_local_atom_id, rewrite_attempt, previous_subs)| {
+        //let now = Instant::now();
+        //println!("join cost: {} x {}", borrowed_knowledge_base.len(), current_goals_x_subs.len());
+        let mut cnt = 0;
+        nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
             //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
-            fact_set
+            cnt += 1;
+            relation
                 .iter()
                 .for_each(|ground_fact| {
                     let ground_terms = ground_fact
@@ -118,6 +126,7 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
                     }
                 })
         });
+        //println!("counter: {}", cnt);
         //println!("SECOND NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
     };
     //println!("ITERATION END");
@@ -131,6 +140,8 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
                 out.insert(terms_to_row(fresh_atom.terms));
             }
         });
+
+    println!("Rule: {}\nTime: {}", rule, now.elapsed().as_micros());
 
     if out.is_empty() {
         return None

@@ -331,6 +331,13 @@ impl Default for Rule {
     }
 }
 
+impl Display for Rule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let body = self.body.iter().map(|atom| atom.to_string()).join(", ");
+        write!(f, "{} <- [{}]", self.head, body)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::models::datalog::{SugaredAtom, SugaredRule};

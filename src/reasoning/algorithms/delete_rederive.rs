@@ -78,9 +78,9 @@ pub fn delete_rederive<'a, T>(
     });
 
     //Stage 2 - intensional rederivation
-    rederivation_program
-        .iter()
-        .for_each(|rule| println!("{}", rule));
+    // rederivation_program
+    //     .iter()
+    //     .for_each(|rule| println!("{}", rule));
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
 
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
@@ -162,7 +162,7 @@ mod tests {
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
     fn test_delete_rederive_logic() {
-        let mut chibi = ChibiDatalog::new(false, false);
+        let mut chibi = RelationalDatalog::<VecIndex>::new(false, false);
 
         vec![
             ("a", "b"),
@@ -234,7 +234,7 @@ mod tests {
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
     fn test_delete_rederive() {
-        let mut chibi = ChibiDatalog::new(false, false);
+        let mut chibi = RelationalDatalog::<VecIndex>::new(false, false);
 
         vec![
             ("a", "b"),
