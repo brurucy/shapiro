@@ -1,3 +1,4 @@
+use std::time::Instant;
 use crate::models::datalog::SugaredRule;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
@@ -65,7 +66,9 @@ pub fn delete_rederive<'a, T>(
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - intensional overdeletion
+    let now = Instant::now();
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
+    //println!("overdeletion time: {}", now.elapsed().as_micros());
 
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
@@ -81,7 +84,9 @@ pub fn delete_rederive<'a, T>(
     // rederivation_program
     //     .iter()
     //     .for_each(|rule| println!("{}", rule));
+    let now = Instant::now();
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+    //println!("rederivation time: {}", now.elapsed().as_micros());
 
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();

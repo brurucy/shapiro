@@ -19,12 +19,14 @@ use rayon::prelude::*;
 
 pub struct Rewriting {
     pub program: Program,
+    pub sugared_program: SugaredProgram,
 }
 
 impl Rewriting {
-    fn new(program: &Program) -> Self {
+    fn new(program: &Program, sugared_program: &SugaredProgram) -> Self {
         return Rewriting {
             program: program.clone(),
+            sugared_program: sort_program(sugared_program),
         };
     }
 }
@@ -33,8 +35,10 @@ impl InstanceEvaluator<HashSetDatabase> for Rewriting {
     fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
         let mut out: HashSetDatabase = Default::default();
 
-        self.program.iter().for_each(|rule| {
+        self.program.iter().enumerate().for_each(|(rule_idx, rule)| {
+            let now = Instant::now();
             if let Some(eval) = evaluate_rule(&instance, &rule) {
+                println!("{} : {}", self.sugared_program[rule_idx], now.elapsed().as_micros());
                 eval.into_iter()
                     .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
             }
@@ -110,14 +114,14 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    fn new_evaluation(&self, program: &Program) -> Evaluation<HashSetDatabase> {
+    fn new_evaluation(&self, program: &Program, sugared_program: &SugaredProgram) -> Evaluation<HashSetDatabase> {
         return Evaluation::new(
             &self.fact_store,
-            if self.parallel { Box::new(ParallelRewriting::new(program)) } else { Box::new(Rewriting::new(program))}
+            if self.parallel { Box::new(ParallelRewriting::new(program)) } else { Box::new(Rewriting::new(program, sugared_program))}
         );
     }
     fn update_materialization(&mut self) {
-        let mut evaluation = self.new_evaluation(&self.program);
+        let mut evaluation = self.new_evaluation(&self.program, &self.sugared_program);
 
         let now = Instant::now();
         evaluation.semi_naive();
@@ -165,11 +169,9 @@ impl BottomUpEvaluator for ChibiDatalog {
     ) -> EvaluationResult {
         let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, program);
 
-        let mut evaluation = self.new_evaluation(&savory_program);
+        let mut evaluation = self.new_evaluation(&savory_program, &program);
 
-        let now = Instant::now();
         evaluation.semi_naive();
-        //println!("sne {}", now.elapsed().as_millis());
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),

@@ -1,5 +1,6 @@
 use std::num::NonZeroU32;
 use std::time::Instant;
+use im::vector;
 use crate::data_structures::substitutions::Substitutions;
 use crate::misc::helpers::terms_to_row;
 use crate::misc::joins::nested_loop_join;
@@ -65,7 +66,47 @@ pub fn is_ground(atom: &Atom) -> bool {
     return true;
 }
 
-pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<IndexedHashSetBacking> {
+pub fn proven(knowledge_base: &Vec<(u32, &IndexedHashSetBacking)>, subs: Substitutions, current_goal_position: usize, goals: &Vec<Atom>) -> bool {
+    let mut subs_product = vec![(0usize, Substitutions::default())];
+    let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
+
+    nested_loop_join(&vec![(current_goal_position, &goals[current_goal_position])], &vec![(current_goal_position, subs)], |current_local_atom_id, left_value, subs| {
+        let rewrite_attempt = attempt_to_rewrite(subs, left_value);
+        //println!("rewriting {} with {}:", subs, left_value);
+        //if !is_ground(&rewrite_attempt) {
+        let current_goal_x_sub = (left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone()));
+        current_goals_x_subs.push(current_goal_x_sub.clone());
+        //println!("result: {}", rewrite_attempt);
+        //}
+    });
+
+    nested_loop_join(knowledge_base, &current_goals_x_subs, |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
+        //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
+        relation
+            .iter()
+            .for_each(|ground_fact| {
+                let ground_terms = ground_fact
+                    .iter()
+                    .map(|typed_value| {
+                        return Term::Constant(typed_value.clone())
+                    })
+                    .collect();
+
+                let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*key).unwrap(), positive: true };
+
+                if let Some(new_subs) = unify(rewrite_attempt, &proposed_atom) {
+                    let mut extended_subs = previous_subs.clone();
+                    extended_subs.extend(&new_subs);
+                    
+                    subs_product.push((current_local_atom_id + 1, extended_subs));
+                }
+            })
+    });
+
+    todo!()
+}
+
+pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule, rederivation: bool) -> Option<IndexedHashSetBacking> {
     let now = Instant::now();
     let borrowed_knowledge_base: Vec<_> = knowledge_base.storage.iter().map(|(relation_id, row_set)| (*relation_id, row_set)).collect();
 
@@ -75,37 +116,25 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
         .head
         .clone();
 
-    let goals: Vec<(usize, &Atom)> = rule
+    let mut goals: Vec<(usize, &Atom)> = rule
         .body
         .iter()
+        //.rev()
         .enumerate()
         .collect();
 
+    //goals.reverse();
+
     let mut subs_product = vec![(0usize, Substitutions::default())];
 
-    for current_atom_id in 0..goals.len() {
-        //println!("ITERATION {} START", current_atom_id);
-        let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
-        subs_product = subs_product.into_iter().filter(|(round, _)| *round == current_atom_id).collect();
+    if rederivation {
+        let goals_with_relation: Vec<(u32, &Atom)> = rule
+            .body
+            .iter()
+            .map(|goal| (goal.relation_id.get(), goal))
+            .collect();
 
-        //let now = Instant::now();
-        nested_loop_join(&vec![goals[current_atom_id]], &subs_product, |current_local_atom_id, left_value, subs| {
-            let rewrite_attempt = attempt_to_rewrite(subs, left_value);
-            //println!("rewriting {} with {}:", subs, left_value);
-            //if !is_ground(&rewrite_attempt) {
-            let current_goal_x_sub = (left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone()));
-            current_goals_x_subs.push(current_goal_x_sub.clone());
-            //println!("result: {}", rewrite_attempt);
-            //}
-        });
-        //println!("FIRST NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
-
-        //let now = Instant::now();
-        //println!("join cost: {} x {}", borrowed_knowledge_base.len(), current_goals_x_subs.len());
-        let mut cnt = 0;
-        nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
-            //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
-            cnt += 1;
+        nested_loop_join(&borrowed_knowledge_base, &vec![goals_with_relation[0]], |canary_relation_id, relation, canary_atom| {
             relation
                 .iter()
                 .for_each(|ground_fact| {
@@ -116,16 +145,60 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
                         })
                         .collect();
 
-                    let proposed_atom = Atom{ terms: ground_terms, relation_id: NonZeroU32::try_from(*key).unwrap(), positive: true };
+                    let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*canary_relation_id).unwrap(), positive: true };
 
-                    if let Some (new_subs) = unify(rewrite_attempt, &proposed_atom) {
-                        let mut extended_subs = previous_subs.clone();
-                        extended_subs.extend(&new_subs);
-
-                        subs_product.push((current_local_atom_id + 1, extended_subs));
+                    if let Some(new_subs) = unify(canary_atom, &proposed_atom) {
+                        subs_product.push((1, new_subs));
                     }
                 })
         });
+
+
+    } else {
+        for current_atom_id in 0..goals.len() {
+            //println!("ITERATION {} START", current_atom_id);
+            let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
+            subs_product = subs_product.into_iter().filter(|(round, _)| *round == current_atom_id).collect();
+
+            //let now = Instant::now();
+            nested_loop_join(&vec![goals[current_atom_id]], &subs_product, |current_local_atom_id, left_value, subs| {
+                let rewrite_attempt = attempt_to_rewrite(subs, left_value);
+                //println!("rewriting {} with {}:", subs, left_value);
+                //if !is_ground(&rewrite_attempt) {
+                let current_goal_x_sub = (left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone()));
+                current_goals_x_subs.push(current_goal_x_sub.clone());
+                //println!("result: {}", rewrite_attempt);
+                //}
+            });
+            //println!("FIRST NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
+
+            //let now = Instant::now();
+            //println!("join cost: {} x {}", borrowed_knowledge_base.len(), current_goals_x_subs.len());
+            let mut cnt = 0;
+            nested_loop_join(&borrowed_knowledge_base, &current_goals_x_subs, |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
+                //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
+                cnt += 1;
+                relation
+                    .iter()
+                    .for_each(|ground_fact| {
+                        let ground_terms = ground_fact
+                            .iter()
+                            .map(|typed_value| {
+                                return Term::Constant(typed_value.clone())
+                            })
+                            .collect();
+
+                        let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*key).unwrap(), positive: true };
+
+                        if let Some(new_subs) = unify(rewrite_attempt, &proposed_atom) {
+                            let mut extended_subs = previous_subs.clone();
+                            extended_subs.extend(&new_subs);
+
+                            subs_product.push((current_local_atom_id + 1, extended_subs));
+                        }
+                    })
+            });
+        }
         //println!("counter: {}", cnt);
         //println!("SECOND NESTED LOOP JOIN DURATION: {}", now.elapsed().as_millis());
     };
@@ -141,7 +214,7 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<In
             }
         });
 
-    println!("Rule: {}\nTime: {}", rule, now.elapsed().as_micros());
+    //println!("Rule: {}\nTime: {}", rule, now.elapsed().as_micros());
 
     if out.is_empty() {
         return None
