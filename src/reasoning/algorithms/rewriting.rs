@@ -66,47 +66,65 @@ pub fn is_ground(atom: &Atom) -> bool {
     return true;
 }
 
-pub fn proven(knowledge_base: &Vec<(u32, &IndexedHashSetBacking)>, subs: Substitutions, current_goal_position: usize, goals: &Vec<Atom>) -> bool {
-    let mut subs_product = vec![(0usize, Substitutions::default())];
+pub fn proven(knowledge_base: &Vec<(u32, &IndexedHashSetBacking)>, subs: &Substitutions, current_goal_position: usize, goals: &Vec<Atom>, head: &Atom) -> bool {
+    if current_goal_position == goals.len() {
+        let fresh_atom = attempt_to_rewrite(&subs, &head);
+
+        return is_ground(&fresh_atom)
+    }
+
     let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
 
-    nested_loop_join(&vec![(current_goal_position, &goals[current_goal_position])], &vec![(current_goal_position, subs)], |current_local_atom_id, left_value, subs| {
+    nested_loop_join(&[(current_goal_position, &goals[current_goal_position])], &[(current_goal_position, subs)], |current_local_atom_id, left_value, subs| {
         let rewrite_attempt = attempt_to_rewrite(subs, left_value);
         //println!("rewriting {} with {}:", subs, left_value);
         //if !is_ground(&rewrite_attempt) {
         let current_goal_x_sub = (left_value.relation_id.get(), (*current_local_atom_id, rewrite_attempt, subs.clone()));
-        current_goals_x_subs.push(current_goal_x_sub.clone());
+        current_goals_x_subs.push(current_goal_x_sub);
         //println!("result: {}", rewrite_attempt);
         //}
     });
 
-    nested_loop_join(knowledge_base, &current_goals_x_subs, |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
-        //println!("SECOND NESTED LOOP JOIN SIZE: {} x {}", fact_set.len(), current_goals_x_subs_len);
-        relation
-            .iter()
-            .for_each(|ground_fact| {
-                let ground_terms = ground_fact
-                    .iter()
-                    .map(|typed_value| {
-                        return Term::Constant(typed_value.clone())
-                    })
-                    .collect();
+    let mut subs = Substitutions::default();
+    for (left_relation_id, relation) in knowledge_base {
+        for (right_relation_id, (current_local_atom_id, rewrite_attempt, previous_subs)) in &current_goals_x_subs {
+            if *left_relation_id == *right_relation_id {
+                for ground_fact in *relation {
+                    let ground_terms = ground_fact
+                        .iter()
+                        .map(|typed_value| {
+                            return Term::Constant(typed_value.clone())
+                        })
+                        .collect();
 
-                let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*key).unwrap(), positive: true };
+                    let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*left_relation_id).unwrap(), positive: true };
 
-                if let Some(new_subs) = unify(rewrite_attempt, &proposed_atom) {
-                    let mut extended_subs = previous_subs.clone();
-                    extended_subs.extend(&new_subs);
-                    
-                    subs_product.push((current_local_atom_id + 1, extended_subs));
+                    if let Some(new_subs) = unify(&rewrite_attempt, &proposed_atom) {
+                        subs.clone_from(previous_subs);
+                        subs.extend(&new_subs);
+
+                        if proven(knowledge_base, subs.clone(), current_local_atom_id + 1, goals, head) {
+                            return true;
+                        }
+                    }
                 }
-            })
-    });
+            }
+        }
+    }
 
-    todo!()
+    false
 }
 
-pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule, rederivation: bool) -> Option<IndexedHashSetBacking> {
+pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule) -> Option<IndexedHashSetBacking> {
+    let rederivation = rule
+        .head
+        .terms
+        .iter()
+        .zip(rule.body[0].terms.iter())
+        .all(|(left_term, right_term)| {
+            return left_term == right_term
+        }) && rule.head.terms.len() == rule.body[0].terms.len();
+
     let now = Instant::now();
     let borrowed_knowledge_base: Vec<_> = knowledge_base.storage.iter().map(|(relation_id, row_set)| (*relation_id, row_set)).collect();
 
@@ -128,6 +146,8 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule, rederivation
     let mut subs_product = vec![(0usize, Substitutions::default())];
 
     if rederivation {
+        subs_product = vec![];
+
         let goals_with_relation: Vec<(u32, &Atom)> = rule
             .body
             .iter()
@@ -148,12 +168,18 @@ pub fn evaluate_rule(knowledge_base: &HashSetDatabase, rule: &Rule, rederivation
                     let proposed_atom = Atom { terms: ground_terms, relation_id: NonZeroU32::try_from(*canary_relation_id).unwrap(), positive: true };
 
                     if let Some(new_subs) = unify(canary_atom, &proposed_atom) {
-                        subs_product.push((1, new_subs));
+                        subs_product.push((1usize, new_subs));
                     }
                 })
         });
 
+        subs_product.retain(|(current_atom_position, subs)| {
+            proven(&borrowed_knowledge_base, subs.clone(), *current_atom_position, &rule.body, &rule.head)
+        });
 
+        for (current_atom_position, _) in subs_product.iter_mut() {
+            *current_atom_position = goals.len();
+        }
     } else {
         for current_atom_id in 0..goals.len() {
             //println!("ITERATION {} START", current_atom_id);
