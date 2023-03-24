@@ -164,19 +164,23 @@ pub struct SugaredAtom {
 impl PartialEq for SugaredAtom {
     fn eq(&self, other: &Self) -> bool {
         if self.terms.len() != other.terms.len() {
-            return false
+            return false;
         }
 
         for i in 0..(self.terms).len() {
             match (&self.terms[i], &other.terms[i]) {
-                (Term::Constant(left_inner), Term::Constant(right_inner)) => if left_inner != right_inner { return false; },
+                (Term::Constant(left_inner), Term::Constant(right_inner)) => {
+                    if left_inner != right_inner {
+                        return false;
+                    }
+                }
                 (Term::Variable(_), Term::Constant(_)) => return false,
                 (Term::Constant(_), Term::Variable(_)) => return false,
                 _ => (),
             };
         }
 
-        return true
+        return true;
     }
 }
 

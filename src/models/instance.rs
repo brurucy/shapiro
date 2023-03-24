@@ -1,7 +1,7 @@
 use crate::misc::string_interning::Interner;
+use indexmap::IndexSet;
 use lasso::{Key, Spur};
 use std::collections::HashMap;
-use indexmap::IndexSet;
 
 use crate::models::index::IndexBacking;
 use crate::models::relational_algebra::{Container, Row};
@@ -24,7 +24,7 @@ pub trait WithIndexes {
     fn index_column(&mut self, relation_id: u32, column_idx: usize);
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct HashSetDatabase {
     pub storage: HashSetStorage,
 }
@@ -131,6 +131,7 @@ impl Default for HashSetDatabase {
 
 pub type StorageWithIndex<T> = HashMap<String, SimpleRelationWithOneIndexBacking<T>>;
 
+#[derive(Clone)]
 pub struct SimpleDatabaseWithIndex<T>
 where
     T: IndexBacking,

@@ -2,10 +2,9 @@ use crate::data_structures::spine::Spine;
 use crate::misc::joins::sort_merge_join;
 use crate::models::datalog::TypedValue;
 use im::{HashMap, Vector};
+use indexmap::IndexMap;
 use rayon::prelude::*;
 use std::collections::BTreeSet;
-use indexmap::IndexMap;
-
 
 pub type ValueRowId = (TypedValue, usize);
 pub type HashMapIndex = HashMap<TypedValue, Vec<usize>, ahash::RandomState>;

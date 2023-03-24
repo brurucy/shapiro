@@ -9,7 +9,7 @@ pub fn nested_loop_join<'a, K: 'a, V: 'a, T: 'a, Left: 'a, Right: 'a>(
     &'a Right: 'a + IntoIterator<Item = &'a (K, T)>,
     K: PartialEq + Clone,
     V: Clone,
-    T: Clone
+    T: Clone,
 {
     left_iter.into_iter().for_each(|(left_key, left_value)| {
         right_iter.into_iter().for_each(|(right_key, right_value)| {

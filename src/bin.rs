@@ -1,6 +1,9 @@
 extern crate core;
 
-use crate::Reasoners::{Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec};
+use crate::Reasoners::{
+    Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap,
+    RelationalImmutableVector, RelationalSpine, RelationalVec,
+};
 use clap::{Arg, Command};
 use phf::phf_map;
 use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
@@ -8,14 +11,14 @@ use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
 use shapiro::models::reasoner::{Diff, Materializer};
+use shapiro::reasoning::algorithms::constant_specialization::specialize_to_constants;
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
+use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use shapiro::reasoning::algorithms::constant_specialization::specialize_to_constants;
-use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -91,7 +94,7 @@ impl SugaredAtomParser for NTripleParser {
         let terms = vec![
             Term::Constant(TypedValue::Str(digit_one)),
             Term::Constant(TypedValue::Str(digit_two)),
-            Term::Constant(TypedValue::Str(digit_three))
+            Term::Constant(TypedValue::Str(digit_three)),
         ];
 
         return SugaredAtom {
@@ -230,7 +233,9 @@ impl Display for Reasoners {
 fn main() {
     let matches = Command::new("shapiro-bencher")
         .version("0.7.0")
-        .about("Benches the time taken to reason over relational space-separated facts or .nt files")
+        .about(
+            "Benches the time taken to reason over relational space-separated facts or .nt files",
+        )
         .arg(
             Arg::new("DATA_PATH")
                 .help("Sets the data file path")
@@ -277,7 +282,7 @@ fn main() {
             Arg::new("SPECIALIZE")
                 .help("Specializes the constants in the program unto their own relations")
                 .required(true)
-                .index(8)
+                .index(8),
         )
         .get_matches();
 
@@ -317,7 +322,9 @@ fn main() {
         RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
         RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
         RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
-        RelationalImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(parallel, intern)),
+        RelationalImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(
+            parallel, intern,
+        )),
         RelationalSpine => Box::new(RelationalDatalog::<SpineIndex>::new(parallel, intern)),
     };
 
@@ -335,7 +342,6 @@ fn main() {
         "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
         data_path, program_path, parallel, intern, reasoner, batch_size
     );
-
 
     let mut sugared_program = parser.read_datalog_file(&program_path).collect();
     if specialize {

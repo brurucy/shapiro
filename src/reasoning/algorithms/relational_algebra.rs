@@ -10,29 +10,23 @@ impl<T: IndexBacking> Relation for SimpleRelationWithOneIndexBacking<T> {
         let mut relation = SimpleRelationWithOneIndexBacking::new(self.symbol());
         let typed_value = value.try_into().unwrap();
 
-        self
-            .ward
+        self.ward
             .into_iter()
             .filter(|row| row[column_idx] == typed_value)
-            .for_each(|row| {
-                relation.insert_row(row)
-            });
+            .for_each(|row| relation.insert_row(row));
 
-        return relation
+        return relation;
     }
 
     fn select_equality(self, left_column_idx: usize, target_column_ix: usize) -> Self {
         let mut relation = SimpleRelationWithOneIndexBacking::new(self.symbol());
 
-        self
-            .ward
+        self.ward
             .into_iter()
             .filter(|row| row[left_column_idx] == row[target_column_ix])
-            .for_each(|row| {
-                relation.insert_row(row.clone())
-            });
+            .for_each(|row| relation.insert_row(row.clone()));
 
-        return relation
+        return relation;
     }
 
     fn product(self, other: &Self) -> Self {
@@ -40,13 +34,7 @@ impl<T: IndexBacking> Relation for SimpleRelationWithOneIndexBacking<T> {
 
         self.ward.iter().for_each(|left_k| {
             other.ward.iter().for_each(|right_k| {
-                relation.insert_row(
-                    left_k
-                        .iter()
-                        .chain(right_k.iter())
-                        .cloned()
-                        .collect(),
-                )
+                relation.insert_row(left_k.iter().chain(right_k.iter()).cloned().collect())
             })
         });
 
@@ -64,13 +52,13 @@ impl<T: IndexBacking> Relation for SimpleRelationWithOneIndexBacking<T> {
                             .into_iter()
                             .chain(right_row.into_iter())
                             .cloned()
-                            .collect()
+                            .collect(),
                     )
                 }
             }
         });
 
-        return relation
+        return relation;
     }
 
     fn project(
@@ -104,13 +92,12 @@ pub fn build_index<T: IndexBacking>(
     relation: &mut SimpleRelationWithOneIndexBacking<T>,
     column_idx: usize,
 ) {
-
-    relation
-        .ward
-        .iter()
-        .for_each(|row| {
-            relation.index.insert_row((row[column_idx].clone(), relation.ward.get_index_of(row).unwrap() ));
-        })
+    relation.ward.iter().for_each(|row| {
+        relation.index.insert_row((
+            row[column_idx].clone(),
+            relation.ward.get_index_of(row).unwrap(),
+        ));
+    })
 }
 
 // TODO make this generic over the database
@@ -177,7 +164,8 @@ where
                             SelectionTypedValue::Column(idx) => {
                                 let evaluation = evaluate(&left_subtree, database, new_symbol);
                                 if let Some(relation) = evaluation {
-                                    let filtered_relation = relation.select_equality(column_index, idx);
+                                    let filtered_relation =
+                                        relation.select_equality(column_index, idx);
 
                                     Some(filtered_relation)
                                 } else {
@@ -187,7 +175,8 @@ where
                             _ => {
                                 let evaluation = evaluate(&left_subtree, database, new_symbol);
                                 if let Some(relation) = evaluation {
-                                    let filtered_relation = relation.select_value(column_index, selection_target);
+                                    let filtered_relation =
+                                        relation.select_value(column_index, selection_target);
 
                                     Some(filtered_relation)
                                 } else {

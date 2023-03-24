@@ -1,21 +1,24 @@
-use std::time::Instant;
-use crate::misc::helpers::{idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row};
+use crate::misc::helpers::{
+    idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
+};
 use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{
-    Program, Rule, SugaredProgram, SugaredRule, Ty,
-};
+use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{
-    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer,
-    Queryable, RelationDropper,
+    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable,
+    RelationDropper,
 };
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::evaluation::{Evaluation, InstanceEvaluator};
+use crate::reasoning::algorithms::evaluation::{
+    Evaluation, IncrementalEvaluation, InstanceEvaluator, Set,
+};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use lasso::{Key, Spur};
 use rayon::prelude::*;
+use std::time::Instant;
+use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs};
 
 pub struct Rewriting {
     pub program: Program,
@@ -35,14 +38,17 @@ impl InstanceEvaluator<HashSetDatabase> for Rewriting {
     fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
         let mut out: HashSetDatabase = Default::default();
 
-        self.program.iter().enumerate().for_each(|(rule_idx, rule)| {
-            let now = Instant::now();
-            if let Some(eval) = evaluate_rule(&instance, &rule) {
-                println!("{} : {}", self.sugared_program[rule_idx], now.elapsed().as_micros());
-                eval.into_iter()
-                    .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
-            }
-        });
+        self.program
+            .iter()
+            .enumerate()
+            .for_each(|(rule_idx, rule)| {
+                let now = Instant::now();
+                if let Some(eval) = evaluate_rule(&instance, &rule) {
+                    //println!("{} : {}", self.sugared_program[rule_idx], now.elapsed().as_micros());
+                    eval.into_iter()
+                        .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
+                }
+            });
 
         return out;
     }
@@ -85,7 +91,10 @@ impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
 }
 
 pub struct ChibiDatalog {
-    pub fact_store: HashSetDatabase,
+    // Extensional database
+    pub edb: HashSetDatabase,
+    // Intensional database
+    pub idb: HashSetDatabase,
     pub(crate) interner: Interner,
     parallel: bool,
     intern: bool,
@@ -96,7 +105,8 @@ pub struct ChibiDatalog {
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
-            fact_store: Default::default(),
+            edb: Default::default(),
+            idb: Default::default(),
             interner: Default::default(),
             parallel: true,
             intern: true,
@@ -114,18 +124,22 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    fn new_evaluation(&self, program: &Program, sugared_program: &SugaredProgram) -> Evaluation<HashSetDatabase> {
-        return Evaluation::new(
-            &self.fact_store,
-            if self.parallel { Box::new(ParallelRewriting::new(program)) } else { Box::new(Rewriting::new(program, sugared_program))}
-        );
+    fn new_evaluation(&self, [delta, nonrecursive, recursive]: [Box<ParallelRewriting>; 3]) -> IncrementalEvaluation<HashSetDatabase> {
+        return IncrementalEvaluation::new(delta, nonrecursive, recursive)
     }
     fn update_materialization(&mut self) {
-        let mut evaluation = self.new_evaluation(&self.program, &self.sugared_program);
+        let deltaifier = deltaify_idb(&self.sugared_program);
+        let (nonrecursive, recursive) = make_sne_programs(&self.sugared_program);
 
-        let now = Instant::now();
-        evaluation.semi_naive();
-        //println!("sne time: {}", now.elapsed().as_millis());
+        let programs = [deltaifier, nonrecursive, recursive];
+        let instance_evaluators = programs.map(|sugared_program| {
+            let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
+            return Box::new(ParallelRewriting::new(&savory_program))
+        });
+
+        let mut evaluation = self.new_evaluation(instance_evaluators);
+
+        evaluation.semi_naive(&self.edb);
 
         evaluation
             .output
@@ -133,7 +147,7 @@ impl ChibiDatalog {
             .into_iter()
             .for_each(|(relation_id, relation)| {
                 relation.into_iter().for_each(|row| {
-                    self.fact_store.insert_at(relation_id, row);
+                    self.idb.insert_at(relation_id, row);
                 });
             });
     }
@@ -151,27 +165,33 @@ impl Dynamic for ChibiDatalog {
 
 impl DynamicTyped for ChibiDatalog {
     fn insert_typed(&mut self, table: &str, row: Row) {
-        let (relation_id, typed_row) = idempotent_intern(&mut self.interner, self.intern, table, row);
+        let (relation_id, typed_row) =
+            idempotent_intern(&mut self.interner, self.intern, table, row);
 
-        self.fact_store.insert_at(relation_id, typed_row)
+        self.edb.insert_at(relation_id, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: &Row) {
-        let (relation_id, typed_row) = idempotent_intern(&mut self.interner, self.intern, table, row.clone());
+        let (relation_id, typed_row) =
+            idempotent_intern(&mut self.interner, self.intern, table, row.clone());
 
-        self.fact_store.delete_at(relation_id, &typed_row)
+        self.edb.delete_at(relation_id, &typed_row)
     }
 }
 
 impl BottomUpEvaluator for ChibiDatalog {
-    fn evaluate_program_bottom_up(
-        &mut self,
-        program: &Vec<SugaredRule>,
-    ) -> EvaluationResult {
-        let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, program);
+    fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult {
+        let deltaifier = deltaify_idb(program);
+        let (nonrecursive, recursive) = make_sne_programs(program);
 
-        let mut evaluation = self.new_evaluation(&savory_program, &program);
+        let programs = [deltaifier, nonrecursive, recursive];
+        let instance_evaluators = programs.map(|sugared_program| {
+            let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
+            return Box::new(ParallelRewriting::new(&savory_program))
+        });
 
-        evaluation.semi_naive();
+        let mut evaluation = self.new_evaluation(instance_evaluators);
+
+        evaluation.semi_naive(&self.edb.union(&self.idb));
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),
@@ -190,9 +210,7 @@ impl Materializer for ChibiDatalog {
     fn materialize(&mut self, program: &SugaredProgram) {
         idempotent_program_weak_intern(&mut self.interner, self.intern, program)
             .into_iter()
-            .for_each(|sugared_rule| {
-                self.sugared_program.push(sugared_rule)
-            });
+            .for_each(|sugared_rule| self.sugared_program.push(sugared_rule));
 
         self.sugared_program = sort_program(&self.sugared_program);
 
@@ -225,23 +243,42 @@ impl Materializer for ChibiDatalog {
         }
 
         if additions.len() > 0 {
-            let now = Instant::now();
             additions.into_iter().for_each(|(sym, row)| {
                 self.insert_typed(sym, row);
             });
 
-            let now = Instant::now();
             self.update_materialization();
         }
+
     }
 
+
+
     fn triple_count(&self) -> usize {
-        return self
-            .fact_store
+        let edb_size: usize = self
+            .edb
             .storage
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
+
+        let idb_size: usize = self
+            .idb
+            .storage
+            .iter()
+            .map(|(sym, rel)| return {
+                let spur = Spur::try_from_usize(*sym as usize - 1).unwrap();
+                let actual_string = self.interner.rodeo.try_resolve(&spur).unwrap();
+
+                if !actual_string.contains(DELTA_PREFIX) {
+                    return rel.len()
+                }
+
+                return 0
+            })
+            .sum();
+
+        return edb_size + idb_size;
     }
 }
 
@@ -249,7 +286,7 @@ impl RelationDropper for ChibiDatalog {
     fn drop_relation(&mut self, table: &str) {
         let sym = self.interner.rodeo.get_or_intern(table);
 
-        self.fact_store.storage.remove(&sym.into_inner().get());
+        self.edb.storage.remove(&sym.into_inner().get());
     }
 }
 
@@ -261,11 +298,11 @@ impl Queryable for ChibiDatalog {
                 if let Some(existing_typed_row) = self.interner.try_intern_row(&typed_row) {
                     typed_row = existing_typed_row
                 } else {
-                    return false
+                    return false;
                 }
             }
             return self
-                .fact_store
+                .edb
                 .storage
                 .get(&relation_id.into_inner().get())
                 .unwrap()
@@ -357,10 +394,10 @@ mod tests {
                 TypedValue::Str("d".to_string()),
             ]),
         ]
-            .into_iter()
-            .for_each(|row| {
-                expected_new_tuples.insert(row);
-            });
+        .into_iter()
+        .for_each(|row| {
+            expected_new_tuples.insert(row);
+        });
 
         assert_eq!(expected_new_tuples, new_tuples)
     }

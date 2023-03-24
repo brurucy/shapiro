@@ -1,8 +1,8 @@
-use std::time::Instant;
 use crate::models::datalog::SugaredRule;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
+use std::time::Instant;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
@@ -72,10 +72,10 @@ pub fn delete_rederive<'a, T>(
 
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-        row_set.into_iter().for_each(|row| {
+        row_set.into_iter().for_each(|overdeletion| {
             //println!("overdeletion: {:?}", &row);
-            instance.delete_typed(sym, &row);
-            instance.insert_typed(&del_sym, row);
+            instance.delete_typed(sym, &overdeletion);
+            //instance.insert_typed(&del_sym, overdeletion);
         });
         relations_to_be_dropped.insert(del_sym);
     });
@@ -84,16 +84,14 @@ pub fn delete_rederive<'a, T>(
     // rederivation_program
     //     .iter()
     //     .for_each(|rule| println!("{}", rule));
-    let now = Instant::now();
-    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
-    //println!("rederivation time: {}", now.elapsed().as_micros());
-
-    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
-        let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        row_set.into_iter().for_each(|row| {
-            instance.insert_typed(&sym, row);
-        })
-    });
+    // let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+    //
+    // rederivations.into_iter().for_each(|(alt_sym, row_set)| {
+    //     let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
+    //     row_set.into_iter().for_each(|row| {
+    //         instance.insert_typed(&sym, row);
+    //     })
+    // });
 
     relations_to_be_dropped.into_iter().for_each(|del_sym| {
         instance.drop_relation(&del_sym);
@@ -102,11 +100,11 @@ pub fn delete_rederive<'a, T>(
 
 #[cfg(test)]
 mod tests {
-    use indexmap::IndexSet;
-    use rand::distributions::uniform::SampleBorrow;
     use crate::models::datalog::{SugaredRule, Ty, TypedValue};
     use crate::models::index::VecIndex;
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable};
+    use crate::models::reasoner::{
+        BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable,
+    };
     use crate::models::relational_algebra::Row;
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
@@ -114,6 +112,8 @@ mod tests {
     };
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
     use crate::reasoning::reasoners::relational::RelationalDatalog;
+    use indexmap::IndexSet;
+    use rand::distributions::uniform::SampleBorrow;
 
     #[test]
     fn test_make_overdeletion_program() {
@@ -181,10 +181,10 @@ mod tests {
             ("f", "g"),
             ("f", "h"),
         ]
-            .into_iter()
-            .for_each(|(source, destination)| {
-                chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
-            });
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+        });
 
         let program = vec![
             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
@@ -201,18 +201,59 @@ mod tests {
 
         let actual_overdeletions = chibi.evaluate_program_bottom_up(&overdeletion_program);
         let expected_overdeletions = vec![
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("b".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("b".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("e".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("e".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("e".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("b".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice()
-        ].into_iter().collect::<IndexSet<Row>>();
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+        ]
+        .into_iter()
+        .collect::<IndexSet<Row>>();
 
-        assert_eq!(expected_overdeletions, actual_overdeletions.get("-reach").unwrap().clone());
+        assert_eq!(
+            expected_overdeletions,
+            actual_overdeletions.get("-reach").unwrap().clone()
+        );
 
         actual_overdeletions
             .get("-reach")
@@ -226,14 +267,39 @@ mod tests {
         let rederivation_program = make_alternative_derivation_program(&program);
         let actual_rederivations = chibi.evaluate_program_bottom_up(&rederivation_program);
         let expected_rederivations = vec![
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("h".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("b".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("e".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("f".to_string())].into_boxed_slice(),
-            vec![TypedValue::Str("a".to_string()), TypedValue::Str("g".to_string())].into_boxed_slice()
-        ].into_iter().collect::<IndexSet<Row>>();
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+        ]
+        .into_iter()
+        .collect::<IndexSet<Row>>();
 
-        assert_eq!(expected_rederivations, actual_rederivations.get("+reach").unwrap().clone());
+        assert_eq!(
+            expected_rederivations,
+            actual_rederivations.get("+reach").unwrap().clone()
+        );
     }
 
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
@@ -253,10 +319,10 @@ mod tests {
             ("f", "g"),
             ("f", "h"),
         ]
-            .into_iter()
-            .for_each(|(source, destination)| {
-                chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
-            });
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+        });
 
         let program = vec![
             SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
