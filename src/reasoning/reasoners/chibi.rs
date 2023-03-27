@@ -1,7 +1,6 @@
 use crate::misc::helpers::{
     idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
 };
-use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty};
 use crate::models::instance::{Database, HashSetDatabase};
@@ -11,87 +10,114 @@ use crate::models::reasoner::{
 };
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::evaluation::{
-    Evaluation, IncrementalEvaluation, InstanceEvaluator, Set,
-};
+use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_programs};
+use crate::reasoning::algorithms::evaluation::{IncrementalEvaluation, ImmediateConsequenceOperator};
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use lasso::{Key, Spur};
 use rayon::prelude::*;
-use std::time::Instant;
-use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs};
-use colored::*;
+
+pub fn evaluate_rules_sequentially(program: &Program, instance: HashSetDatabase) -> HashSetDatabase {
+    let mut out: HashSetDatabase = Default::default();
+
+    program
+        .iter()
+        .for_each(|rule| {
+            if let Some(eval) = evaluate_rule(&instance, &rule) {
+                eval.into_iter()
+                    .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
+            }
+        });
+
+    return out;
+}
+
+pub fn evaluate_rules_in_parallel(program: &Program, instance: HashSetDatabase) -> HashSetDatabase {
+    let mut out: HashSetDatabase = Default::default();
+
+    program
+        .par_iter()
+        .filter_map(|rule| {
+            if let Some(eval) = evaluate_rule(&instance, &rule) {
+                return Some((rule.head.relation_id.get(), eval));
+            }
+
+            return None;
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|(relation_id, eval)| {
+            eval.into_iter()
+                .for_each(|row| out.insert_at(relation_id, row))
+        });
+
+    return out;
+}
 
 pub struct Rewriting {
-    pub program: Program,
-    pub sugared_program: SugaredProgram,
+    pub nonrecursive_program: Program,
+    pub recursive_program: Program,
+    pub deltaifying_program: Program,
 }
 
 impl Rewriting {
-    fn new(program: &Program, sugared_program: &SugaredProgram) -> Self {
+    fn new(
+        nonrecursive_program: &Program,
+        recursive_program: &Program,
+        deltaifying_program: &Program,
+    ) -> Self {
         return Rewriting {
-            program: program.clone(),
-            sugared_program: sort_program(sugared_program),
+            nonrecursive_program: nonrecursive_program.clone(),
+            recursive_program: recursive_program.clone(),
+            deltaifying_program: deltaifying_program.clone(),
         };
     }
 }
 
-impl InstanceEvaluator<HashSetDatabase> for Rewriting {
-    fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
-        let mut out: HashSetDatabase = Default::default();
+impl ImmediateConsequenceOperator<HashSetDatabase> for Rewriting {
+    fn deltaify_idb(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_sequentially(&self.deltaifying_program, fact_store);
+    }
 
-        self.program
-            .iter()
-            .enumerate()
-            .for_each(|(rule_idx, rule)| {
-                //let now = Instant::now();
-                println!("{}", self.program[rule_idx].to_string().white());
-                if let Some(eval) = evaluate_rule(&instance, &rule) {
-                    println!("{}", "non-null set output".green());
-                    eval.into_iter()
-                        .for_each(|row| {
-                            //println!("\t\t\t {}({}, {})", rule.head.relation_id, row[0], row[1]);
-                            out.insert_at(rule.head.relation_id.get(), row)
-                        })
-                }
-            });
+    fn nonrecursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_sequentially(&self.nonrecursive_program, fact_store);
+    }
 
-        return out;
+    fn recursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_sequentially(&self.recursive_program, fact_store);
     }
 }
 
 pub struct ParallelRewriting {
-    pub program: Vec<Rule>,
+    pub nonrecursive_program: Program,
+    pub recursive_program: Program,
+    pub deltaifying_program: Program,
 }
 
 impl ParallelRewriting {
-    fn new(program: &Vec<Rule>) -> Self {
+    fn new(
+        nonrecursive_program: &Program,
+        recursive_program: &Program,
+        deltaifying_program: &Program,
+    ) -> Self {
         return ParallelRewriting {
-            program: program.clone(),
+            nonrecursive_program: nonrecursive_program.clone(),
+            recursive_program: recursive_program.clone(),
+            deltaifying_program: deltaifying_program.clone(),
         };
     }
 }
 
-impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
-    fn evaluate(&self, instance: HashSetDatabase) -> HashSetDatabase {
-        let mut out: HashSetDatabase = Default::default();
+impl ImmediateConsequenceOperator<HashSetDatabase> for ParallelRewriting {
+    fn deltaify_idb(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_in_parallel(&self.deltaifying_program, fact_store);
+    }
 
-        self.program
-            .par_iter()
-            .filter_map(|rule| {
-                if let Some(eval) = evaluate_rule(&instance, &rule) {
-                    return Some((rule.head.relation_id.get(), eval));
-                }
+    fn nonrecursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_in_parallel(&self.nonrecursive_program, fact_store);
+    }
 
-                return None;
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|(relation_id, eval)| {
-                eval.into_iter()
-                    .for_each(|row| out.insert_at(relation_id, row))
-            });
-
-        return out;
+    fn recursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+        return evaluate_rules_in_parallel(&self.recursive_program, fact_store);
     }
 }
 
@@ -125,30 +151,20 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    fn new_evaluation(&self, [delta, nonrecursive, recursive]: [Box<Rewriting>; 3]) -> IncrementalEvaluation<HashSetDatabase> {
-        return IncrementalEvaluation::new(delta, nonrecursive, recursive)
+    fn new_evaluation<K : ImmediateConsequenceOperator<HashSetDatabase>>(
+        &self,
+        immediate_consequence_operator: K
+    ) -> IncrementalEvaluation<HashSetDatabase, K> {
+        return IncrementalEvaluation::new(immediate_consequence_operator);
     }
     fn update_materialization(&mut self) {
-        let deltaifier = deltaify_idb(&self.sugared_program);
-        let (nonrecursive, recursive) = make_sne_programs(&self.sugared_program);
-
-        let programs = [deltaifier, nonrecursive, recursive];
-        let instance_evaluators = programs.map(|sugared_program| {
-            let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
-            return Box::new(Rewriting::new(&savory_program, &sugared_program))
-        });
-
-        let mut evaluation = self.new_evaluation(instance_evaluators);
-
-        evaluation.semi_naive(&self.fact_store);
+        let evaluation = self.evaluate_program_bottom_up(&self.sugared_program.clone());
 
         evaluation
-            .output
-            .storage
             .into_iter()
-            .for_each(|(relation_id, relation)| {
+            .for_each(|(symbol, relation)| {
                 relation.into_iter().for_each(|row| {
-                    self.fact_store.insert_at(relation_id, row);
+                    self.insert_typed(&symbol, row);
                 });
             });
     }
@@ -184,13 +200,20 @@ impl BottomUpEvaluator for ChibiDatalog {
         let deltaifier = deltaify_idb(program);
         let (nonrecursive, recursive) = make_sne_programs(program);
 
-        let programs = [deltaifier, nonrecursive, recursive];
-        let instance_evaluators = programs.map(|sugared_program| {
-            let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
-            return Box::new(Rewriting::new(&savory_program, &sugared_program))
-        });
+        let programs: [Program; 3] = [nonrecursive, recursive, deltaifier]
+            .into_iter()
+            .map(|sugared_program| {
+                return idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
+            })
+            .collect();
 
-        let mut evaluation = self.new_evaluation(instance_evaluators);
+        let mut evaluation = self.new_evaluation(
+            if self.parallel {
+                ParallelRewriting::new(&programs[0], &programs[1], &programs[2])
+            } else {
+                Rewriting::new(&programs[0], &programs[1], &programs[2])
+            }
+        );
 
         evaluation.semi_naive(&self.fact_store);
 
@@ -213,8 +236,6 @@ impl Materializer for ChibiDatalog {
             .into_iter()
             .for_each(|sugared_rule| self.sugared_program.push(sugared_rule));
 
-        self.sugared_program = sort_program(&self.sugared_program);
-
         self.program = self
             .sugared_program
             .iter()
@@ -224,7 +245,6 @@ impl Materializer for ChibiDatalog {
         self.update_materialization()
     }
 
-    // Update first processes deletions, then additions.
     fn update(&mut self, changes: Vec<Diff>) {
         let mut additions: Vec<(&str, Row)> = vec![];
         let mut retractions: Vec<(&str, Row)> = vec![];
@@ -250,7 +270,6 @@ impl Materializer for ChibiDatalog {
 
             self.update_materialization();
         }
-
     }
 
     fn triple_count(&self) -> usize {

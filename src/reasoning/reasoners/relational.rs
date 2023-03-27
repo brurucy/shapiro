@@ -1,6 +1,4 @@
-use lasso::Spur;
-use crate::misc::helpers::{idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row};
-use crate::misc::rule_graph::sort_program;
+use crate::misc::helpers::{idempotent_program_weak_intern, ty_to_row};
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{SugaredProgram, Ty};
 use crate::models::index::IndexBacking;
@@ -11,9 +9,60 @@ use crate::models::reasoner::{
 };
 use crate::models::relational_algebra::{RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::evaluation::{Evaluation, IncrementalEvaluation, InstanceEvaluator};
-use rayon::prelude::*;
 use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_programs};
+use crate::reasoning::algorithms::evaluation::{ImmediateConsequenceOperator, IncrementalEvaluation};
+use rayon::prelude::*;
+
+pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &SugaredProgram, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
+
+    sugared_program.iter().for_each(|(sym, expr)| {
+        if let Some(eval) = instance.evaluate(&expr, sym) {
+            let local_relation_id = out
+                .symbol_interner
+                .rodeo
+                .get_or_intern(sym)
+                .into_inner()
+                .get();
+
+            eval.ward
+                .into_iter()
+                .for_each(|row| out.insert_at(local_relation_id, row))
+        }
+    });
+
+    return out;
+}
+
+pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &SugaredProgram, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
+
+    sugared_program
+        .par_iter()
+        .filter_map(|(sym, expr)| {
+            if let Some(eval) = instance.evaluate(expr, sym) {
+                return Some((sym, eval));
+            }
+            None
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|(sym, fresh_relation)| {
+            let local_relation_id = out
+                .symbol_interner
+                .rodeo
+                .get_or_intern(sym)
+                .into_inner()
+                .get();
+
+            fresh_relation
+                .ward
+                .into_iter()
+                .for_each(|row| out.insert_at(local_relation_id, row))
+        });
+
+    return out;
+}
 
 pub struct RelationalAlgebra {
     pub program: Vec<(String, RelationalExpression)>,
@@ -35,29 +84,17 @@ impl RelationalAlgebra {
     }
 }
 
-impl<T> InstanceEvaluator<SimpleDatabaseWithIndex<T>> for RelationalAlgebra
-where
-    T: IndexBacking + PartialEq,
-{
-    fn evaluate(&self, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
-        let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
+impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> for RelationalAlgebra {
+    fn deltaify_idb(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_sequentially(&self.deltaifying_program, fact_store);
+    }
 
-        self.program.iter().for_each(|(sym, expr)| {
-            if let Some(eval) = instance.evaluate(&expr, sym) {
-                let local_relation_id = out
-                    .symbol_interner
-                    .rodeo
-                    .get_or_intern(sym)
-                    .into_inner()
-                    .get();
+    fn nonrecursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_sequentially(&self.nonrecursive_program, fact_store);
+    }
 
-                eval.ward
-                    .into_iter()
-                    .for_each(|row| out.insert_at(local_relation_id, row))
-            }
-        });
-
-        return out;
+    fn recursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_sequentially(&self.recursive_program, fact_store);
     }
 }
 
@@ -78,41 +115,6 @@ impl ParallelRelationalAlgebra {
                 })
                 .collect(),
         };
-    }
-}
-
-impl<T> InstanceEvaluator<SimpleDatabaseWithIndex<T>> for ParallelRelationalAlgebra
-where
-    T: IndexBacking + PartialEq,
-{
-    fn evaluate(&self, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
-        let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
-
-        self.program
-            .par_iter()
-            .filter_map(|(sym, expr)| {
-                if let Some(eval) = instance.evaluate(expr, sym) {
-                    return Some((sym, eval));
-                }
-                None
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|(sym, fresh_relation)| {
-                let local_relation_id = out
-                    .symbol_interner
-                    .rodeo
-                    .get_or_intern(sym)
-                    .into_inner()
-                    .get();
-
-                fresh_relation
-                    .ward
-                    .into_iter()
-                    .for_each(|row| out.insert_at(local_relation_id, row))
-            });
-
-        return out;
     }
 }
 
@@ -185,56 +187,19 @@ impl<T: IndexBacking + PartialEq> RelationalDatalog<T> {
     fn idempotent_program_weak_intern(&mut self, program: &SugaredProgram) -> SugaredProgram {
         return idempotent_program_weak_intern(&mut self.row_interner, self.intern, program);
     }
-    // fn new_evaluation(
-    //     &self,
-    //     sugared_program: &SugaredProgram,
-    // ) -> Evaluation<SimpleDatabaseWithIndex<T>> {
-    //     return Evaluation::new(
-    //         &self.fact_store,
-    //         if self.parallel {
-    //             Box::new(ParallelRelationalAlgebra::new(sugared_program))
-    //         } else {
-    //             Box::new(RelationalAlgebra::new(sugared_program))
-    //         },
-    //     );
-    // }
-    // fn update_materialization(&mut self) {
-    //     let mut evaluation = self.new_evaluation(&self.sugared_program);
-    //
-    //     evaluation.semi_naive();
-    //
-    //     evaluation
-    //         .output
-    //         .storage
-    //         .into_iter()
-    //         .for_each(|(symbol, relation)| {
-    //             relation.ward.into_iter().for_each(|row| {
-    //                 self.insert_typed(&symbol, row);
-    //             });
-    //         });
-    // }
-    fn new_evaluation(&self, [delta, nonrecursive, recursive]: [Box<ParallelRelationalAlgebra>; 3]) -> IncrementalEvaluation<SimpleDatabaseWithIndex<T>> {
-        return IncrementalEvaluation::new(delta, nonrecursive, recursive)
+    fn new_evaluation<K : ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>>>(
+        &self,
+        immediate_consequence_operator: K
+    ) -> IncrementalEvaluation<SimpleDatabaseWithIndex<T>, K> {
+        return IncrementalEvaluation::new(immediate_consequence_operator);
     }
     fn update_materialization(&mut self) {
-        let deltaifier = deltaify_idb(&self.sugared_program);
-        let (nonrecursive, recursive) = make_sne_programs(&self.sugared_program);
-
-        let programs = [deltaifier, nonrecursive, recursive];
-        let instance_evaluators = programs.map(|program| {
-            return Box::new(ParallelRelationalAlgebra::new(&program))
-        });
-
-        let mut evaluation = self.new_evaluation(instance_evaluators);
-
-        evaluation.semi_naive(&self.fact_store);
+        let evaluation = self.evaluate_program_bottom_up(&self.sugared_program.clone());
 
         evaluation
-            .output
-            .storage
             .into_iter()
             .for_each(|(symbol, relation)| {
-                relation.ward.into_iter().for_each(|row| {
+                relation.into_iter().for_each(|row| {
                     self.insert_typed(&symbol, row);
                 });
             });
@@ -256,29 +221,23 @@ impl<T: IndexBacking + PartialEq> DynamicTyped for RelationalDatalog<T> {
 
 impl<T: IndexBacking + PartialEq> BottomUpEvaluator for RelationalDatalog<T> {
     fn evaluate_program_bottom_up(&mut self, program: &SugaredProgram) -> EvaluationResult {
-        // let interned_sugared_program = self.idempotent_program_weak_intern(program);
-        //
-        // let mut evaluation = self.new_evaluation(&interned_sugared_program);
-        //
-        // evaluation.semi_naive();
-        //
-        // return evaluation.output.storage.into_iter().fold(
-        //     Default::default(),
-        //     |mut acc: EvaluationResult, (sym, row)| {
-        //         acc.insert(sym, row.ward);
-        //         acc
-        //     },
-        // );
         let deltaifier = deltaify_idb(program);
         let (nonrecursive, recursive) = make_sne_programs(program);
 
-        let programs = [deltaifier, nonrecursive, recursive];
+        let programs = [nonrecursive, recursive, deltaifier]
+            .into_iter()
+            .map(|sugared_program| {
+                return idempotent_program_weak_intern(&mut self.interner, self.intern, &sugared_program);
+            })
+            .collect();
 
-        let instance_evaluators = programs.map(|program| {
-            return Box::new(ParallelRelationalAlgebra::new(&program));
-        });
-
-        let mut evaluation = self.new_evaluation(instance_evaluators);
+        let mut evaluation = self.new_evaluation(
+            if self.parallel {
+                ParallelRelationalAlgebra::new(programs[0], programs[1], programs[2])
+            } else {
+                RelationalAlgebra::new(programs[0], programs[1], programs[2])
+            }
+        );
 
         evaluation.semi_naive(&self.fact_store);
 
@@ -299,8 +258,6 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
             .for_each(|sugared_rule| {
                 self.sugared_program.push(sugared_rule);
             });
-
-        self.sugared_program = sort_program(&self.sugared_program);
 
         self.update_materialization();
     }

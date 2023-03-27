@@ -4,7 +4,6 @@ use crate::misc::joins::nested_loop_join;
 use crate::models::datalog::{Atom, Rule, Term};
 use crate::models::instance::{HashSetDatabase, IndexedHashSetBacking};
 use std::num::NonZeroU32;
-use colored::*;
 
 pub fn unify(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
@@ -73,25 +72,16 @@ pub fn evaluate_rule(
         .storage
         .iter()
         .map(|(relation_id, row_set)| {
-            row_set
-                .iter()
-                .for_each(|row| {
-                    //println!("{}({}, {})", relation_id, row[0], row[1]);
-                });
+            row_set.iter().for_each(|row| {});
             (*relation_id, row_set)
         })
         .collect();
-    // State of the fact store
 
     let mut out: IndexedHashSetBacking = Default::default();
 
     let head = rule.head.clone();
 
-    let goals: Vec<(usize, &Atom)> = rule
-        .body
-        .iter()
-        .enumerate()
-        .collect();
+    let goals: Vec<(usize, &Atom)> = rule.body.iter().enumerate().collect();
 
     let mut subs_product = vec![(0usize, Substitutions::default())];
     for current_atom_id in 0..goals.len() {
@@ -146,14 +136,12 @@ pub fn evaluate_rule(
         .filter(|(local_atom_id, _)| *local_atom_id == goals.len())
         .for_each(|(_local_atom_id, subs)| {
             let fresh_atom = attempt_to_rewrite(&subs, &head);
-            println!("{}", fresh_atom.to_string().blue());
             if is_ground(&fresh_atom) {
                 out.insert(terms_to_row(fresh_atom.terms));
             }
         });
 
     if out.is_empty() {
-        println!("no output!");
         return None;
     }
 

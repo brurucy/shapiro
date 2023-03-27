@@ -42,8 +42,6 @@ pub fn idempotent_program_weak_intern(
     intern: bool,
     sugared_program: &SugaredProgram,
 ) -> SugaredProgram {
-    let sugared_program = sort_program(&sugared_program);
-
     let interned_sugared_program: Vec<_> = sugared_program
         .into_iter()
         .map(|rule| {
@@ -63,8 +61,6 @@ pub fn idempotent_program_strong_intern(
     intern: bool,
     sugared_program: &SugaredProgram,
 ) -> Program {
-    let sugared_program = sort_program(&sugared_program);
-
     let interned_sugared_program: Vec<_> = sugared_program
         .into_iter()
         .map(|rule| {

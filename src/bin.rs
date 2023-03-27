@@ -5,6 +5,7 @@ use crate::Reasoners::{
     RelationalImmutableVector, RelationalSpine, RelationalVec,
 };
 use clap::{Arg, Command};
+use colored::*;
 use phf::phf_map;
 use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
@@ -19,7 +20,6 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
-use colored::*;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",

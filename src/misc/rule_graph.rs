@@ -42,11 +42,19 @@ pub fn stratify<'a>(rule_graph: &'a RuleGraph) -> (bool, Vec<Vec<&'a SugaredRule
     return (true, sccs);
 }
 
-pub fn sort_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
+pub fn sort_program(program: &Vec<SugaredRule>) -> Vec<Vec<SugaredRule>> {
     let rule_graph = generate_rule_dependency_graph(&program);
     let (_valid, stratification) = stratify(&rule_graph);
 
-    return stratification.iter().flatten().cloned().cloned().collect();
+    return stratification
+        .into_iter()
+        .map(|sugared_program| {
+            sugared_program
+                .into_iter()
+                .map(|rule| rule.clone())
+                .collect()
+        })
+        .collect();
 }
 
 #[cfg(test)]

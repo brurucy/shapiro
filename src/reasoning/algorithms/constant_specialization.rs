@@ -126,8 +126,6 @@ mod tests {
             .iter()
             .for_each(|rule| println!("{}", rule));
 
-        println!("");
-
         actual_output_program
             .iter()
             .for_each(|rule| println!("{}", rule));

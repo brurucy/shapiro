@@ -66,32 +66,26 @@ pub fn delete_rederive<'a, T>(
     let overdeletion_program = make_overdeletion_program(program);
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - intensional overdeletion
-    let now = Instant::now();
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
-    //println!("overdeletion time: {}", now.elapsed().as_micros());
 
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         row_set.into_iter().for_each(|overdeletion| {
-            //println!("overdeletion: {:?}", &row);
             instance.delete_typed(sym, &overdeletion);
-            //instance.insert_typed(&del_sym, overdeletion);
+            instance.insert_typed(&del_sym, overdeletion);
         });
         relations_to_be_dropped.insert(del_sym);
     });
 
     //Stage 2 - intensional rederivation
-    // rederivation_program
-    //     .iter()
-    //     .for_each(|rule| println!("{}", rule));
-    // let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
-    //
-    // rederivations.into_iter().for_each(|(alt_sym, row_set)| {
-    //     let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-    //     row_set.into_iter().for_each(|row| {
-    //         instance.insert_typed(&sym, row);
-    //     })
-    // });
+    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
+
+    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
+        let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
+        row_set.into_iter().for_each(|row| {
+            instance.insert_typed(&sym, row);
+        })
+    });
 
     relations_to_be_dropped.into_iter().for_each(|del_sym| {
         instance.drop_relation(&del_sym);
