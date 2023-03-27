@@ -151,10 +151,10 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    fn new_evaluation<K : ImmediateConsequenceOperator<HashSetDatabase>>(
+    fn new_evaluation(
         &self,
-        immediate_consequence_operator: K
-    ) -> IncrementalEvaluation<HashSetDatabase, K> {
+        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<HashSetDatabase>>
+    ) -> IncrementalEvaluation<HashSetDatabase> {
         return IncrementalEvaluation::new(immediate_consequence_operator);
     }
     fn update_materialization(&mut self) {
@@ -200,20 +200,18 @@ impl BottomUpEvaluator for ChibiDatalog {
         let deltaifier = deltaify_idb(program);
         let (nonrecursive, recursive) = make_sne_programs(program);
 
-        let programs: [Program; 3] = [nonrecursive, recursive, deltaifier]
+        let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
                 return idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
             })
             .collect();
 
-        let mut evaluation = self.new_evaluation(
-            if self.parallel {
-                ParallelRewriting::new(&programs[0], &programs[1], &programs[2])
-            } else {
-                Rewriting::new(&programs[0], &programs[1], &programs[2])
-            }
-        );
+        let mut im_op = Box::new(ParallelRewriting::new(&programs[0], &programs[1], &programs[2]));
+        let mut evaluation = self.new_evaluation(im_op);
+        if !self.parallel {
+            evaluation.immediate_consequence_operator = Box::new(Rewriting::new(&programs[0], &programs[1], &programs[2]));
+        }
 
         evaluation.semi_naive(&self.fact_store);
 

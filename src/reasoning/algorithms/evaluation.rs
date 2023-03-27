@@ -21,15 +21,15 @@ pub trait Empty {
     fn is_empty(&self) -> bool;
 }
 
-pub struct IncrementalEvaluation<T: Database + Set + Empty, K: ImmediateConsequenceOperator<T>> {
-    pub immediate_consequence_operator: K,
+pub struct IncrementalEvaluation<T: Database + Set + Empty> {
+    pub immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>,
     pub output: T,
 }
 
 // Evaluation should be different for updates. At the moment it is sub optimal.
-impl<T: Database + Set + Empty + Clone, K : ImmediateConsequenceOperator<T>> IncrementalEvaluation<T, K> {
+impl<T: Database + Set + Empty + Clone> IncrementalEvaluation<T> {
     pub(crate) fn new(
-        immediate_consequence_operator: K
+        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>
     ) -> Self {
         return Self {
             immediate_consequence_operator,

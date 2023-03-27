@@ -13,7 +13,7 @@ use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_pr
 use crate::reasoning::algorithms::evaluation::{ImmediateConsequenceOperator, IncrementalEvaluation};
 use rayon::prelude::*;
 
-pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &SugaredProgram, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
     let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
 
     sugared_program.iter().for_each(|(sym, expr)| {
@@ -34,7 +34,7 @@ pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &SugaredPr
     return out;
 }
 
-pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &SugaredProgram, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
     let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
 
     sugared_program
@@ -64,22 +64,34 @@ pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &SugaredPro
     return out;
 }
 
+pub fn key_program_by_symbol(sugared_program: &SugaredProgram) -> (Vec<(String, RelationalExpression)>) {
+    return sugared_program
+        .iter()
+        .map(|rule| {
+            (
+                rule.head.symbol.to_string(),
+                RelationalExpression::from(rule),
+            )
+        })
+        .collect()
+}
+
 pub struct RelationalAlgebra {
-    pub program: Vec<(String, RelationalExpression)>,
+    pub nonrecursive_program: Vec<(String, RelationalExpression)>,
+    pub recursive_program: Vec<(String, RelationalExpression)>,
+    pub deltaifying_program: Vec<(String, RelationalExpression)>,
 }
 
 impl RelationalAlgebra {
-    fn new(program: &SugaredProgram) -> Self {
+    fn new(
+        nonrecursive_program: &SugaredProgram,
+        recursive_program: &SugaredProgram,
+        deltaifying_program: &SugaredProgram,
+    ) -> Self {
         return RelationalAlgebra {
-            program: program
-                .iter()
-                .map(|rule| {
-                    (
-                        rule.head.symbol.to_string(),
-                        RelationalExpression::from(rule),
-                    )
-                })
-                .collect(),
+            nonrecursive_program: key_program_by_symbol(nonrecursive_program),
+            recursive_program: key_program_by_symbol(recursive_program),
+            deltaifying_program: key_program_by_symbol(deltaifying_program),
         };
     }
 }
@@ -99,22 +111,36 @@ impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> 
 }
 
 pub struct ParallelRelationalAlgebra {
-    pub program: Vec<(String, RelationalExpression)>,
+    pub nonrecursive_program: Vec<(String, RelationalExpression)>,
+    pub recursive_program: Vec<(String, RelationalExpression)>,
+    pub deltaifying_program: Vec<(String, RelationalExpression)>,
 }
 
 impl ParallelRelationalAlgebra {
-    fn new(program: &SugaredProgram) -> Self {
+    fn new(
+        nonrecursive_program: &SugaredProgram,
+        recursive_program: &SugaredProgram,
+        deltaifying_program: &SugaredProgram,
+    ) -> Self {
         return ParallelRelationalAlgebra {
-            program: program
-                .iter()
-                .map(|rule| {
-                    (
-                        rule.head.symbol.to_string(),
-                        RelationalExpression::from(rule),
-                    )
-                })
-                .collect(),
+            nonrecursive_program: key_program_by_symbol(nonrecursive_program),
+            recursive_program: key_program_by_symbol(recursive_program),
+            deltaifying_program: key_program_by_symbol(deltaifying_program),
         };
+    }
+}
+
+impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> for ParallelRelationalAlgebra {
+    fn deltaify_idb(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_in_parallel(&self.deltaifying_program, fact_store);
+    }
+
+    fn nonrecursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_in_parallel(&self.nonrecursive_program, fact_store);
+    }
+
+    fn recursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return evaluate_rules_in_parallel(&self.recursive_program, fact_store);
     }
 }
 
@@ -187,10 +213,10 @@ impl<T: IndexBacking + PartialEq> RelationalDatalog<T> {
     fn idempotent_program_weak_intern(&mut self, program: &SugaredProgram) -> SugaredProgram {
         return idempotent_program_weak_intern(&mut self.row_interner, self.intern, program);
     }
-    fn new_evaluation<K : ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>>>(
+    fn new_evaluation(
         &self,
-        immediate_consequence_operator: K
-    ) -> IncrementalEvaluation<SimpleDatabaseWithIndex<T>, K> {
+        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>>>
+    ) -> IncrementalEvaluation<SimpleDatabaseWithIndex<T>> {
         return IncrementalEvaluation::new(immediate_consequence_operator);
     }
     fn update_materialization(&mut self) {
@@ -224,20 +250,18 @@ impl<T: IndexBacking + PartialEq> BottomUpEvaluator for RelationalDatalog<T> {
         let deltaifier = deltaify_idb(program);
         let (nonrecursive, recursive) = make_sne_programs(program);
 
-        let programs = [nonrecursive, recursive, deltaifier]
+        let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
-                return idempotent_program_weak_intern(&mut self.interner, self.intern, &sugared_program);
+                return idempotent_program_weak_intern(&mut self.row_interner, self.intern, &sugared_program);
             })
             .collect();
 
-        let mut evaluation = self.new_evaluation(
-            if self.parallel {
-                ParallelRelationalAlgebra::new(programs[0], programs[1], programs[2])
-            } else {
-                RelationalAlgebra::new(programs[0], programs[1], programs[2])
-            }
-        );
+        let im_op = Box::new(ParallelRelationalAlgebra::new(&programs[0], &programs[1], &programs[2]));
+        let mut evaluation = self.new_evaluation(im_op);
+        if !self.parallel {
+            evaluation.immediate_consequence_operator = Box::new(RelationalAlgebra::new(&programs[0], &programs[1], &programs[2]));
+        }
 
         evaluation.semi_naive(&self.fact_store);
 
