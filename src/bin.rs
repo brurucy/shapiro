@@ -19,6 +19,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use colored::*;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -347,7 +348,6 @@ fn main() {
     if specialize {
         sugared_program = specialize_to_constants(&sugared_program);
     }
-    evaluator.materialize(&sugared_program);
 
     let mut initial_materialization: Vec<Diff> = vec![];
     let mut positive_update: Vec<Diff> = vec![];
@@ -382,16 +382,20 @@ fn main() {
         }
     });
 
+    evaluator.materialize(&sugared_program);
+    println!("{}", "Initial materialization".purple());
     let now = Instant::now();
     evaluator.update(initial_materialization);
     println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
+    println!("{}", "Positive Update".purple());
     let now = Instant::now();
     evaluator.update(positive_update);
     println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
+    println!("{}", "Negative Update".purple());
     let now = Instant::now();
     evaluator.update(negative_update);
     println!("reasoning time - {} ms", now.elapsed().as_millis());

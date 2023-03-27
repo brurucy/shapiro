@@ -19,6 +19,7 @@ use lasso::{Key, Spur};
 use rayon::prelude::*;
 use std::time::Instant;
 use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs};
+use colored::*;
 
 pub struct Rewriting {
     pub program: Program,
@@ -42,11 +43,15 @@ impl InstanceEvaluator<HashSetDatabase> for Rewriting {
             .iter()
             .enumerate()
             .for_each(|(rule_idx, rule)| {
-                let now = Instant::now();
+                //let now = Instant::now();
+                println!("{}", self.program[rule_idx].to_string().white());
                 if let Some(eval) = evaluate_rule(&instance, &rule) {
-                    //println!("{} : {}", self.sugared_program[rule_idx], now.elapsed().as_micros());
+                    println!("{}", "non-null set output".green());
                     eval.into_iter()
-                        .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
+                        .for_each(|row| {
+                            //println!("\t\t\t {}({}, {})", rule.head.relation_id, row[0], row[1]);
+                            out.insert_at(rule.head.relation_id.get(), row)
+                        })
                 }
             });
 
@@ -91,10 +96,7 @@ impl InstanceEvaluator<HashSetDatabase> for ParallelRewriting {
 }
 
 pub struct ChibiDatalog {
-    // Extensional database
-    pub edb: HashSetDatabase,
-    // Intensional database
-    pub idb: HashSetDatabase,
+    pub fact_store: HashSetDatabase,
     pub(crate) interner: Interner,
     parallel: bool,
     intern: bool,
@@ -105,8 +107,7 @@ pub struct ChibiDatalog {
 impl Default for ChibiDatalog {
     fn default() -> Self {
         ChibiDatalog {
-            edb: Default::default(),
-            idb: Default::default(),
+            fact_store: Default::default(),
             interner: Default::default(),
             parallel: true,
             intern: true,
@@ -124,7 +125,7 @@ impl ChibiDatalog {
             ..Default::default()
         };
     }
-    fn new_evaluation(&self, [delta, nonrecursive, recursive]: [Box<ParallelRewriting>; 3]) -> IncrementalEvaluation<HashSetDatabase> {
+    fn new_evaluation(&self, [delta, nonrecursive, recursive]: [Box<Rewriting>; 3]) -> IncrementalEvaluation<HashSetDatabase> {
         return IncrementalEvaluation::new(delta, nonrecursive, recursive)
     }
     fn update_materialization(&mut self) {
@@ -134,12 +135,12 @@ impl ChibiDatalog {
         let programs = [deltaifier, nonrecursive, recursive];
         let instance_evaluators = programs.map(|sugared_program| {
             let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
-            return Box::new(ParallelRewriting::new(&savory_program))
+            return Box::new(Rewriting::new(&savory_program, &sugared_program))
         });
 
         let mut evaluation = self.new_evaluation(instance_evaluators);
 
-        evaluation.semi_naive(&self.edb);
+        evaluation.semi_naive(&self.fact_store);
 
         evaluation
             .output
@@ -147,7 +148,7 @@ impl ChibiDatalog {
             .into_iter()
             .for_each(|(relation_id, relation)| {
                 relation.into_iter().for_each(|row| {
-                    self.idb.insert_at(relation_id, row);
+                    self.fact_store.insert_at(relation_id, row);
                 });
             });
     }
@@ -168,13 +169,13 @@ impl DynamicTyped for ChibiDatalog {
         let (relation_id, typed_row) =
             idempotent_intern(&mut self.interner, self.intern, table, row);
 
-        self.edb.insert_at(relation_id, typed_row)
+        self.fact_store.insert_at(relation_id, typed_row)
     }
     fn delete_typed(&mut self, table: &str, row: &Row) {
         let (relation_id, typed_row) =
             idempotent_intern(&mut self.interner, self.intern, table, row.clone());
 
-        self.edb.delete_at(relation_id, &typed_row)
+        self.fact_store.delete_at(relation_id, &typed_row)
     }
 }
 
@@ -186,12 +187,12 @@ impl BottomUpEvaluator for ChibiDatalog {
         let programs = [deltaifier, nonrecursive, recursive];
         let instance_evaluators = programs.map(|sugared_program| {
             let savory_program = idempotent_program_strong_intern(&mut self.interner, self.intern, &sugared_program);
-            return Box::new(ParallelRewriting::new(&savory_program))
+            return Box::new(Rewriting::new(&savory_program, &sugared_program))
         });
 
         let mut evaluation = self.new_evaluation(instance_evaluators);
 
-        evaluation.semi_naive(&self.edb.union(&self.idb));
+        evaluation.semi_naive(&self.fact_store);
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),
@@ -252,33 +253,15 @@ impl Materializer for ChibiDatalog {
 
     }
 
-
-
     fn triple_count(&self) -> usize {
-        let edb_size: usize = self
-            .edb
+        let size: usize = self
+            .fact_store
             .storage
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
 
-        let idb_size: usize = self
-            .idb
-            .storage
-            .iter()
-            .map(|(sym, rel)| return {
-                let spur = Spur::try_from_usize(*sym as usize - 1).unwrap();
-                let actual_string = self.interner.rodeo.try_resolve(&spur).unwrap();
-
-                if !actual_string.contains(DELTA_PREFIX) {
-                    return rel.len()
-                }
-
-                return 0
-            })
-            .sum();
-
-        return edb_size + idb_size;
+        return size;
     }
 }
 
@@ -286,7 +269,7 @@ impl RelationDropper for ChibiDatalog {
     fn drop_relation(&mut self, table: &str) {
         let sym = self.interner.rodeo.get_or_intern(table);
 
-        self.edb.storage.remove(&sym.into_inner().get());
+        self.fact_store.storage.remove(&sym.into_inner().get());
     }
 }
 
@@ -302,7 +285,7 @@ impl Queryable for ChibiDatalog {
                 }
             }
             return self
-                .edb
+                .fact_store
                 .storage
                 .get(&relation_id.into_inner().get())
                 .unwrap()

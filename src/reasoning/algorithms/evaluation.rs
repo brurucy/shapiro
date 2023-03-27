@@ -1,6 +1,7 @@
 use std::process::id;
 use crate::models::instance::Database;
 use std::time::Instant;
+use colored::Colorize;
 
 pub trait InstanceEvaluator<T>
 where
@@ -66,8 +67,6 @@ pub struct IncrementalEvaluation<T: Database + Set + Empty> {
     pub deltaifier: Box<dyn InstanceEvaluator<T>>,
     pub nonrecursive_evaluator: Box<dyn InstanceEvaluator<T>>,
     pub recursive_evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub previous: T,
-    pub delta: T,
     pub output: T,
 }
 
@@ -82,53 +81,29 @@ impl<T: Database + Set + Empty + Clone> IncrementalEvaluation<T> {
             deltaifier,
             nonrecursive_evaluator,
             recursive_evaluator,
-            delta: Default::default(),
-            previous: Default::default(),
             output: Default::default(),
         };
     }
-    fn semi_naive_immediate_consequence(&mut self, edb: &T, idb: &T) {
-        let union = edb.union(&self.delta);
-
-        let evaluation = self.recursive_evaluator.evaluate(union);
-
-        self.delta = evaluation
-            .difference(&self.output)
-            .union(&self.delta);
-
-        self.output.merge(evaluation);
-    }
-    // let mut s_i = T::default();
-    // let mut delta = self.nonrecursive_evaluator.evaluate(edb.clone());
-    // loop {
-    //     s_i = s_i.union(&delta);
-    //     delta = self.recursive_evaluator
-    //         .evaluate(edb.union(&delta))
-    //         .difference(&s_i);
-    //     if delta.is_empty() {
-    //         break
-    //         self.output = s_i;
-    //     }
-    // }
-
-    pub fn semi_naive(&mut self, edb: &T) {
-        let mut delta = self.nonrecursive_evaluator.evaluate(edb.clone());
-
-        let mut db = delta
-            .union(edb);
+    pub fn semi_naive(&mut self, fact_store: &T) {
+        println!("{}", "nonrecursive".blue());
+        let pre_delta = self.nonrecursive_evaluator.evaluate(fact_store.clone());
+        let mut db = fact_store.union(&pre_delta);
+        println!("{}", "deltaified nonrecursive".blue());
+        let mut delta = self.deltaifier.evaluate(pre_delta);
         loop {
             let db_u_delta = db
                 .union(&delta);
+            println!("{}", "recursive".blue());
             let pre_delta = self
                 .recursive_evaluator
                 .evaluate(db_u_delta)
                 .difference(&db);
 
             db = db.union(&pre_delta);
+            println!("{}", "deltaified recursive".blue());
             delta = self.deltaifier.evaluate(pre_delta);
             if delta.is_empty() {
-                self.output = db
-                    .difference(&edb);
+                self.output = db.difference(&fact_store);
                 return;
             }
         }

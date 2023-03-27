@@ -33,3 +33,4 @@ lasso = { git = "https://github.com/Kixiron/lasso.git"}
 lazy_static = "1.4.0"
 clap = "3.1.1"
 phf = { version = "0.11", features = ["macros"] }
+colored = "2.0.0"
