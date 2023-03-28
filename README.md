@@ -118,15 +118,22 @@ mod tests {
          .for_each(|(table_name, query): (&str, UntypedRow)| assert!(!reasoner.contains_row(table_name, &query)));
    }
 }
-
 ```
 
 In case you are interested in performance, there is a benchmark harness under `./src/bin.rs`. In order to run it, clone the project
-and run 
+and run:
 
 ```shell
 cargo run --release -- ./data/lubm1_with_tbox.nt ./data/rdfs.dl chibi true true 0.99 nt true
 ```
+
+This will run three evaluations:
+
+1. First it will materialize 99% of the input data, and report the runtime
+2. Then it will incrementally maintain the materialization, while adding the remaining 1%
+3. Lastly, 1% of the data will be removed.
+
+You can set different percentages, data, program, and else. Just run `--help` to understand what kind of arguments are allowed.
 
 ### Next up
 
