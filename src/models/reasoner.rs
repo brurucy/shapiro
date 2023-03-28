@@ -3,12 +3,14 @@ use crate::models::relational_algebra::Row;
 use ahash::HashMap;
 use indexmap::IndexSet;
 
+pub type UntypedRow = Vec<Box<dyn Ty>>;
+
 // General API
 pub trait Dynamic {
     // Inserts data
-    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>);
+    fn insert(&mut self, table: &str, row: UntypedRow);
     // Marks as deleted
-    fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>);
+    fn delete(&mut self, table: &str, row: &UntypedRow);
 }
 
 // For internal consumption only
@@ -23,7 +25,7 @@ pub trait RelationDropper {
     fn drop_relation(&mut self, table: &str);
 }
 
-pub type Diff<'a> = (bool, (&'a str, Vec<Box<dyn Ty>>));
+pub type Diff<'a> = (bool, (&'a str, UntypedRow));
 
 pub trait Materializer {
     // merges the given program with the already being materialized programs, and updates
@@ -35,7 +37,7 @@ pub trait Materializer {
 }
 
 pub trait Queryable {
-    fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool;
+    fn contains_row(&self, table: &str, row: &UntypedRow) -> bool;
 }
 
 pub type EvaluationResult = HashMap<String, IndexSet<Row, ahash::RandomState>>;

@@ -11,7 +11,7 @@ use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
-use shapiro::models::reasoner::{Diff, Materializer};
+use shapiro::models::reasoner::{Diff, Materializer, UntypedRow};
 use shapiro::reasoning::algorithms::constant_specialization::specialize_to_constants;
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
@@ -20,6 +20,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use shapiro::misc::helpers::terms_to_row;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -356,7 +357,7 @@ fn main() {
 
     facts.iter().enumerate().for_each(|(idx, atom)| {
         let sym = atom.symbol.as_str();
-        let terms: Vec<Box<dyn Ty>> = atom
+        let terms: UntypedRow = atom
             .terms
             .iter()
             .map(|term| match term {
@@ -370,7 +371,7 @@ fn main() {
         } else {
             positive_update.push((true, (sym, terms)));
 
-            let negative_terms: Vec<Box<dyn Ty>> = atom
+            let negative_terms: UntypedRow = atom
                 .terms
                 .iter()
                 .map(|term| match term {

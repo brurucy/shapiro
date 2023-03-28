@@ -5,10 +5,7 @@ use crate::misc::string_interning::Interner;
 use crate::models::datalog::{SugaredProgram, Ty};
 use crate::models::index::IndexBacking;
 use crate::models::instance::{Database, SimpleDatabaseWithIndex};
-use crate::models::reasoner::{
-    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable,
-    RelationDropper,
-};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable, RelationDropper, UntypedRow};
 use crate::models::relational_algebra::{RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_programs};
@@ -203,11 +200,11 @@ where
 }
 
 impl<T: IndexBacking + PartialEq> Dynamic for RelationalDatalog<T> {
-    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+    fn insert(&mut self, table: &str, row: UntypedRow) {
         self.insert_typed(table, ty_to_row(&row))
     }
 
-    fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>) {
+    fn delete(&mut self, table: &str, row: &UntypedRow) {
         self.delete_typed(table, &ty_to_row(row))
     }
 }
@@ -348,7 +345,7 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
 }
 
 impl<T: IndexBacking + PartialEq> Queryable for RelationalDatalog<T> {
-    fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool {
+    fn contains_row(&self, table: &str, row: &UntypedRow) -> bool {
         if let Some(relation) = self.fact_store.storage.get(table) {
             let mut typed_row = Some(ty_to_row(row));
             if self.intern {

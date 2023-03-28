@@ -1,5 +1,6 @@
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, SugaredProgram, Term, Ty};
+use crate::models::datalog::{Program, SugaredProgram, Term};
+use crate::models::reasoner::UntypedRow;
 use crate::models::relational_algebra::Row;
 
 pub fn terms_to_row(terms: Vec<Term>) -> Row {
@@ -16,7 +17,7 @@ pub fn terms_to_row(terms: Vec<Term>) -> Row {
         .collect()
 }
 
-pub fn ty_to_row(tys: &Vec<Box<dyn Ty>>) -> Row {
+pub fn ty_to_row(tys: &UntypedRow) -> Row {
     tys.iter().map(|ty| ty.to_typed_value()).collect()
 }
 

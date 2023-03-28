@@ -95,9 +95,7 @@ pub fn delete_rederive<'a, T>(
 mod tests {
     use crate::models::datalog::{SugaredRule, Ty, TypedValue};
     use crate::models::index::VecIndex;
-    use crate::models::reasoner::{
-        BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable,
-    };
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable, UntypedRow};
     use crate::models::relational_algebra::Row;
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
@@ -324,10 +322,10 @@ mod tests {
 
         chibi.materialize(&program);
 
-        let expected_deletion_1: Vec<Box<dyn Ty>> = vec![Box::new("e"), Box::new("f")];
-        let expected_deletion_2: Vec<Box<dyn Ty>> = vec![Box::new("e"), Box::new("h")];
-        let expected_deletion_3: Vec<Box<dyn Ty>> = vec![Box::new("b"), Box::new("f")];
-        let expected_deletion_4: Vec<Box<dyn Ty>> = vec![Box::new("b"), Box::new("h")];
+        let expected_deletion_1: UntypedRow = vec![Box::new("e"), Box::new("f")];
+        let expected_deletion_2: UntypedRow = vec![Box::new("e"), Box::new("h")];
+        let expected_deletion_3: UntypedRow = vec![Box::new("b"), Box::new("f")];
+        let expected_deletion_4: UntypedRow = vec![Box::new("b"), Box::new("h")];
 
         assert!(chibi.contains_row("reach", &expected_deletion_1));
         assert!(chibi.contains_row("reach", &expected_deletion_2));

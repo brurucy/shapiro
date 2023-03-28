@@ -6,10 +6,7 @@ use crate::misc::helpers::{
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, SugaredRule, Ty};
 use crate::models::instance::{Database, HashSetDatabase};
-use crate::models::reasoner::{
-    BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable,
-    RelationDropper,
-};
+use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable, RelationDropper, UntypedRow};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
 use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_programs};
@@ -25,8 +22,7 @@ pub fn evaluate_rules_sequentially(program: &Program, instance: &HashSetDatabase
         .iter()
         .for_each(|rule| {
             if let Some(eval) = evaluate_rule(&instance, &rule) {
-                eval.into_iter()
-                    .for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
+                eval.into_iter().for_each(|row| out.insert_at(rule.head.relation_id.get(), row))
             }
         });
 
@@ -190,11 +186,11 @@ impl ChibiDatalog {
 }
 
 impl Dynamic for ChibiDatalog {
-    fn insert(&mut self, table: &str, row: Vec<Box<dyn Ty>>) {
+    fn insert(&mut self, table: &str, row: UntypedRow) {
         self.insert_typed(table, ty_to_row(&row))
     }
 
-    fn delete(&mut self, table: &str, row: &Vec<Box<dyn Ty>>) {
+    fn delete(&mut self, table: &str, row: &UntypedRow) {
         self.delete_typed(table, &ty_to_row(row))
     }
 }
@@ -312,7 +308,7 @@ impl RelationDropper for ChibiDatalog {
 }
 
 impl Queryable for ChibiDatalog {
-    fn contains_row(&self, table: &str, row: &Vec<Box<dyn Ty>>) -> bool {
+    fn contains_row(&self, table: &str, row: &UntypedRow) -> bool {
         if let Some(relation_id) = self.interner.rodeo.get(table) {
             let mut typed_row = ty_to_row(row);
             if self.intern {
@@ -380,11 +376,13 @@ mod tests {
         reasoner.insert("edge", vec![Box::new("b"), Box::new("c")]);
         reasoner.insert("edge", vec![Box::new("b"), Box::new("d")]);
 
+        let query = vec![
+            SugaredRule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
+        ];
+
         let new_tuples = reasoner
-            .evaluate_program_bottom_up(&vec![
-                SugaredRule::from("reachable(?x, ?y) <- [edge(?x, ?y)]"),
-                SugaredRule::from("reachable(?x, ?z) <- [reachable(?x, ?y), reachable(?y, ?z)]"),
-            ])
+            .evaluate_program_bottom_up(&query)
             .get("reachable")
             .unwrap()
             .clone();
