@@ -1,5 +1,5 @@
 use crate::models::datalog::TypedValue;
-use std::fmt::{write, Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 pub type Substitution = (u8, TypedValue);
 
@@ -19,12 +19,6 @@ impl Substitutions {
             }
         }
 
-        // let idx = self.inner.partition_point(|item| item.0 < key);
-        // if let Some(value_at_idx) = self.inner.get(idx) {
-        //     if value_at_idx.0 == key {
-        //         return Some(value_at_idx.1.clone());
-        //     }
-        // }
         return None;
     }
 
@@ -32,18 +26,6 @@ impl Substitutions {
         if let None = self.get(value.0) {
             self.inner.push(value)
         }
-
-        // let idx = self.inner.partition_point(|item| item.0 < value.0);
-        // if let Some(value_at_idx) = self.inner.get(idx) {
-        //     if value_at_idx.0 != value.0 {
-        //         self.inner.insert(idx, value.clone());
-        //     } else {
-        //         return None;
-        //     }
-        // } else {
-        //     self.inner.push(value.clone())
-        // }
-        // return Some(value.clone());
     }
     pub fn len(&self) -> usize {
         return self.inner.len();

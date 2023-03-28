@@ -72,7 +72,6 @@ pub fn evaluate_rule(
         .storage
         .iter()
         .map(|(relation_id, row_set)| {
-            row_set.iter().for_each(|row| {});
             (*relation_id, row_set)
         })
         .collect();
@@ -155,7 +154,7 @@ mod tests {
     use crate::models::datalog::{Atom, SugaredRule, Ty};
     use crate::models::index::VecIndex;
     use crate::models::instance::{Database, HashSetDatabase, IndexedHashSetBacking};
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, Queryable};
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
     use crate::reasoning::algorithms::rewriting::evaluate_rule;
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
     use crate::reasoning::reasoners::relational::RelationalDatalog;

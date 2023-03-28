@@ -332,12 +332,13 @@ fn main() {
     let facts: Vec<SugaredAtom> = parser.read_fact_file(&data_path).collect();
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
-    let mut batch_size: usize = 0;
-    if cutoff == 0 {
-        batch_size = facts.len();
-    } else {
-        batch_size = cutoff
-    }
+    let batch_size: usize = {
+        if cutoff == 0 {
+            facts.len()
+        } else {
+            cutoff
+        }
+    };
 
     println!(
         "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
@@ -384,20 +385,16 @@ fn main() {
 
     evaluator.materialize(&sugared_program);
     println!("{}", "Initial materialization".purple());
-    let now = Instant::now();
+    //let now = Instant::now();
     evaluator.update(initial_materialization);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
+    //println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
     println!("{}", "Positive Update".purple());
-    let now = Instant::now();
     evaluator.update(positive_update);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
     println!("{}", "Negative Update".purple());
-    let now = Instant::now();
     evaluator.update(negative_update);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 }

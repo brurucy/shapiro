@@ -1,3 +1,5 @@
+use std::time::Instant;
+use colored::Colorize;
 use crate::misc::helpers::{idempotent_program_weak_intern, ty_to_row};
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{SugaredProgram, Ty};
@@ -13,7 +15,7 @@ use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_pr
 use crate::reasoning::algorithms::evaluation::{ImmediateConsequenceOperator, IncrementalEvaluation};
 use rayon::prelude::*;
 
-pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
     let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
 
     sugared_program.iter().for_each(|(sym, expr)| {
@@ -34,7 +36,7 @@ pub fn evaluate_rules_sequentially<T : IndexBacking>(sugared_program: &Vec<(Stri
     return out;
 }
 
-pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &Vec<(String, RelationalExpression)>, instance: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
     let mut out: SimpleDatabaseWithIndex<T> = SimpleDatabaseWithIndex::new(Interner::default());
 
     sugared_program
@@ -64,7 +66,7 @@ pub fn evaluate_rules_in_parallel<T : IndexBacking>(sugared_program: &Vec<(Strin
     return out;
 }
 
-pub fn key_program_by_symbol(sugared_program: &SugaredProgram) -> (Vec<(String, RelationalExpression)>) {
+pub fn key_program_by_symbol(sugared_program: &SugaredProgram) -> Vec<(String, RelationalExpression)> {
     return sugared_program
         .iter()
         .map(|rule| {
@@ -76,10 +78,27 @@ pub fn key_program_by_symbol(sugared_program: &SugaredProgram) -> (Vec<(String, 
         .collect()
 }
 
+pub fn deltaify_idb_by_renaming<T : IndexBacking>(
+    deltaify_idb_program: &SugaredProgram,
+    fact_store: &SimpleDatabaseWithIndex<T>,
+) -> SimpleDatabaseWithIndex<T> {
+
+    let mut out = fact_store.clone();
+    deltaify_idb_program
+        .iter()
+        .for_each(|rule| {
+            if let Some(relation) = fact_store.storage.get(&(rule.body[0].symbol)) {
+                out.storage.insert(rule.head.symbol.clone(), relation.clone());
+            }
+        });
+
+    return out
+}
+
 pub struct RelationalAlgebra {
     pub nonrecursive_program: Vec<(String, RelationalExpression)>,
     pub recursive_program: Vec<(String, RelationalExpression)>,
-    pub deltaifying_program: Vec<(String, RelationalExpression)>,
+    pub deltaifying_program: SugaredProgram,
 }
 
 impl RelationalAlgebra {
@@ -91,21 +110,21 @@ impl RelationalAlgebra {
         return RelationalAlgebra {
             nonrecursive_program: key_program_by_symbol(nonrecursive_program),
             recursive_program: key_program_by_symbol(recursive_program),
-            deltaifying_program: key_program_by_symbol(deltaifying_program),
+            deltaifying_program: deltaifying_program.clone(),
         };
     }
 }
 
 impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> for RelationalAlgebra {
-    fn deltaify_idb(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
-        return evaluate_rules_sequentially(&self.deltaifying_program, fact_store);
+    fn deltaify_idb(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return deltaify_idb_by_renaming(&self.deltaifying_program, fact_store);
     }
 
-    fn nonrecursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    fn nonrecursive_program(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
         return evaluate_rules_sequentially(&self.nonrecursive_program, fact_store);
     }
 
-    fn recursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    fn recursive_program(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
         return evaluate_rules_sequentially(&self.recursive_program, fact_store);
     }
 }
@@ -113,7 +132,7 @@ impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> 
 pub struct ParallelRelationalAlgebra {
     pub nonrecursive_program: Vec<(String, RelationalExpression)>,
     pub recursive_program: Vec<(String, RelationalExpression)>,
-    pub deltaifying_program: Vec<(String, RelationalExpression)>,
+    pub deltaifying_program: SugaredProgram,
 }
 
 impl ParallelRelationalAlgebra {
@@ -125,21 +144,21 @@ impl ParallelRelationalAlgebra {
         return ParallelRelationalAlgebra {
             nonrecursive_program: key_program_by_symbol(nonrecursive_program),
             recursive_program: key_program_by_symbol(recursive_program),
-            deltaifying_program: key_program_by_symbol(deltaifying_program),
+            deltaifying_program: deltaifying_program.clone(),
         };
     }
 }
 
 impl<T : IndexBacking> ImmediateConsequenceOperator<SimpleDatabaseWithIndex<T>> for ParallelRelationalAlgebra {
-    fn deltaify_idb(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
-        return evaluate_rules_in_parallel(&self.deltaifying_program, fact_store);
+    fn deltaify_idb(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+        return deltaify_idb_by_renaming(&self.deltaifying_program, fact_store);
     }
 
-    fn nonrecursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    fn nonrecursive_program(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
         return evaluate_rules_in_parallel(&self.nonrecursive_program, fact_store);
     }
 
-    fn recursive_program(&self, fact_store: SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
+    fn recursive_program(&self, fact_store: &SimpleDatabaseWithIndex<T>) -> SimpleDatabaseWithIndex<T> {
         return evaluate_rules_in_parallel(&self.recursive_program, fact_store);
     }
 }
@@ -263,7 +282,9 @@ impl<T: IndexBacking + PartialEq> BottomUpEvaluator for RelationalDatalog<T> {
             evaluation.immediate_consequence_operator = Box::new(RelationalAlgebra::new(&programs[0], &programs[1], &programs[2]));
         }
 
+        let now = Instant::now();
         evaluation.semi_naive(&self.fact_store);
+        println!("{} {}", "inference time:".green(), now.elapsed().as_millis().to_string().green());
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),

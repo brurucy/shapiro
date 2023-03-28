@@ -1,6 +1,5 @@
 use crate::models::datalog::SugaredRule;
 use ahash::HashSet;
-use crate::models::instance::Database;
 
 pub const DELTA_PREFIX: &'static str = "Δ";
 

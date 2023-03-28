@@ -2,7 +2,6 @@ use crate::models::datalog::SugaredRule;
 use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
-use std::time::Instant;
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";

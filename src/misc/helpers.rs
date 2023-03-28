@@ -1,4 +1,3 @@
-use crate::misc::rule_graph::sort_program;
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, Term, Ty};
 use crate::models::relational_algebra::Row;

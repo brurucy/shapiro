@@ -1,8 +1,10 @@
+use std::time::Instant;
+use colored::Colorize;
 use crate::misc::helpers::{
     idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
 };
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, Rule, SugaredProgram, SugaredRule, Ty};
+use crate::models::datalog::{Program, SugaredProgram, SugaredRule, Ty};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{
     BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable,
@@ -16,7 +18,7 @@ use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use lasso::{Key, Spur};
 use rayon::prelude::*;
 
-pub fn evaluate_rules_sequentially(program: &Program, instance: HashSetDatabase) -> HashSetDatabase {
+pub fn evaluate_rules_sequentially(program: &Program, instance: &HashSetDatabase) -> HashSetDatabase {
     let mut out: HashSetDatabase = Default::default();
 
     program
@@ -31,13 +33,13 @@ pub fn evaluate_rules_sequentially(program: &Program, instance: HashSetDatabase)
     return out;
 }
 
-pub fn evaluate_rules_in_parallel(program: &Program, instance: HashSetDatabase) -> HashSetDatabase {
+pub fn evaluate_rules_in_parallel(program: &Program, instance: &HashSetDatabase) -> HashSetDatabase {
     let mut out: HashSetDatabase = Default::default();
 
     program
         .par_iter()
         .filter_map(|rule| {
-            if let Some(eval) = evaluate_rule(&instance, &rule) {
+            if let Some(eval) = evaluate_rule(instance, &rule) {
                 return Some((rule.head.relation_id.get(), eval));
             }
 
@@ -74,15 +76,15 @@ impl Rewriting {
 }
 
 impl ImmediateConsequenceOperator<HashSetDatabase> for Rewriting {
-    fn deltaify_idb(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
-        return evaluate_rules_sequentially(&self.deltaifying_program, fact_store);
+    fn deltaify_idb(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
+        return deltaify_idb_by_renaming(&self.deltaifying_program, fact_store)
     }
 
-    fn nonrecursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+    fn nonrecursive_program(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
         return evaluate_rules_sequentially(&self.nonrecursive_program, fact_store);
     }
 
-    fn recursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+    fn recursive_program(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
         return evaluate_rules_sequentially(&self.recursive_program, fact_store);
     }
 }
@@ -107,16 +109,33 @@ impl ParallelRewriting {
     }
 }
 
+pub fn deltaify_idb_by_renaming(
+    deltaify_idb_program: &Program,
+    fact_store: &HashSetDatabase,
+) -> HashSetDatabase {
+
+    let mut out = fact_store.clone();
+    deltaify_idb_program
+        .iter()
+        .for_each(|rule| {
+            if let Some(relation) = fact_store.storage.get(&(rule.body[0].relation_id.get())) {
+                out.storage.insert(rule.head.relation_id.get(), relation.clone());
+            }
+        });
+
+    return out
+}
+
 impl ImmediateConsequenceOperator<HashSetDatabase> for ParallelRewriting {
-    fn deltaify_idb(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
-        return evaluate_rules_in_parallel(&self.deltaifying_program, fact_store);
+    fn deltaify_idb(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
+        return deltaify_idb_by_renaming(&self.deltaifying_program, fact_store)
     }
 
-    fn nonrecursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+    fn nonrecursive_program(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
         return evaluate_rules_in_parallel(&self.nonrecursive_program, fact_store);
     }
 
-    fn recursive_program(&self, fact_store: HashSetDatabase) -> HashSetDatabase {
+    fn recursive_program(&self, fact_store: &HashSetDatabase) -> HashSetDatabase {
         return evaluate_rules_in_parallel(&self.recursive_program, fact_store);
     }
 }
@@ -207,13 +226,15 @@ impl BottomUpEvaluator for ChibiDatalog {
             })
             .collect();
 
-        let mut im_op = Box::new(ParallelRewriting::new(&programs[0], &programs[1], &programs[2]));
+        let im_op = Box::new(ParallelRewriting::new(&programs[0], &programs[1], &programs[2]));
         let mut evaluation = self.new_evaluation(im_op);
         if !self.parallel {
             evaluation.immediate_consequence_operator = Box::new(Rewriting::new(&programs[0], &programs[1], &programs[2]));
         }
 
+        let now = Instant::now();
         evaluation.semi_naive(&self.fact_store);
+        println!("{} {}", "inference time:".green(), now.elapsed().as_millis().to_string().green());
 
         return evaluation.output.storage.into_iter().fold(
             Default::default(),
