@@ -1,14 +1,14 @@
-use crate::data_structures::hashmap::IndexedHashMap;
 use crate::data_structures::spine::Spine;
-use crate::misc::generic_binary_join::generic_join_for_each;
+use crate::misc::joins::sort_merge_join;
 use crate::models::datalog::TypedValue;
 use im::{HashMap, Vector};
+use indexmap::IndexMap;
 use rayon::prelude::*;
 use std::collections::BTreeSet;
 
 pub type ValueRowId = (TypedValue, usize);
 pub type HashMapIndex = HashMap<TypedValue, Vec<usize>, ahash::RandomState>;
-pub type IndexedHashMapIndex = IndexedHashMap<TypedValue, Vec<usize>>;
+pub type IndexedHashMapIndex = IndexMap<TypedValue, Vec<usize>, ahash::RandomState>;
 pub type ImmutableVectorIndex = Vector<ValueRowId>;
 pub type VecIndex = Vec<ValueRowId>;
 pub type SpineIndex = Spine<ValueRowId>;
@@ -25,7 +25,7 @@ impl IndexBacking for BTreeIndex {
         return self.insert(value);
     }
     fn join(&self, other: &BTreeIndex, f: impl FnMut(usize, usize)) {
-        generic_join_for_each(self, other, f);
+        sort_merge_join(self, other, f);
     }
 }
 
@@ -34,7 +34,7 @@ impl IndexBacking for SpineIndex {
         return self.insert(value);
     }
     fn join(&self, other: &SpineIndex, f: impl FnMut(usize, usize)) {
-        generic_join_for_each(self, other, f);
+        sort_merge_join(self, other, f);
     }
 }
 
@@ -52,7 +52,7 @@ impl IndexBacking for VecIndex {
                 right.par_sort_unstable();
             },
         );
-        generic_join_for_each(&left, &right, f);
+        sort_merge_join(&left, &right, f);
     }
 }
 
@@ -71,7 +71,7 @@ impl IndexBacking for ImmutableVectorIndex {
                 right.sort();
             },
         );
-        generic_join_for_each(&left, &right, f);
+        sort_merge_join(&left, &right, f);
     }
 }
 
@@ -90,7 +90,7 @@ impl IndexBacking for IndexedHashMapIndex {
             if let Some(right_row_set) = other.get(value) {
                 left_row_set.iter().for_each(|left_row_idx| {
                     right_row_set.iter().for_each(|right_row_idx| {
-                        f(*left_row_idx, *right_row_idx);
+                        f(left_row_idx.clone(), right_row_idx.clone());
                     })
                 })
             }
@@ -113,7 +113,7 @@ impl IndexBacking for HashMapIndex {
             if let Some(right_row_set) = other.get(value) {
                 left_row_set.iter().for_each(|left_row_idx| {
                     right_row_set.iter().for_each(|right_row_idx| {
-                        f(*left_row_idx, *right_row_idx);
+                        f(left_row_idx.clone(), right_row_idx.clone());
                     })
                 })
             }

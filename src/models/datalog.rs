@@ -1,9 +1,11 @@
+use crate::misc::string_interning::Interner;
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 
-use crate::parsers::datalog::{parse_atom, parse_rule};
+use crate::parsers::datalog::{parse_sugared_atom, parse_sugared_rule};
 
 // TypedValue are the allowed types in the datalog model. Not canonical.
 #[derive(Eq, PartialEq, Clone, Debug, Hash, PartialOrd, Ord)]
@@ -12,7 +14,7 @@ pub enum TypedValue {
     Bool(bool),
     UInt(u32),
     // Internal type, lives only inside the reasoner
-    InternedStr(usize),
+    InternedStr(NonZeroU32),
     Float(OrderedFloat<f64>),
 }
 
@@ -72,8 +74,8 @@ impl Into<Box<dyn Ty>> for TypedValue {
     }
 }
 
-// Ty is a short-lived type used only to allow for the convenience of being able to use regular vanilla
-// rust types.
+// Ty is a short-lived type used only to allow for the convenience of being able to use regular
+// vanilla rust types.
 pub trait Ty {
     fn to_typed_value(&self) -> TypedValue;
 }
@@ -111,10 +113,10 @@ impl Ty for f64 {
 impl Display for TypedValue {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            TypedValue::Str(inner) => write!(f, "Str{}", inner),
-            TypedValue::Bool(inner) => write!(f, "Bool{}", inner),
-            TypedValue::UInt(inner) => write!(f, "UInt{}", inner),
-            TypedValue::Float(inner) => write!(f, "Float{}", inner),
+            TypedValue::Str(inner) => write!(f, "{}", inner),
+            TypedValue::Bool(inner) => write!(f, "{}", inner),
+            TypedValue::UInt(inner) => write!(f, "{}", inner),
+            TypedValue::Float(inner) => write!(f, "{}", inner),
             TypedValue::InternedStr(inner) => write!(f, "IStr{}", inner),
         }
     }
@@ -147,22 +149,50 @@ impl Display for Term {
     }
 }
 
-// A Sign represents whether the Atom is a negation or not. At the moment it is not used.
-#[derive(PartialEq, Eq, Clone, Debug, PartialOrd, Ord, Hash)]
-pub enum Sign {
-    Positive,
-    Negative,
-}
+pub type SugaredProgram = Vec<SugaredRule>;
 
-// An Atom is a collection of Terms with a Symbol.
-#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
-pub struct Atom {
+// Used strictly for program transformations
+#[derive(Clone, Ord, PartialOrd, Debug)]
+pub struct SugaredAtom {
     pub terms: Vec<Term>,
     pub symbol: String,
-    pub sign: Sign,
+    pub positive: bool,
 }
 
-impl Display for Atom {
+// An atom is equivalent to another, if and only if they both have the same arity and all of their
+// constants match in the same position
+impl PartialEq for SugaredAtom {
+    fn eq(&self, other: &Self) -> bool {
+        if self.terms.len() != other.terms.len() {
+            return false;
+        }
+
+        for i in 0..(self.terms).len() {
+            match (&self.terms[i], &other.terms[i]) {
+                (Term::Constant(left_inner), Term::Constant(right_inner)) => {
+                    if left_inner != right_inner {
+                        return false;
+                    }
+                }
+                (Term::Variable(_), Term::Constant(_)) => return false,
+                (Term::Constant(_), Term::Variable(_)) => return false,
+                _ => (),
+            };
+        }
+
+        return true;
+    }
+}
+
+impl Eq for SugaredAtom {}
+
+impl From<&str> for SugaredAtom {
+    fn from(str: &str) -> Self {
+        return parse_sugared_atom(str);
+    }
+}
+
+impl Display for SugaredAtom {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let terms: String = self
             .terms
@@ -177,33 +207,131 @@ impl Display for Atom {
     }
 }
 
-impl From<&str> for Atom {
+impl Default for SugaredAtom {
+    fn default() -> Self {
+        Self {
+            terms: vec![],
+            symbol: "".to_string(),
+            positive: true,
+        }
+    }
+}
+
+impl Hash for SugaredAtom {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.symbol.hash(state);
+        self.positive.hash(state);
+        for term in &self.terms {
+            match term {
+                Term::Constant(inner) => inner.hash(state),
+                // Identity hashing
+                _ => 0.hash(state),
+            }
+        }
+    }
+}
+
+#[derive(Clone, Ord, PartialOrd, Hash, Debug)]
+pub struct SugaredRule {
+    pub head: SugaredAtom,
+    pub body: Vec<SugaredAtom>,
+}
+
+impl PartialEq for SugaredRule {
+    fn eq(&self, other: &Self) -> bool {
+        self.head == other.head && self.body == other.body
+    }
+}
+
+impl Eq for SugaredRule {}
+
+impl From<&str> for SugaredRule {
     fn from(str: &str) -> Self {
-        return parse_atom(str);
+        return parse_sugared_rule(str);
+    }
+}
+
+impl Display for SugaredRule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let body = self.body.iter().map(|atom| atom.to_string()).join(", ");
+        write!(f, "{} <- [{}]", self.head, body)
+    }
+}
+
+impl Default for SugaredRule {
+    fn default() -> Self {
+        Self {
+            head: SugaredAtom::default(),
+            body: vec![],
+        }
+    }
+}
+
+pub type Program = Vec<Rule>;
+
+// Used for computation.
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub struct Atom {
+    pub terms: Vec<Term>,
+    pub relation_id: NonZeroU32,
+    pub positive: bool,
+}
+
+impl Display for Atom {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let terms: String = self
+            .terms
+            .clone()
+            .into_iter()
+            .map(|term| term.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+        let atom_representation: String = format!("({})", terms);
+
+        write!(f, "{}{}", self.relation_id, atom_representation)
     }
 }
 
 impl Hash for Atom {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.symbol.hash(state);
-        self.sign.hash(state);
+        self.relation_id.hash(state);
+        self.positive.hash(state);
         for term in &self.terms {
             term.hash(state)
         }
     }
 }
 
-pub type Body = Vec<Atom>;
+impl Default for Atom {
+    fn default() -> Self {
+        Self {
+            terms: vec![],
+            relation_id: NonZeroU32::new(1).unwrap(),
+            positive: true,
+        }
+    }
+}
+
+impl Atom {
+    pub(crate) fn from_str_with_interner(str: &str, interner: &mut Interner) -> Self {
+        let sugared_atom = parse_sugared_atom(str);
+
+        return interner.intern_atom_weak(&sugared_atom);
+    }
+}
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Rule {
     pub head: Atom,
-    pub body: Body,
+    pub body: Vec<Atom>,
 }
 
-impl From<&str> for Rule {
-    fn from(str: &str) -> Self {
-        return parse_rule(str);
+impl Default for Rule {
+    fn default() -> Self {
+        Self {
+            head: Atom::default(),
+            body: vec![],
+        }
     }
 }
 
@@ -214,4 +342,23 @@ impl Display for Rule {
     }
 }
 
-pub type Program = Vec<Rule>;
+#[cfg(test)]
+mod tests {
+    use crate::models::datalog::{SugaredAtom, SugaredRule};
+
+    #[test]
+    fn test_atom_eq() {
+        let left_atom = SugaredAtom::from("T_rdf:type(?x, ?y)");
+        let right_atom = SugaredAtom::from("T_rdf:type(?y, ?x)");
+
+        assert_eq!(left_atom, right_atom)
+    }
+
+    #[test]
+    fn test_rule_eq() {
+        let left_rule = SugaredRule::from("T_rdf:type(?x, ?y) <- [T(?x, rdf:type, ?y)]");
+        let right_rule = SugaredRule::from("T_rdf:type(?y, ?x) <- [T(?y, rdf:type, ?x)]");
+
+        assert_eq!(left_rule, right_rule)
+    }
+}

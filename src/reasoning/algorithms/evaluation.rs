@@ -1,69 +1,84 @@
-use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
+use crate::models::instance::Database;
+use colored::Colorize;
+use std::time::Instant;
 
-pub trait InstanceEvaluator<T>
+pub trait ImmediateConsequenceOperator<T>
 where
-    T: IndexBacking,
+    T: Database,
 {
-    fn evaluate(&self, _: &Instance<T>) -> Vec<Relation<T>>;
+    fn deltaify_idb(&self, _: &T) -> T;
+    fn nonrecursive_program(&self, _: &T) -> T;
+    fn recursive_program(&self, _: &T) -> T;
 }
 
-pub struct Evaluation<'a, T>
-where
-    T: IndexBacking,
-{
-    pub input: &'a Instance<T>,
-    pub evaluator: Box<dyn InstanceEvaluator<T>>,
-    pub previous_delta: Instance<T>,
-    pub current_delta: Instance<T>,
-    pub output: Instance<T>,
+pub trait Set {
+    fn union(&self, other: &Self) -> Self;
+    fn difference(&self, other: &Self) -> Self;
+    fn merge(&mut self, other: Self);
 }
 
-impl<'a, T> Evaluation<'a, T>
-where
-    T: IndexBacking,
-{
-    pub(crate) fn new(instance: &'a Instance<T>, evaluator: Box<dyn InstanceEvaluator<T>>) -> Self {
+pub trait Empty {
+    fn is_empty(&self) -> bool;
+}
+
+pub struct IncrementalEvaluation<T: Database + Set + Empty> {
+    pub immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>,
+    pub output: T,
+}
+
+// Evaluation should be different for updates. At the moment it is sub optimal.
+impl<T: Database + Set + Empty> IncrementalEvaluation<T> {
+    pub(crate) fn new(
+        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>
+    ) -> Self {
         return Self {
-            input: instance,
-            evaluator,
-            previous_delta: Instance::new(instance.use_indexes),
-            current_delta: Instance::new(instance.use_indexes),
-            output: Instance::new(instance.use_indexes),
+            immediate_consequence_operator,
+            output: Default::default(),
         };
     }
-    fn semi_naive_immediate_consequence(&mut self) {
-        self.previous_delta = self.current_delta.clone();
-        let mut input_plus_previous_delta = self.input.clone();
-        self.previous_delta.database.iter().for_each(|relation| {
-            relation.1.ward.iter().for_each(|(row, active)| {
-                if *active {
-                    input_plus_previous_delta.insert_typed(&relation.0, row.clone())
-                }
-            })
-        });
-
-        self.current_delta = Instance::new(self.input.use_indexes);
-
-        let evaluation = self.evaluator.evaluate(&input_plus_previous_delta);
-
-        evaluation.iter().for_each(|relation| {
-            relation.ward.iter().for_each(|(row, active)| {
-                if *active {
-                    self.current_delta
-                        .insert_typed(&relation.symbol, row.clone());
-                    self.output.insert_typed(&relation.symbol, row.clone());
-                }
-            })
-        });
-    }
-    pub fn semi_naive(&mut self) {
+    pub fn semi_naive(&mut self, fact_store: &T) {
+        // println!("{}", "nonrecursive".blue());
+        // let now = Instant::now();
+        let pre_delta = self
+            .immediate_consequence_operator
+            .nonrecursive_program(fact_store);
+        // println!(
+        //     "duration: {}",
+        //     now.elapsed().as_millis().to_string().green()
+        // );
+        let mut db = fact_store.union(&pre_delta);
+        //println!("{}", "deltaified nonrecursive".blue());
+        // let now = Instant::now();
+        let mut delta = self
+            .immediate_consequence_operator
+            .deltaify_idb(&db);
+        // println!(
+        //     "duration: {}",
+        //     now.elapsed().as_millis().to_string().green()
+        // );
         loop {
-            self.semi_naive_immediate_consequence();
-
-            if self.previous_delta == self.current_delta {
-                break;
+            let db_u_delta = db.union(&delta);
+            //println!("{}", "recursive".blue());
+            // let now = Instant::now();
+            let pre_delta = self
+                .immediate_consequence_operator
+                .recursive_program(&db_u_delta)
+                .difference(&db);
+            // println!(
+            //     "duration: {}",
+            //     now.elapsed().as_millis().to_string().green()
+            // );
+            db = db.union(&pre_delta);
+            //println!("{}", "deltaified recursive".blue());
+            // let now = Instant::now();
+            delta = self.immediate_consequence_operator.deltaify_idb(&pre_delta);
+            // println!(
+            //     "duration: {}",
+            //     now.elapsed().as_millis().to_string().green()
+            // );
+            if delta.is_empty() {
+                self.output = db.difference(&fact_store);
+                return;
             }
         }
     }

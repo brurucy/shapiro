@@ -1,11 +1,11 @@
 use crate::data_structures::substitutions::Substitutions;
-use crate::models::datalog::{Atom, Body, Rule, Sign, Term};
-use crate::models::index::IndexBacking;
-use crate::models::instance::Instance;
-use crate::models::relational_algebra::Relation;
-use rayon::prelude::*;
+use crate::misc::helpers::terms_to_row;
+use crate::misc::joins::nested_loop_join;
+use crate::models::datalog::{Atom, Rule, Term};
+use crate::models::instance::{HashSetDatabase, IndexedHashSetBacking};
+use std::num::NonZeroU32;
 
-pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
+pub fn unify(left: &Atom, right: &Atom) -> Option<Substitutions> {
     let mut substitution: Substitutions = Default::default();
 
     let left_and_right = left.terms.iter().zip(right.terms.iter());
@@ -19,11 +19,11 @@ pub fn make_substitutions(left: &Atom, right: &Atom) -> Option<Substitutions> {
             }
             (Term::Variable(left_variable), Term::Constant(right_constant)) => {
                 if let Some(constant) = substitution.get(*left_variable) {
-                    if constant.clone() != *right_constant {
+                    if constant != right_constant {
                         return None;
                     }
                 } else {
-                    substitution.insert((left_variable.clone(), right_constant.clone()));
+                    substitution.insert((*left_variable, right_constant.clone()));
                 }
             }
             _ => {}
@@ -37,49 +37,19 @@ pub fn attempt_to_rewrite(rewrite: &Substitutions, atom: &Atom) -> Atom {
     return Atom {
         terms: atom
             .terms
-            .clone()
-            .into_iter()
+            .iter()
             .map(|term| {
-                if let Term::Variable(identifier) = term.clone() {
-                    if let Some(constant) = rewrite.get(identifier) {
+                if let Term::Variable(identifier) = term {
+                    if let Some(constant) = rewrite.get(*identifier) {
                         return Term::Constant(constant.clone());
                     }
                 }
-                return term;
+                return term.clone();
             })
             .collect(),
-        symbol: atom.clone().symbol,
-        sign: atom.clone().sign,
+        relation_id: atom.relation_id,
+        positive: atom.positive,
     };
-}
-
-pub fn generate_all_substitutions<T>(
-    knowledge_base: &Instance<T>,
-    target_atom: &Atom,
-) -> Vec<Substitutions>
-where
-    T: IndexBacking,
-{
-    let relation = knowledge_base.view(&target_atom.symbol);
-
-    return relation
-        .into_par_iter()
-        .filter_map(|row| {
-            let term_vec = row
-                .into_iter()
-                .map(|row_element| Term::Constant(row_element.clone()))
-                .collect();
-
-            return make_substitutions(
-                target_atom,
-                &Atom {
-                    terms: term_vec,
-                    symbol: target_atom.symbol.to_string(),
-                    sign: Sign::Positive,
-                },
-            );
-        })
-        .collect();
 }
 
 pub fn is_ground(atom: &Atom) -> bool {
@@ -94,227 +64,216 @@ pub fn is_ground(atom: &Atom) -> bool {
     return true;
 }
 
-pub fn accumulate_substitutions<T>(
-    knowledge_base: &Instance<T>,
-    target_atom: &Atom,
-    input_substitutions: Vec<Substitutions>,
-) -> Vec<Substitutions>
-where
-    T: IndexBacking,
-{
-    return input_substitutions
+pub fn evaluate_rule(
+    knowledge_base: &HashSetDatabase,
+    rule: &Rule,
+) -> Option<IndexedHashSetBacking> {
+    let borrowed_knowledge_base: Vec<_> = knowledge_base
+        .storage
         .iter()
-        .fold(vec![], |mut acc, substitution| {
-            let rewrite_attempt = &attempt_to_rewrite(substitution, target_atom);
-            if !is_ground(rewrite_attempt) {
-                let mut new_substitutions: Vec<Substitutions> =
-                    generate_all_substitutions(knowledge_base, rewrite_attempt)
+        .map(|(relation_id, row_set)| {
+            (*relation_id, row_set)
+        })
+        .collect();
+
+    let mut out: IndexedHashSetBacking = Default::default();
+
+    let head = rule.head.clone();
+
+    let goals: Vec<(usize, &Atom)> = rule.body.iter().enumerate().collect();
+
+    let mut subs_product = vec![(0usize, Substitutions::default())];
+    for current_atom_id in 0..goals.len() {
+        let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions))> = vec![];
+        subs_product = subs_product
+            .into_iter()
+            .filter(|(round, _)| *round == current_atom_id)
+            .collect();
+
+        nested_loop_join(
+            &vec![goals[current_atom_id]],
+            &subs_product,
+            |current_local_atom_id, left_value, subs| {
+                let rewrite_attempt = attempt_to_rewrite(subs, left_value);
+                let current_goal_x_sub = (
+                    left_value.relation_id.get(),
+                    (*current_local_atom_id, rewrite_attempt, subs.clone()),
+                );
+                current_goals_x_subs.push(current_goal_x_sub.clone());
+            },
+        );
+
+        nested_loop_join(
+            &borrowed_knowledge_base,
+            &current_goals_x_subs,
+            |key, relation, (current_local_atom_id, rewrite_attempt, previous_subs)| {
+                relation.iter().for_each(|ground_fact| {
+                    let ground_terms = ground_fact
                         .iter()
-                        .map(|inner_sub| {
-                            let mut outer_sub = substitution.clone();
-                            let inner_sub_cl = inner_sub;
-                            outer_sub.extend(inner_sub_cl);
-                            return outer_sub;
-                        })
+                        .map(|typed_value| return Term::Constant(typed_value.clone()))
                         .collect();
-                acc.append(&mut new_substitutions)
-            }
-            acc
-        });
-}
 
-pub fn accumulate_body_substitutions<T>(
-    knowledge_base: &Instance<T>,
-    body: Body,
-) -> Vec<Substitutions>
-where
-    T: IndexBacking,
-{
-    return body
-        .into_iter()
-        .fold(vec![Default::default()], |acc, item| {
-            accumulate_substitutions(knowledge_base, &item, acc)
-        });
-}
+                    let proposed_atom = Atom {
+                        terms: ground_terms,
+                        relation_id: NonZeroU32::try_from(*key).unwrap(),
+                        positive: true,
+                    };
 
-pub fn ground_head<T>(head: &Atom, substitutions: Vec<Substitutions>) -> Option<Relation<T>>
-where
-    T: IndexBacking,
-{
-    let mut output_instance = Instance::new(false);
+                    if let Some(new_subs) = unify(rewrite_attempt, &proposed_atom) {
+                        let mut extended_subs = previous_subs.clone();
+                        extended_subs.extend(new_subs);
 
-    substitutions.into_iter().for_each(|substitutions| {
-        let rewrite_attempt = attempt_to_rewrite(&substitutions, head);
-        output_instance.insert_atom(&rewrite_attempt);
-    });
-
-    if let Some(relation) = output_instance.database.get(&head.symbol) {
-        return Some(relation.clone());
+                        subs_product.push((current_local_atom_id + 1, extended_subs));
+                    }
+                })
+            },
+        );
     }
-    return None;
-}
 
-pub fn evaluate_rule<T>(knowledge_base: &Instance<T>, rule: &Rule) -> Option<Relation<T>>
-where
-    T: IndexBacking,
-{
-    return ground_head(
-        &rule.head,
-        accumulate_body_substitutions(knowledge_base, rule.clone().body),
-    );
+    subs_product
+        .into_iter()
+        .filter(|(local_atom_id, _)| *local_atom_id == goals.len())
+        .for_each(|(_local_atom_id, subs)| {
+            let fresh_atom = attempt_to_rewrite(&subs, &head);
+            if is_ground(&fresh_atom) {
+                out.insert(terms_to_row(fresh_atom.terms));
+            }
+        });
+
+    if out.is_empty() {
+        return None;
+    }
+
+    return Some(out);
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::data_structures::substitutions::Substitutions;
-    use crate::models::datalog::{Atom, Rule, TypedValue};
-    use crate::models::index::BTreeIndex;
-    use crate::models::instance::Instance;
-    use crate::reasoning::algorithms::rewriting::{
-        accumulate_body_substitutions, accumulate_substitutions, attempt_to_rewrite, is_ground,
-        make_substitutions,
-    };
-
-    use super::generate_all_substitutions;
-
-    #[test]
-    fn test_make_substitution() {
-        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-        let data_0 = Atom::from("edge(a,b)");
-
-        if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
-            let expected_sub: Substitutions = Substitutions {
-                inner: vec![
-                    (0, TypedValue::Str("a".to_string())),
-                    (1, TypedValue::Str("b".to_string())),
-                ],
-            };
-            assert_eq!(sub, expected_sub);
-        } else {
-            panic!()
-        };
-    }
+    use crate::misc::helpers::terms_to_row;
+    use crate::misc::string_interning::Interner;
+    use crate::models::datalog::{Atom, SugaredRule, Ty};
+    use crate::models::index::VecIndex;
+    use crate::models::instance::{Database, HashSetDatabase, IndexedHashSetBacking};
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic};
+    use crate::reasoning::algorithms::rewriting::evaluate_rule;
+    use crate::reasoning::reasoners::chibi::ChibiDatalog;
+    use crate::reasoning::reasoners::relational::RelationalDatalog;
 
     #[test]
-    fn test_attempt_to_substitute() {
-        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-        let data_0 = Atom::from("edge(a,b)");
+    fn test_pathological_case() {
+        let mut chibi = ChibiDatalog::new(false, false);
+        let mut relational = RelationalDatalog::<VecIndex>::new(false, false);
 
-        if let Some(sub) = make_substitutions(&rule_atom_0, &data_0) {
-            assert_eq!(data_0, attempt_to_rewrite(&sub, &rule_atom_0))
-        } else {
-            panic!()
-        };
-    }
-
-    #[test]
-    fn test_ground_atom() {
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
-        let rule_atom_0 = Atom::from("edge(?X, ?Y)");
-        fact_store.insert_atom(&Atom::from("edge(a, b)"));
-        fact_store.insert_atom(&Atom::from("edge(b, c)"));
-
-        let subs = generate_all_substitutions(&fact_store, &rule_atom_0);
-        assert_eq!(
-            subs,
-            vec![
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("a".to_string())),
-                        (1, TypedValue::Str("b".to_string())),
-                    ]
-                },
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("b".to_string())),
-                        (1, TypedValue::Str("c".to_string())),
-                    ]
-                },
-            ]
-        )
-    }
-
-    #[test]
-    fn test_is_ground() {
-        let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let data_0 = Atom::from("T(student, takesClassesFrom, PLlab)");
-
-        assert_eq!(is_ground(&rule_atom_0), false);
-        assert_eq!(is_ground(&data_0), true)
-    }
-
-    #[test]
-    fn test_extend_substitutions() {
-        let rule_atom_0 = Atom::from("T(?X, ?Y, PLlab)");
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
-        fact_store.insert_atom(&Atom::from("T(student, takesClassesFrom, PLlab)"));
-        fact_store.insert_atom(&Atom::from("T(professor, worksAt, PLlab)"));
-
-        let partial_subs = vec![
-            Substitutions {
-                inner: vec![(0, TypedValue::Str("student".to_string()))],
-            },
-            Substitutions {
-                inner: vec![(0, TypedValue::Str("professor".to_string()))],
-            },
+        let program = vec![
+            SugaredRule::from("+reach(?x, ?y) <- [-reach(?x, ?y), edge(?x, ?y)]"),
+            SugaredRule::from("+reach(?x, ?z) <- [-reach(?x, ?z), edge(?x, ?y), reach(?y, ?z)]"),
         ];
 
-        let subs = accumulate_substitutions(&fact_store, &rule_atom_0, partial_subs);
-        assert_eq!(
-            subs,
-            vec![
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("student".to_string())),
-                        (1, TypedValue::Str("takesClassesFrom".to_string())),
-                    ]
-                },
-                Substitutions {
-                    inner: vec![
-                        (0, TypedValue::Str("professor".to_string())),
-                        (1, TypedValue::Str("worksAt".to_string())),
-                    ]
-                },
-            ]
-        )
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("f", "g"),
+            ("f", "h"),
+        ]
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("edge", vec![Box::new(source), Box::new(destination)]);
+            relational.insert("edge", vec![Box::new(source), Box::new(destination)])
+        });
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("f", "g"),
+            ("f", "h"),
+            ("a", "d"),
+            ("a", "e"),
+            ("c", "g"),
+            ("c", "h"),
+            ("e", "h"),
+        ]
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("reach", vec![Box::new(source), Box::new(destination)]);
+            relational.insert("reach", vec![Box::new(source), Box::new(destination)])
+        });
+
+        vec![
+            ("a", "h"),
+            ("b", "g"),
+            ("b", "h"),
+            ("e", "f"),
+            ("e", "g"),
+            ("e", "h"),
+            ("a", "f"),
+            ("b", "f"),
+            ("a", "g"),
+        ]
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("-reach", vec![Box::new(source), Box::new(destination)]);
+            relational.insert("-reach", vec![Box::new(source), Box::new(destination)]);
+        });
+
+        let actual_evaluation = chibi.evaluate_program_bottom_up(&program);
+        let expected_evaluation = relational.evaluate_program_bottom_up(&program);
+
+        assert_eq!(expected_evaluation, actual_evaluation);
     }
 
     #[test]
-    fn test_explode_body_substitutions() {
-        let rule = Rule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
-        let rule_body = rule.body;
+    fn test_evaluate_rule() {
+        let mut interner: Interner = Default::default();
 
-        let mut fact_store: Instance<BTreeIndex> = Instance::new(false);
+        let sugared_rule =
+            SugaredRule::from("ancestor(?X, ?Z) <- [ancestor(?X, ?Y), ancestor(?Y, ?Z)]");
+        let rule = interner.intern_rule(&sugared_rule);
 
-        fact_store.insert_atom(&Atom::from("ancestor(adam, jumala)"));
-        fact_store.insert_atom(&Atom::from("ancestor(vanasarvik, jumala)"));
-        fact_store.insert_atom(&Atom::from("ancestor(eve, adam)"));
-        fact_store.insert_atom(&Atom::from("ancestor(jumala, cthulu)"));
+        let mut fact_store: HashSetDatabase = Default::default();
 
-        let fitting_substitutions = vec![
-            Substitutions {
-                inner: vec![
-                    (0, TypedValue::Str("adam".to_string())),
-                    (1, TypedValue::Str("cthulu".to_string())),
-                    (2, TypedValue::Str("jumala".to_string())),
-                ],
-            },
-            Substitutions {
-                inner: vec![
-                    (0, TypedValue::Str("vanasarvik".to_string())),
-                    (1, TypedValue::Str("cthulu".to_string())),
-                    (2, TypedValue::Str("jumala".to_string())),
-                ],
-            },
-            Substitutions {
-                inner: vec![
-                    (0, TypedValue::Str("eve".to_string())),
-                    (1, TypedValue::Str("jumala".to_string())),
-                    (2, TypedValue::Str("adam".to_string())),
-                ],
-            },
-        ];
-        let all_substitutions = accumulate_body_substitutions(&fact_store, rule_body);
-        assert_eq!(all_substitutions, fitting_substitutions);
+        let fact_0 = Atom::from_str_with_interner("ancestor(adam, jumala)", &mut interner);
+        let fact_1 = Atom::from_str_with_interner("ancestor(vanasarvik, jumala)", &mut interner);
+        let fact_2 = Atom::from_str_with_interner("ancestor(eve, adam)", &mut interner);
+        let fact_3 = Atom::from_str_with_interner("ancestor(jumala, cthulu)", &mut interner);
+
+        vec![fact_0, fact_1, fact_2, fact_3]
+            .into_iter()
+            .for_each(|atom| {
+                fact_store.insert_at(atom.relation_id.get(), terms_to_row(atom.terms))
+            });
+
+        let mut expected_output: IndexedHashSetBacking = Default::default();
+        vec![
+            Box::new([
+                Box::new("adam").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("vanasarvik").to_typed_value(),
+                Box::new("cthulu").to_typed_value(),
+            ]),
+            Box::new([
+                Box::new("eve").to_typed_value(),
+                Box::new("jumala").to_typed_value(),
+            ]),
+        ]
+        .into_iter()
+        .for_each(|row| {
+            expected_output.insert(row);
+        });
+
+        let actual_evaluation = evaluate_rule(&fact_store, &rule).unwrap();
+
+        assert_eq!(expected_output, actual_evaluation)
     }
 }

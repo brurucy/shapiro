@@ -3,13 +3,12 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 use crate::lexers::datalog::DatalogToken;
-use crate::models::datalog::Sign::{Negative, Positive};
-use crate::models::datalog::{Atom, Rule, Term, TypedValue};
+use crate::models::datalog::{SugaredAtom, SugaredRule, Term, TypedValue};
 
-fn parse_lexed_atom<'a>(
+fn parse_lexed_sugared_atom<'a>(
     lexer: &mut Peekable<Lexer<'a, DatalogToken<'a>>>,
     interner: &mut BTreeMap<&'a str, u8>,
-) -> Atom {
+) -> SugaredAtom {
     let mut terms: Vec<Term> = vec![];
     while let Some(token) = lexer.next() {
         match token {
@@ -35,45 +34,45 @@ fn parse_lexed_atom<'a>(
             _ => continue,
         }
     }
-    return Atom {
+    return SugaredAtom {
         terms,
         symbol: "".to_string(),
-        sign: Positive,
+        positive: true,
     };
 }
 
-pub fn parse_atom(atom: &str) -> Atom {
-    let mut lexer = DatalogToken::lexer(atom).peekable();
-    let mut atom = Atom {
+pub fn parse_sugared_atom(sugared_atom: &str) -> SugaredAtom {
+    let mut lexer = DatalogToken::lexer(sugared_atom).peekable();
+    let mut sugared_atom = SugaredAtom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Positive,
+        positive: true,
     };
     let mut interner: BTreeMap<&str, u8> = BTreeMap::new();
 
     while let Some(token) = lexer.next() {
         match token {
-            DatalogToken::Negation => atom.sign = Negative,
+            DatalogToken::Negation => sugared_atom.positive = false,
             DatalogToken::Str(predicate_symbol) => {
-                let parsed_atom = parse_lexed_atom(&mut lexer, &mut interner);
-                atom.symbol = predicate_symbol.to_string();
-                atom.terms = parsed_atom.terms;
+                let parsed_sugared_atom = parse_lexed_sugared_atom(&mut lexer, &mut interner);
+                sugared_atom.symbol = predicate_symbol.to_string();
+                sugared_atom.terms = parsed_sugared_atom.terms;
             }
             _ => {}
         }
     }
 
-    return atom;
+    return sugared_atom;
 }
 
-pub fn parse_rule(rule: &str) -> Rule {
+pub fn parse_sugared_rule(rule: &str) -> SugaredRule {
     let mut lexer = DatalogToken::lexer(rule).peekable();
-    let mut head = Atom {
+    let mut head = SugaredAtom {
         terms: vec![],
         symbol: "".to_string(),
-        sign: Positive,
+        positive: false,
     };
-    let mut body: Vec<Atom> = vec![];
+    let mut body: Vec<SugaredAtom> = vec![];
     let mut look_behind: DatalogToken = DatalogToken::Error;
     let mut look_ahead: DatalogToken = DatalogToken::Error;
 
@@ -85,111 +84,112 @@ pub fn parse_rule(rule: &str) -> Rule {
         match token {
             DatalogToken::Str(symbol) => {
                 if look_ahead == DatalogToken::LParen {
-                    let mut parsed_atom = parse_lexed_atom(&mut lexer, &mut interner);
-                    parsed_atom.symbol = symbol.parse().unwrap();
+                    let mut parsed_sugared_atom =
+                        parse_lexed_sugared_atom(&mut lexer, &mut interner);
+                    parsed_sugared_atom.symbol = symbol.parse().unwrap();
                     if look_behind == DatalogToken::HeadDirection
                         || look_behind == DatalogToken::Error
                     {
-                        head = parsed_atom;
+                        head = parsed_sugared_atom;
                         continue;
                     }
                     if look_behind == DatalogToken::Negation {
-                        parsed_atom.sign = Negative;
+                        parsed_sugared_atom.positive = false;
                     }
-                    body.push(parsed_atom)
+                    body.push(parsed_sugared_atom)
                 }
             }
             _ => {}
         }
         look_behind = token
     }
-    return Rule { head, body };
+    return SugaredRule { head, body };
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule, Sign, Term, TypedValue};
+    use crate::models::datalog::{SugaredAtom, SugaredRule, Term, TypedValue};
 
     #[test]
-    fn test_parse_atom() {
-        let some_atom_1 = "X(?a, 5, true)";
-        let some_atom_2 = "!Y(?a, yeah, false)";
-        let some_atom_3 = "Z(?a, 4, 5)";
+    fn test_parse_sugared_atom() {
+        let some_sugared_atom_1 = "X(?a, 5, true)";
+        let some_sugared_atom_2 = "!Y(?a, yeah, false)";
+        let some_sugared_atom_3 = "Z(?a, 4, 5)";
 
-        let parsed_atom_1 = Atom::from(some_atom_1);
-        let parsed_atom_2 = Atom::from(some_atom_2);
-        let parsed_atom_3 = Atom::from(some_atom_3);
+        let parsed_sugared_atom_1 = SugaredAtom::from(some_sugared_atom_1);
+        let parsed_sugared_atom_2 = SugaredAtom::from(some_sugared_atom_2);
+        let parsed_sugared_atom_3 = SugaredAtom::from(some_sugared_atom_3);
 
-        let expected_parsed_atom_1 = Atom {
+        let expected_parsed_sugared_atom_1 = SugaredAtom {
             terms: vec![
                 Term::Variable(0),
                 Term::Constant(TypedValue::UInt(5)),
                 Term::Constant(TypedValue::Bool(true)),
             ],
             symbol: "X".to_string(),
-            sign: Sign::Positive,
+            positive: true,
         };
-        let expected_parsed_atom_2 = Atom {
+        let expected_parsed_sugared_atom_2 = SugaredAtom {
             terms: vec![
                 Term::Variable(0),
                 Term::Constant(TypedValue::Str("yeah".to_string())),
                 Term::Constant(TypedValue::Bool(false)),
             ],
             symbol: "Y".to_string(),
-            sign: Sign::Negative,
+            positive: false,
         };
-        let expected_parsed_atom_3 = Atom {
+        let expected_parsed_sugared_atom_3 = SugaredAtom {
             terms: vec![
                 Term::Variable(0),
                 Term::Constant(TypedValue::UInt(4)),
                 Term::Constant(TypedValue::UInt(5)),
             ],
             symbol: "Z".to_string(),
-            sign: Sign::Positive,
+            positive: true,
         };
 
-        assert_eq!(parsed_atom_1, expected_parsed_atom_1);
-        assert_eq!(parsed_atom_2, expected_parsed_atom_2);
-        assert_eq!(parsed_atom_3, expected_parsed_atom_3);
+        assert_eq!(parsed_sugared_atom_1, expected_parsed_sugared_atom_1);
+        assert_eq!(parsed_sugared_atom_2, expected_parsed_sugared_atom_2);
+        assert_eq!(parsed_sugared_atom_3, expected_parsed_sugared_atom_3);
     }
 
     #[test]
     fn test_parse_rule() {
         let some_rule = "[X(?a, 5, true), !Y(?a, yeah, false)] -> Z(?a, 4, 5)";
         let some_reversed_rule = "Z(?a, 4, 5) <- [X(?a, 5, true), !Y(?a, yeah, false)]";
-        let expected_parsing = Rule {
-            head: Atom {
+        let expected_parsing = SugaredRule {
+            head: SugaredAtom {
                 terms: vec![
                     Term::Variable(0),
                     Term::Constant(TypedValue::UInt(4)),
                     Term::Constant(TypedValue::UInt(5)),
                 ],
                 symbol: "Z".to_string(),
-                sign: Sign::Positive,
+                positive: true,
             },
             body: vec![
-                Atom {
+                SugaredAtom {
                     terms: vec![
                         Term::Variable(0),
                         Term::Constant(TypedValue::UInt(5)),
                         Term::Constant(TypedValue::Bool(true)),
                     ],
                     symbol: "X".to_string(),
-                    sign: Sign::Positive,
+                    positive: true,
                 },
-                Atom {
+                SugaredAtom {
                     terms: vec![
                         Term::Variable(0),
                         Term::Constant(TypedValue::Str("yeah".to_string())),
                         Term::Constant(TypedValue::Bool(false)),
                     ],
                     symbol: "Y".to_string(),
-                    sign: Sign::Negative,
+                    positive: false,
                 },
             ],
         };
-        let some_parsed_rule = Rule::from(some_rule);
-        let some_parsed_reversed_rule = Rule::from(some_reversed_rule);
+        let some_parsed_rule = SugaredRule::from(some_rule);
+        let some_parsed_reversed_rule = SugaredRule::from(some_reversed_rule);
         assert_eq!(expected_parsing, some_parsed_rule);
         assert_eq!(expected_parsing, some_parsed_reversed_rule)
     }

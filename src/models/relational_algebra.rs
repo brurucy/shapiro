@@ -1,142 +1,64 @@
+use crate::models::datalog::SugaredAtom;
+use ordered_float::OrderedFloat;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU32;
 
-use crate::data_structures::hashmap::IndexedHashMap;
-use crate::models::datalog::Ty;
-use ordered_float::OrderedFloat;
-
-use super::datalog::{self, Atom, Rule, TypedValue};
+use super::datalog::{self, SugaredRule, TypedValue};
 use crate::data_structures;
-use crate::models::index::{Index, IndexBacking};
+use crate::models::index::IndexBacking;
+use crate::models::instance::IndexedHashSetBacking;
 use data_structures::tree::Tree;
 
 pub type Row = Box<[TypedValue]>;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Relation<T: IndexBacking> {
-    pub symbol: String,
-    pub indexes: Vec<Index<T>>,
-    pub ward: IndexedHashMap<Row, bool>,
-    pub use_indexes: bool,
+pub trait Container {
+    fn insert_row(&mut self, row: Row);
+    fn remove_row(&mut self, row: &Row);
 }
 
-impl<T: IndexBacking> Relation<T> {
-    pub(crate) fn insert_typed(&mut self, row: Row) {
-        if !self.ward.contains_key(&row) {
-            self.ward.insert(row.clone(), true);
-            if self.use_indexes {
-                row.into_iter()
-                    .enumerate()
-                    .for_each(|(column_idx, column_value)| {
-                        self.indexes[column_idx]
-                            .index
-                            .insert_row((column_value.clone(), self.ward.len() - 1));
-                    });
-            }
-        } else {
-            let sign = self.ward.get_mut(&row).unwrap();
-            if !*sign {
-                *sign = true
-            }
-        }
+pub trait Relation {
+    fn select_value(self, column_idx: usize, value: SelectionTypedValue) -> Self;
+    fn select_equality(self, left_column_idx: usize, right_column_idx: usize) -> Self;
+    fn product(self, other: &Self) -> Self;
+    fn join(self, other: &Self, left_column_idx: usize, right_column_idx: usize) -> Self;
+    fn project(
+        self,
+        new_column_indexes_and_values: Vec<SelectionTypedValue>,
+        new_symbol: String,
+    ) -> Self;
+    fn symbol(&self) -> String;
+}
+
+#[derive(Clone, Debug)]
+pub struct SimpleRelationWithOneIndexBacking<T: IndexBacking> {
+    pub symbol: String,
+    pub ward: IndexedHashSetBacking,
+    pub index: T,
+}
+
+impl<T: IndexBacking> PartialEq for SimpleRelationWithOneIndexBacking<T> {
+    fn eq(&self, other: &Self) -> bool {
+        return self.symbol == other.symbol && self.ward == other.ward;
     }
-    pub fn mark_deleted(&mut self, row: &Row) {
-        if let Some(sign) = self.ward.get_mut(row) {
-            *sign = false
-        }
-    }
+}
 
-    pub fn compact_logical(&mut self, index_idx: usize) {
-        let mut indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        let mut new_row_id = 0usize;
-        self.ward.iter().for_each(|(k, v)| {
-            if *v {
-                indexes[index_idx]
-                    .index
-                    .insert_row((k[index_idx].clone(), new_row_id));
-            }
-            new_row_id += 1;
-        });
-
-        self.indexes = indexes;
+impl<T: IndexBacking> Container for SimpleRelationWithOneIndexBacking<T> {
+    fn insert_row(&mut self, row: Row) {
+        self.ward.insert(row);
     }
 
-    pub fn compact_physical(&mut self, index_idx: usize) {
-        let mut indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        let mut new_row_id = 0usize;
-        self.ward.retain(|k, v| {
-            if *v {
-                indexes[index_idx]
-                    .index
-                    .insert_row((k[index_idx].clone(), new_row_id));
-                new_row_id += 1;
-            }
-            *v
-        });
-
-        self.indexes = indexes;
+    fn remove_row(&mut self, row: &Row) {
+        self.ward.remove(row);
     }
+}
 
-    pub fn compact(&mut self) {
-        let indexes: Vec<Index<T>> = self
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(_index_idx, _index)| {
-                return Index {
-                    index: Default::default(),
-                    active: true,
-                };
-            })
-            .collect();
-
-        self.indexes = indexes;
-        self.ward.retain(|_k, v| *v);
-    }
-
-    pub fn insert(&mut self, row: Vec<Box<dyn Ty>>) {
-        let typed_row: Vec<TypedValue> = row
-            .into_iter()
-            .map(|element| element.to_typed_value())
-            .collect();
-        self.insert_typed(typed_row.into_boxed_slice())
-    }
-    pub fn new(symbol: &str, arity: usize, use_indexes: bool) -> Self {
-        let indexes = vec![
-            Index {
-                index: T::default(),
-                active: true
-            };
-            arity
-        ];
-
-        Relation {
-            symbol: symbol.to_string(),
-            indexes,
+impl<T: IndexBacking> SimpleRelationWithOneIndexBacking<T> {
+    pub fn new(symbol: String) -> Self {
+        SimpleRelationWithOneIndexBacking {
+            symbol,
+            index: Default::default(),
             ward: Default::default(),
-            use_indexes,
         }
     }
 }
@@ -147,7 +69,7 @@ pub enum SelectionTypedValue {
     Bool(bool),
     UInt(u32),
     Column(usize),
-    InternedStr(usize),
+    InternedStr(NonZeroU32),
     Float(OrderedFloat<f64>),
 }
 
@@ -203,7 +125,7 @@ impl Display for SelectionTypedValue {
 pub enum Term {
     Selection(usize, SelectionTypedValue),
     Projection(Vec<SelectionTypedValue>),
-    Relation(Atom),
+    Relation(SugaredAtom),
     Product,
     Join(usize, usize),
 }
@@ -232,7 +154,6 @@ impl Display for Term {
     }
 }
 
-// The Expression. One of Guillaume le Million's greatest hits in Revachol was "Don't Worry (Your Pretty Little Head)". The Phoenix is one of the many nicknames of Guillaume le Million, considered Revachol's second greatest (male) disco artist.
 pub type RelationalExpression = Tree<Term>;
 
 pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpression {
@@ -363,7 +284,7 @@ pub fn select_product_to_join(expr: &RelationalExpression) -> RelationalExpressi
     return expr_local;
 }
 
-fn rule_body_to_expression(rule: &Rule) -> RelationalExpression {
+fn rule_body_to_expression(rule: &SugaredRule) -> RelationalExpression {
     let rule_body = rule.body.clone();
 
     let mut expression = RelationalExpression::new();
@@ -478,7 +399,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
             relations.clone().into_iter().enumerate().for_each(
                 |(idx_inner, (term_inner, term_inner_inner_idx, inner_node_idx))| {
                     if idx_inner > idx_outer {
-                        if let datalog::Term::Variable(_symbol) = term_outer.clone() {
+                        if let datalog::Term::Variable(_relation_id) = term_outer.clone() {
                             if term_outer == term_inner {
                                 let newvar = datalog::Term::Variable(*next_id);
                                 *next_id += 1;
@@ -506,7 +427,7 @@ fn equality_to_selection(expr: &RelationalExpression, next_id: &mut u8) -> Relat
     return expression;
 }
 
-fn project_head(rule: &Rule) -> Term {
+fn project_head(rule: &SugaredRule) -> Term {
     let rule_body_terms: Vec<datalog::Term> = rule
         .body
         .clone()
@@ -536,8 +457,8 @@ fn project_head(rule: &Rule) -> Term {
     return Term::Projection(projected_head_indexes.clone());
 }
 
-impl From<&Rule> for RelationalExpression {
-    fn from(rule: &Rule) -> Self {
+impl From<&SugaredRule> for RelationalExpression {
+    fn from(rule: &SugaredRule) -> Self {
         // This is necessary in order to create fresh relations.
         let head_term_count = rule.head.terms.len();
         let body_term_count: usize = rule
@@ -566,13 +487,14 @@ impl From<&Rule> for RelationalExpression {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::Rule;
+    use crate::models::datalog::SugaredRule;
     use crate::models::relational_algebra::RelationalExpression;
 
     #[test]
     fn test_rule_to_expression() {
-        let rule =
-            Rule::from("HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]");
+        let rule = SugaredRule::from(
+            "HardcoreToTheMega(?x, ?z) <- [T(?x, ?y), T(?y, ?z), U(?y, hardcore)]",
+        );
 
         let expected_expression = "π_[0usize, 3usize](σ_1=4usize(⋈_1=0(T(?0, ?2), ⋈_0=0(T(?10, ?1), σ_1=hardcore(U(?12, ?9))))))";
 
@@ -582,7 +504,8 @@ mod tests {
 
     #[test]
     fn test_rule_to_expression_complex() {
-        let rule = Rule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
+        let rule =
+            SugaredRule::from("T(?y, rdf:type, ?x) <- [T(?a, rdfs:domain, ?x), T(?y, ?a, ?z)]");
 
         let expected_expression =
             "π_[3usize, rdf:type, 2usize](⋈_0=1(σ_1=rdfs:domain(T(?2, ?10, ?1)), T(?0, ?11, ?3)))";

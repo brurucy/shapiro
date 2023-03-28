@@ -1,21 +1,26 @@
 extern crate core;
 
 use crate::Reasoners::{
-    Chibi, SimpleBTree, SimpleHashMap, SimpleImmutableVector, SimpleSpine, SimpleVec,
+    Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap,
+    RelationalImmutableVector, RelationalSpine, RelationalVec,
 };
 use clap::{Arg, Command};
+use colored::*;
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, Rule, Sign, Term, Ty, TypedValue};
+use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
-use shapiro::models::reasoner::{Diff, Materializer};
+use shapiro::models::reasoner::{Diff, Materializer, UntypedRow};
+use shapiro::reasoning::algorithms::constant_specialization::specialize_to_constants;
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
-use shapiro::reasoning::reasoners::simple::SimpleDatalog;
+use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
+use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use shapiro::misc::helpers::terms_to_row;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -68,14 +73,14 @@ static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/2002/07/owl#oneOf>" =>"owl:oneOf",
 };
 
-trait AtomParser {
-    fn parse_line(&self, line: &str) -> Atom;
+trait SugaredAtomParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom;
 }
 
 pub struct NTripleParser;
 
-impl AtomParser for NTripleParser {
-    fn parse_line(&self, line: &str) -> Atom {
+impl SugaredAtomParser for NTripleParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom {
         let mut split_line = line.split(' ');
 
         let digit_one: String = split_line.next().unwrap().to_string();
@@ -88,22 +93,61 @@ impl AtomParser for NTripleParser {
             digit_three = alias.to_string()
         }
 
-        return Atom {
-            terms: vec![
-                Term::Constant(TypedValue::Str(digit_one)),
-                Term::Constant(TypedValue::Str(digit_two)),
-                Term::Constant(TypedValue::Str(digit_three)),
-            ],
+        let terms = vec![
+            Term::Constant(TypedValue::Str(digit_one)),
+            Term::Constant(TypedValue::Str(digit_two)),
+            Term::Constant(TypedValue::Str(digit_three)),
+        ];
+
+        return SugaredAtom {
+            terms,
             symbol: "T".to_string(),
-            sign: Sign::Positive,
+            positive: true,
         };
+        // let mut split_line = line.split(' ');
+        //
+        // let digit_one: String = split_line.next().unwrap().to_string();
+        // let mut digit_two: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_two) {
+        //     digit_two = alias.to_string();
+        // }
+        // let mut digit_three: String = split_line.next().unwrap().to_string();
+        // if let Some(alias) = OWL.get(&digit_three) {
+        //     digit_three = alias.to_string()
+        // }
+        // let symbol = match &digit_two[..] {
+        //     "rdf:type" => "Type",
+        //     "rdfs:subPropertyOf" => "SubPropertyOf",
+        //     "rdfs:subClassOf" => "SubClassOf",
+        //     "rdfs:domain" => "Domain",
+        //     "rdfs:range" => "Range",
+        //     _ => "Property"
+        // };
+        //
+        // let terms = match symbol {
+        //     "Property" => vec![
+        //         Term::Constant(TypedValue::Str(digit_one)),
+        //         Term::Constant(TypedValue::Str(digit_two)),
+        //         Term::Constant(TypedValue::Str(digit_three)),
+        //     ],
+        //     _ => vec![
+        //         Term::Constant(TypedValue::Str(digit_one)),
+        //         Term::Constant(TypedValue::Str(digit_three)),
+        //     ]
+        // };
+        //
+        // return SugaredAtom {
+        //     terms,
+        //     symbol: symbol.to_string(),
+        //     positive: false,
+        // };
     }
 }
 
 pub struct SpaceSepParser;
 
-impl AtomParser for SpaceSepParser {
-    fn parse_line(&self, line: &str) -> Atom {
+impl SugaredAtomParser for SpaceSepParser {
+    fn parse_line(&self, line: &str) -> SugaredAtom {
         let raw_terms: Vec<&str> = line.split(' ').collect();
 
         let symbol = raw_terms[raw_terms.len() - 1];
@@ -113,16 +157,16 @@ impl AtomParser for SpaceSepParser {
             .map(|term| Term::Constant(term.to_typed_value()))
             .collect();
 
-        return Atom {
+        return SugaredAtom {
             terms,
             symbol: symbol.to_string(),
-            sign: Sign::Positive,
+            positive: true,
         };
     }
 }
 
 struct Parser {
-    atom_parser: Box<dyn AtomParser>,
+    atom_parser: Box<dyn SugaredAtomParser>,
 }
 
 fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static str> {
@@ -136,7 +180,7 @@ fn read_file(filename: &str) -> Result<impl Iterator<Item = String>, &'static st
 }
 
 impl Parser {
-    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item = Atom> + '_ {
+    fn read_fact_file(&self, filename: &str) -> impl Iterator<Item = SugaredAtom> + '_ {
         match read_file(filename) {
             Ok(file) => {
                 return file
@@ -148,9 +192,13 @@ impl Parser {
             }
         }
     }
-    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item = Rule> + '_ {
+    fn read_datalog_file(&self, filename: &str) -> impl Iterator<Item = SugaredRule> + '_ {
         match read_file(filename) {
-            Ok(file) => return file.into_iter().map(|line| Rule::from(line.as_str())),
+            Ok(file) => {
+                return file
+                    .into_iter()
+                    .map(|line| SugaredRule::from(line.as_str()))
+            }
             Err(e) => {
                 panic!("{}", e)
             }
@@ -160,30 +208,36 @@ impl Parser {
 
 pub enum Reasoners {
     Chibi,
-    SimpleHashMap,
-    SimpleBTree,
-    SimpleVec,
-    SimpleImmutableVector,
-    SimpleSpine,
+    Differential,
+    DifferentialTabled,
+    RelationalHashMap,
+    RelationalBTree,
+    RelationalVec,
+    RelationalImmutableVector,
+    RelationalSpine,
 }
 
 impl Display for Reasoners {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Chibi => write!(f, "chibi"),
-            SimpleHashMap => write!(f, "simple-hashmap"),
-            SimpleBTree => write!(f, "simple-btree"),
-            SimpleVec => write!(f, "simple-vec"),
-            SimpleImmutableVector => write!(f, "simple-immutable-vector"),
-            SimpleSpine => write!(f, "simple-spine"),
+            Differential => write!(f, "differential"),
+            DifferentialTabled => write!(f, "differential-tabled"),
+            RelationalHashMap => write!(f, "relational-hashmap"),
+            RelationalBTree => write!(f, "relational-btree"),
+            RelationalVec => write!(f, "relational-vec"),
+            RelationalImmutableVector => write!(f, "relational-immutable-vector"),
+            RelationalSpine => write!(f, "relational-spine"),
         }
     }
 }
 
 fn main() {
     let matches = Command::new("shapiro-bencher")
-        .version("0.6.0")
-        .about("Benches the time taken to reason over simple space-separated facts or .nt files")
+        .version("0.7.0")
+        .about(
+            "Benches the time taken to reason over relational space-separated facts or .nt files",
+        )
         .arg(
             Arg::new("DATA_PATH")
                 .help("Sets the data file path")
@@ -198,7 +252,7 @@ fn main() {
         )
         .arg(
             Arg::new("REASONER")
-                .help("Sets the reasoner to be used, chibi or simple")
+                .help("Sets the reasoner to be used, chibi, relational or differential")
                 .required(true)
                 .index(3),
         )
@@ -210,7 +264,7 @@ fn main() {
         )
         .arg(
             Arg::new("INTERN")
-                .help("Sets whether strings should be interned")
+                .help("Sets whether the reasoner should intern string values")
                 .required(true)
                 .index(5),
         )
@@ -226,27 +280,36 @@ fn main() {
                 .required(true)
                 .index(7),
         )
+        .arg(
+            Arg::new("SPECIALIZE")
+                .help("Specializes the constants in the program unto their own relations")
+                .required(true)
+                .index(8),
+        )
         .get_matches();
 
     let data_path: String = matches.value_of("DATA_PATH").unwrap().to_string();
     let program_path: String = matches.value_of("PROGRAM_PATH").unwrap().to_string();
     let parallel: bool = matches.value_of("PARALLEL").unwrap().parse().unwrap();
+    let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
+    let specialize: bool = matches.value_of("SPECIALIZE").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
-        "simple-hashmap" => SimpleHashMap,
-        "simple-btree" => SimpleBTree,
-        "simple-vec" => SimpleVec,
-        "simple-immutable-vector" => SimpleImmutableVector,
-        "simple-spine" => SimpleSpine,
+        "differential" => Differential,
+        "differential-tabled" => DifferentialTabled,
+        "relational-hashmap" => RelationalHashMap,
+        "relational-btree" => RelationalBTree,
+        "relational-vec" => RelationalVec,
+        "relational-immutable-vector" => RelationalImmutableVector,
+        "relational-spine" => RelationalSpine,
         other => panic!("unknown reasoner variant: {}", other),
     };
-    let intern: bool = matches.value_of("INTERN").unwrap().parse().unwrap();
     let batch_size: f64 = matches
         .value_of("BATCH_SIZE")
         .unwrap()
         .parse::<f64>()
         .unwrap();
-    let line_parser: Box<dyn AtomParser> = match matches.value_of("PARSER").unwrap() {
+    let line_parser: Box<dyn SugaredAtomParser> = match matches.value_of("PARSER").unwrap() {
         "nt" => Box::new(NTripleParser),
         _ => Box::new(SpaceSepParser),
     };
@@ -256,29 +319,37 @@ fn main() {
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
         Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
-        SimpleHashMap => Box::new(SimpleDatalog::<HashMapIndex>::new(parallel, intern)),
-        SimpleBTree => Box::new(SimpleDatalog::<BTreeIndex>::new(parallel, intern)),
-        SimpleVec => Box::new(SimpleDatalog::<VecIndex>::new(parallel, intern)),
-        SimpleImmutableVector => {
-            Box::new(SimpleDatalog::<ImmutableVectorIndex>::new(parallel, intern))
-        }
-        SimpleSpine => Box::new(SimpleDatalog::<SpineIndex>::new(parallel, intern)),
+        Differential => Box::new(DifferentialDatalog::new(parallel, true)),
+        DifferentialTabled => Box::new(DifferentialDatalog::new(parallel, false)),
+        RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
+        RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
+        RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
+        RelationalImmutableVector => Box::new(RelationalDatalog::<ImmutableVectorIndex>::new(
+            parallel, intern,
+        )),
+        RelationalSpine => Box::new(RelationalDatalog::<SpineIndex>::new(parallel, intern)),
     };
-    println!(
-        "{} {} {} {} {} {}",
-        data_path, program_path, parallel, reasoner, intern, batch_size
-    );
-    let facts: Vec<Atom> = parser.read_fact_file(&data_path).collect();
+
+    let facts: Vec<SugaredAtom> = parser.read_fact_file(&data_path).collect();
     let cutoff: usize = (facts.len() as f64 * batch_size) as usize;
 
-    let mut batch_size: usize = 0;
-    if cutoff == 0 {
-        batch_size = facts.len();
-    } else {
-        batch_size = cutoff
-    }
+    let batch_size: usize = {
+        if cutoff == 0 {
+            facts.len()
+        } else {
+            cutoff
+        }
+    };
 
-    evaluator.materialize(&parser.read_datalog_file(&program_path).collect());
+    println!(
+        "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
+        data_path, program_path, parallel, intern, reasoner, batch_size
+    );
+
+    let mut sugared_program = parser.read_datalog_file(&program_path).collect();
+    if specialize {
+        sugared_program = specialize_to_constants(&sugared_program);
+    }
 
     let mut initial_materialization: Vec<Diff> = vec![];
     let mut positive_update: Vec<Diff> = vec![];
@@ -286,7 +357,7 @@ fn main() {
 
     facts.iter().enumerate().for_each(|(idx, atom)| {
         let sym = atom.symbol.as_str();
-        let terms: Vec<Box<dyn Ty>> = atom
+        let terms: UntypedRow = atom
             .terms
             .iter()
             .map(|term| match term {
@@ -300,7 +371,7 @@ fn main() {
         } else {
             positive_update.push((true, (sym, terms)));
 
-            let negative_terms: Vec<Box<dyn Ty>> = atom
+            let negative_terms: UntypedRow = atom
                 .terms
                 .iter()
                 .map(|term| match term {
@@ -313,18 +384,18 @@ fn main() {
         }
     });
 
-    let mut now = Instant::now();
+    evaluator.materialize(&sugared_program);
+    println!("{}", "Initial materialization".purple());
+    //let now = Instant::now();
     evaluator.update(initial_materialization);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
+    //println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
-    now = Instant::now();
+    println!("{}", "Positive Update".purple());
     evaluator.update(positive_update);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
-    now = Instant::now();
+    println!("{}", "Negative Update".purple());
     evaluator.update(negative_update);
-    println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 }

@@ -1,13 +1,12 @@
-use crate::models::datalog::Rule;
-use crate::models::index::IndexBacking;
-use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Flusher, RelationDropper};
+use crate::models::datalog::SugaredRule;
+use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, RelationDropper};
 use crate::models::relational_algebra::Row;
 use ahash::{HashSet, HashSetExt};
 
 const OVERDELETION_PREFIX: &'static str = "-";
 const REDERIVATION_PREFIX: &'static str = "+";
 
-pub fn make_overdeletion_program(program: &Vec<Rule>) -> Vec<Rule> {
+pub fn make_overdeletion_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
     let mut overdeletion_program = vec![];
 
     program.iter().for_each(|rule| {
@@ -26,7 +25,7 @@ pub fn make_overdeletion_program(program: &Vec<Rule>) -> Vec<Rule> {
     overdeletion_program
 }
 
-pub fn make_alternative_derivation_program(program: &Vec<Rule>) -> Vec<Rule> {
+pub fn make_alternative_derivation_program(program: &Vec<SugaredRule>) -> Vec<SugaredRule> {
     let mut alternative_derivation_program = vec![];
 
     program.iter().for_each(|rule| {
@@ -46,85 +45,86 @@ pub fn make_alternative_derivation_program(program: &Vec<Rule>) -> Vec<Rule> {
     alternative_derivation_program
 }
 
-pub fn delete_rederive<K, T>(instance: &mut T, program: &Vec<Rule>, updates: Vec<(&str, Row)>)
-where
-    K: IndexBacking,
-    T: DynamicTyped + Dynamic + Flusher + BottomUpEvaluator<K> + RelationDropper,
+pub type TypedDiff<'a> = (&'a str, Row);
+
+pub fn delete_rederive<'a, T>(
+    instance: &mut T,
+    program: &'a Vec<SugaredRule>,
+    deletions: Vec<TypedDiff<'a>>,
+) where
+    T: DynamicTyped + Dynamic + BottomUpEvaluator + RelationDropper,
 {
-    let mut relations_to_be_flushed: HashSet<String> = HashSet::new();
     let mut relations_to_be_dropped: HashSet<String> = HashSet::new();
-    updates.clone().into_iter().for_each(|(symbol, update)| {
-        let del_sym = format!("{}{}", OVERDELETION_PREFIX, symbol);
-        instance.insert_typed(&del_sym, update);
-        relations_to_be_dropped.insert(del_sym.to_string());
-        relations_to_be_flushed.insert(symbol.to_string());
+    deletions.iter().for_each(|(sym, deletion)| {
+        let del_sym = format!("{}{}", OVERDELETION_PREFIX, sym);
+        instance.insert_typed(&del_sym, deletion.clone());
+        instance.delete_typed(sym, &deletion);
+        relations_to_be_dropped.insert(del_sym);
     });
-    // Stage 1 - overdeletion
-    let delete = make_overdeletion_program(program);
-    let ods = instance.evaluate_program_bottom_up(delete);
-    ods.database.iter().for_each(|(del_sym, relation)| {
+    // Overdeletion and Rederivation programs
+    let overdeletion_program = make_overdeletion_program(program);
+    let rederivation_program = make_alternative_derivation_program(program);
+    // Stage 1 - intensional overdeletion
+    let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
+
+    overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
-        relation.ward.iter().for_each(|(data, _active)| {
-            instance.insert_typed(&del_sym, data.clone());
-            relations_to_be_dropped.insert(del_sym.to_string());
-            instance.delete_typed(sym, data.clone());
-            relations_to_be_flushed.insert(sym.to_string());
+        row_set.into_iter().for_each(|overdeletion| {
+            instance.delete_typed(sym, &overdeletion);
+            instance.insert_typed(&del_sym, overdeletion);
         });
+        relations_to_be_dropped.insert(del_sym);
     });
 
-    updates
-        .iter()
-        .for_each(|(sym, row)| instance.delete_typed(sym, row.clone()));
+    //Stage 2 - intensional rederivation
+    let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
 
-    relations_to_be_flushed.iter().for_each(|sym| {
-        instance.flush(sym);
-    });
-
-    // Stage 2 - rederivation
-    let rederive = make_alternative_derivation_program(program);
-
-    let alts = instance.evaluate_program_bottom_up(rederive);
-    alts.database.iter().for_each(|(alt_sym, relation)| {
+    rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
-        relation.ward.iter().for_each(|(data, _active)| {
-            instance.insert_typed(&sym, data.clone());
-        });
+        row_set.into_iter().for_each(|row| {
+            instance.insert_typed(&sym, row);
+        })
     });
 
-    relations_to_be_dropped.iter().for_each(|del_sym| {
-        instance.drop_relation(del_sym);
-    })
+    relations_to_be_dropped.into_iter().for_each(|del_sym| {
+        instance.drop_relation(&del_sym);
+    });
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::datalog::{Atom, Rule, Ty};
-    use crate::models::reasoner::{Dynamic, Materializer, Queryable};
+    use crate::models::datalog::{SugaredRule, Ty, TypedValue};
+    use crate::models::index::VecIndex;
+    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable, UntypedRow};
+    use crate::models::relational_algebra::Row;
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,
         OVERDELETION_PREFIX, REDERIVATION_PREFIX,
     };
     use crate::reasoning::reasoners::chibi::ChibiDatalog;
+    use crate::reasoning::reasoners::relational::RelationalDatalog;
+    use indexmap::IndexSet;
+    use rand::distributions::uniform::SampleBorrow;
 
     #[test]
     fn test_make_overdeletion_program() {
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
         ];
 
         let actual_overdeletion_program = make_overdeletion_program(&program);
 
         let exp_overdeletion_program = vec![
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?y) <- [{}edge(?x, ?y)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [{}reach(?x, ?y), edge(?y, ?z)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [reach(?x, ?y), {}edge(?y, ?z)]",
                 OVERDELETION_PREFIX, OVERDELETION_PREFIX
             )),
@@ -136,17 +136,17 @@ mod tests {
     #[test]
     fn test_make_alternative_derivation_program() {
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
         ];
 
         let actual_alt_program = make_alternative_derivation_program(&program);
         let exp_alt_program = vec![
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?y) <- [{}reach(?x, ?y), edge(?x, ?y)]",
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),
-            Rule::from(&*format!(
+            SugaredRule::from(&*format!(
                 "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]",
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),
@@ -157,8 +157,8 @@ mod tests {
 
     // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
     #[test]
-    fn test_delete_rederive() {
-        let mut chibi: ChibiDatalog = Default::default();
+    fn test_delete_rederive_logic() {
+        let mut chibi = RelationalDatalog::<VecIndex>::new(false, false);
 
         vec![
             ("a", "b"),
@@ -178,21 +178,169 @@ mod tests {
         });
 
         let program = vec![
-            Rule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
-            Rule::from("reach(?x, ?z) <- [reach(?x, ?y), edge(?y, ?z)]"),
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [edge(?x, ?y), reach(?y, ?z)]"),
         ];
 
         chibi.materialize(&program);
 
-        let expected_deletion_1 = Atom::from("reach(e, f)");
-        let expected_deletion_2 = Atom::from("reach(e, h)");
-        let expected_deletion_3 = Atom::from("reach(b, f)");
-        let expected_deletion_4 = Atom::from("reach(b, h)");
+        // Overdeletions
+        let overdeletion_program = make_overdeletion_program(&program);
 
-        assert!(chibi.contains(&expected_deletion_1));
-        assert!(chibi.contains(&expected_deletion_2));
-        assert!(chibi.contains(&expected_deletion_3));
-        assert!(chibi.contains(&expected_deletion_4));
+        chibi.delete("edge", &vec![Box::new("e"), Box::new("f")]);
+        chibi.insert("-edge", vec![Box::new("e"), Box::new("f")]);
+
+        let actual_overdeletions = chibi.evaluate_program_bottom_up(&overdeletion_program);
+        let expected_overdeletions = vec![
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+        ]
+        .into_iter()
+        .collect::<IndexSet<Row>>();
+
+        assert_eq!(
+            expected_overdeletions,
+            actual_overdeletions.get("-reach").unwrap().clone()
+        );
+
+        actual_overdeletions
+            .get("-reach")
+            .unwrap()
+            .into_iter()
+            .for_each(|overdeletion| {
+                chibi.insert_typed("-reach", overdeletion.clone());
+                chibi.delete_typed("reach", overdeletion);
+            });
+
+        let rederivation_program = make_alternative_derivation_program(&program);
+        let actual_rederivations = chibi.evaluate_program_bottom_up(&rederivation_program);
+        let expected_rederivations = vec![
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("h".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("b".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("e".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("f".to_string()),
+            ]
+            .into_boxed_slice(),
+            vec![
+                TypedValue::Str("a".to_string()),
+                TypedValue::Str("g".to_string()),
+            ]
+            .into_boxed_slice(),
+        ]
+        .into_iter()
+        .collect::<IndexSet<Row>>();
+
+        assert_eq!(
+            expected_rederivations,
+            actual_rederivations.get("+reach").unwrap().clone()
+        );
+    }
+
+    // https://www.public.asu.edu/~dietrich/publications/AuthorCopyMaintenanceOfRecursiveViews.pdf
+    #[test]
+    fn test_delete_rederive() {
+        let mut chibi = RelationalDatalog::<VecIndex>::new(false, false);
+
+        vec![
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "d"),
+            ("b", "e"),
+            ("d", "g"),
+            ("c", "f"),
+            ("e", "d"),
+            ("e", "f"),
+            ("f", "g"),
+            ("f", "h"),
+        ]
+        .into_iter()
+        .for_each(|(source, destination)| {
+            chibi.insert("edge", vec![Box::new(source), Box::new(destination)])
+        });
+
+        let program = vec![
+            SugaredRule::from("reach(?x, ?y) <- [edge(?x, ?y)]"),
+            SugaredRule::from("reach(?x, ?z) <- [edge(?x, ?y), reach(?y, ?z)]"),
+        ];
+
+        chibi.materialize(&program);
+
+        let expected_deletion_1: UntypedRow = vec![Box::new("e"), Box::new("f")];
+        let expected_deletion_2: UntypedRow = vec![Box::new("e"), Box::new("h")];
+        let expected_deletion_3: UntypedRow = vec![Box::new("b"), Box::new("f")];
+        let expected_deletion_4: UntypedRow = vec![Box::new("b"), Box::new("h")];
+
+        assert!(chibi.contains_row("reach", &expected_deletion_1));
+        assert!(chibi.contains_row("reach", &expected_deletion_2));
+        assert!(chibi.contains_row("reach", &expected_deletion_3));
+        assert!(chibi.contains_row("reach", &expected_deletion_4));
+
+        // chibi
+        //     .fact_store
+        //     .storage
+        //     .iter()
+        //     .for_each(|(relation_id, values)| {
+        //         values
+        //             .iter()
+        //             .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+        //     });
 
         delete_rederive(
             &mut chibi,
@@ -203,9 +351,21 @@ mod tests {
             )],
         );
 
-        assert!(!chibi.contains(&expected_deletion_1));
-        assert!(!chibi.contains(&expected_deletion_2));
-        assert!(!chibi.contains(&expected_deletion_3));
-        assert!(!chibi.contains(&expected_deletion_4));
+        //println!("post delete rederive");
+
+        // chibi
+        //     .fact_store
+        //     .storage
+        //     .iter()
+        //     .for_each(|(relation_id, values)| {
+        //         values
+        //             .iter()
+        //             .for_each(|row| println!("{}:{:?}", relation_id, row.clone()))
+        //     });
+
+        assert!(!chibi.contains_row("reach", &expected_deletion_1));
+        assert!(!chibi.contains_row("reach", &expected_deletion_2));
+        assert!(!chibi.contains_row("reach", &expected_deletion_3));
+        assert!(!chibi.contains_row("reach", &expected_deletion_4));
     }
 }
