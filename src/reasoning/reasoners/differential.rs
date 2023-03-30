@@ -41,7 +41,7 @@ pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 pub type NotificationSink = Sender<usize>;
 pub type NotificationSource = Receiver<usize>;
 
-fn make_substitutions(
+fn unify(
     left: &AbomonatedAtom,
     right: &AbomonatedAtom,
 ) -> Option<AbomonatedSubstitutions> {
@@ -199,7 +199,7 @@ pub fn reason_arranged_by_relation(
 
                                     let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
 
-                                    let sub = make_substitutions(
+                                    let sub = unify(
                                         &rewrite_attempt,
                                         &proposed_atom,
                                     );
@@ -387,7 +387,7 @@ pub fn reason_with_masked_atoms(
                                     .iter()
                                     .enumerate()
                                     .for_each(|(column_position, term)| {
-                                        if let AbomonatedTerm::Constant(inner) = right.1[column_position].clone() {
+                                        if let AbomonatedTerm::Constant(inner) = term.clone() {
                                             projected_row[column_position] = Some(inner)
                                         }
                                     })
@@ -442,11 +442,11 @@ pub fn reason_with_masked_atoms(
                                 .arrange_by_key()
                                 .join_core(&s_old_arr, |key, goal, sub| {
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
-                                    if !is_ground(rewrite_attempt) {
-                                        let new_key = (key.clone(), goal.clone(), sub.clone());
-                                        return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())));
-                                    }
-                                    return None;
+                                    //if !is_ground(rewrite_attempt) {
+                                    let new_key = (key.clone(), goal.clone(), sub.clone());
+                                    return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())));
+                                    //}
+                                    //return None;
                                 })
                                 .consolidate();
 
@@ -463,7 +463,7 @@ pub fn reason_with_masked_atoms(
 
                                     let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
 
-                                    let sub = make_substitutions(
+                                    let sub = unify(
                                         &rewrite_attempt,
                                         &proposed_atom,
                                     );
@@ -496,8 +496,8 @@ pub fn reason_with_masked_atoms(
                                         .map(move |masked_atom| (masked_atom, ground_fact.clone()))
                                 });
 
-                            subs_product_var.set(&subs_product.enter(inner).concat(&new_substitutions));
-                            facts_var.set(&facts_by_masked.enter(inner).concat(&groundington)).leave()
+                            subs_product_var.set_concat(&new_substitutions);
+                            facts_var.set_concat(&groundington).leave()
                         })
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
