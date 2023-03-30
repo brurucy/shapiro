@@ -288,7 +288,6 @@ pub fn reason_arranged_by_relation(
     ).unwrap();
 }
 
-// Does not allow a variable to appear multiple times in a single atom!
 pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<usize>)> {
     // "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]"
     // [
@@ -296,7 +295,8 @@ pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<
     //   edge[0, 1]
     // ]
     let mut out = vec![];
-    let mut variables: HashSet<_> = Default::default();
+    let mut variables: HashSet<u8> = Default::default();
+    let mut fresh_variables: HashSet<u8> = Default::default();
     for body_atom in rule.1 {
         let index: Vec<_> = body_atom
             .2
@@ -306,22 +306,25 @@ pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<
                 match term {
                     AbomonatedTerm::Variable(inner) => {
                         if !variables.contains(inner) {
-                            variables.insert(inner.clone());
+                            fresh_variables.insert(inner.clone());
                             None
                         } else {
                             Some(idx)
                         }
                     }
-                    AbomonatedTerm::Constant(inner) => {
+                    AbomonatedTerm::Constant(_) => {
                         Some(idx)
                     }
                 }
             })
             .collect();
+        variables.extend(fresh_variables.iter());
+        //if !(index.len() == 0) {
+        out.push((body_atom.0, index));
+        //}
 
-        if !(index.len() == 0) {
-            out.push((body_atom.0, index))
-        }
+        fresh_variables.clear();
+        //out.push(vec![]);
     }
 
     return out
@@ -372,25 +375,39 @@ pub fn reason_with_masked_atoms(
                         .distinct();
 
                     let facts_by_relation_id = fact_collection
-                        .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)))
-                        .arrange_by_key();
+                        .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)));
 
                     let facts_by_masked = unique_column_combinations
                         .arrange_by_key()
-                        .join_core(&facts_by_relation_id, |&key, column_combination, right| {
+                        .join_core(&facts_by_relation_id.arrange_by_key(), |&key, column_combination, right| {
                             let mut projected_row = vec![None;right.1.len()];
-                            column_combination
-                                .iter()
-                                .for_each(|column_position| {
-                                    if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
-                                        projected_row[*column_position] = Some(inner)
-                                    }
-                                });
-
+                            if column_combination.len() == 0 {
+                                right
+                                    .1
+                                    .iter()
+                                    .enumerate()
+                                    .for_each(|(column_position, term)| {
+                                        if let AbomonatedTerm::Constant(inner) = right.1[column_position].clone() {
+                                            projected_row[column_position] = Some(inner)
+                                        }
+                                    })
+                            } else {
+                                column_combination
+                                    .iter()
+                                    .for_each(|column_position| {
+                                        if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                            projected_row[*column_position] = Some(inner)
+                                        }
+                                    });
+                            }
                             let masked_projected_row: MaskedAtom = (key, projected_row);
 
                             Some((masked_projected_row, (key, right.0, right.1.clone())))
                         });
+
+                    // let facts_by_masked_two = facts_by_relation_id
+                    //     .
+
 
                     let indexed_rules = rule_collection.identifiers();
                     let goals = indexed_rules
