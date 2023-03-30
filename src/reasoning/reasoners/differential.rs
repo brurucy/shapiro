@@ -11,22 +11,22 @@ use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{iterate, Consolidate, Join, JoinCore, Threshold};
 use differential_dataflow::Collection;
 use std::clone::Clone;
+use std::num::NonZeroU32;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use ahash::HashSet;
 
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{
-    abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm,
-    AbomonatedTypedValue,
-};
+use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, MaskedAtom};
 use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
 use timely::communication::allocator::Generic;
 use timely::dataflow::scopes::Child;
 use timely::dataflow::Scope;
 use timely::order::Product;
 use timely::worker::Worker;
+use colored::Colorize;
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
 pub type SubstitutionsCollection<'b> =
@@ -274,16 +274,57 @@ pub fn reason_arranged_by_relation(
 
                     rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                     rule_input_session.flush();
-                    // timeout not needed when channel blocking iterator is used (on both channels!)
                     worker.step_or_park_while(Some(Duration::from_millis(1)), || {
                         fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
 
-                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
+                    if let Err(e) = local_notification_sink.send(fact_epoch.join(&rule_epoch)) {
+                        println!("Warning: {}", e);
+                        break;
+                    };
                 }
             }
         },
     ).unwrap();
+}
+
+// Does not allow a variable to appear multiple times in a single atom!
+pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<usize>)> {
+    // "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]"
+    // [
+    //   reach[0],
+    //   edge[0, 1]
+    // ]
+    let mut out = vec![];
+    let mut variables: HashSet<_> = Default::default();
+    for body_atom in rule.1 {
+        let index: Vec<_> = body_atom
+            .2
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, term)| {
+                match term {
+                    AbomonatedTerm::Variable(inner) => {
+                        if !variables.contains(inner) {
+                            variables.insert(inner.clone());
+                            None
+                        } else {
+                            Some(idx)
+                        }
+                    }
+                    AbomonatedTerm::Constant(inner) => {
+                        Some(idx)
+                    }
+                }
+            })
+            .collect();
+
+        if !(index.len() == 0) {
+            out.push((body_atom.0, index))
+        }
+    }
+
+    return out
 }
 
 pub fn reason_with_masked_atoms(
@@ -326,11 +367,29 @@ pub fn reason_with_masked_atoms(
                         .import(local)
                         .as_collection(|x, _y| x.clone());
 
-                    let facts_by_masked = fact_collection
-                        .flat_map(|ground_fact| {
-                            permute_mask(mask(&ground_fact))
-                                .into_iter()
-                                .map(move |masked_atom| (masked_atom, ground_fact.clone()))
+                    let unique_column_combinations = rule_collection
+                        .flat_map(unique_column_combinations)
+                        .distinct();
+
+                    let facts_by_relation_id = fact_collection
+                        .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)))
+                        .arrange_by_key();
+
+                    let facts_by_masked = unique_column_combinations
+                        .arrange_by_key()
+                        .join_core(&facts_by_relation_id, |&key, column_combination, right| {
+                            let mut projected_row = vec![None;right.1.len()];
+                            column_combination
+                                .iter()
+                                .for_each(|column_position| {
+                                    if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                        projected_row[*column_position] = Some(inner)
+                                    }
+                                });
+
+                            let masked_projected_row: MaskedAtom = (key, projected_row);
+
+                            Some((masked_projected_row, (key, right.0, right.1.clone())))
                         });
 
                     let indexed_rules = rule_collection.identifiers();
@@ -368,7 +427,7 @@ pub fn reason_with_masked_atoms(
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
                                     if !is_ground(rewrite_attempt) {
                                         let new_key = (key.clone(), goal.clone(), sub.clone());
-                                        return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())))
+                                        return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())));
                                     }
                                     return None;
                                 })
@@ -468,12 +527,14 @@ pub fn reason_with_masked_atoms(
 
                     rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                     rule_input_session.flush();
-                    // timeout not needed when channel blocking iterator is used (on both channels!)
                     worker.step_or_park_while(Some(Duration::from_millis(1)), || {
                         fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
 
-                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
+                    if let Err(e) = local_notification_sink.send(fact_epoch.join(&rule_epoch)) {
+                        println!("Warning: {}", e);
+                        break;
+                    };
                 }
             }
         },
@@ -727,6 +788,8 @@ impl Materializer for DifferentialDatalog {
             .send((noop_rule, self.epoch, 0))
             .unwrap();
 
+
+        let now = Instant::now();
         loop {
             select! {
                 recv(self.notification_source) -> last_epoch => {
@@ -739,6 +802,8 @@ impl Materializer for DifferentialDatalog {
                         .for_each(|fresh_intensional_atom| {
                             insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store)
                         });
+
+                        println!("{} {}", "inference time:".green(), now.elapsed().as_millis().to_string().green());
 
                         return;
                     }
@@ -759,5 +824,9 @@ impl Materializer for DifferentialDatalog {
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
+    }
+
+    fn dump(&self) {
+        //todo!()
     }
 }

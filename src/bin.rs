@@ -395,7 +395,10 @@ fn main() {
     evaluator.update(positive_update);
     println!("triples: {}", evaluator.triple_count());
 
+    evaluator.dump();
+
     println!("{}", "Negative Update".purple());
     evaluator.update(negative_update);
     println!("triples: {}", evaluator.triple_count());
+
 }

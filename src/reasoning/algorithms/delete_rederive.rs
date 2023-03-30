@@ -147,6 +147,7 @@ mod tests {
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),
             SugaredRule::from(&*format!(
+                //
                 "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]",
                 REDERIVATION_PREFIX, OVERDELETION_PREFIX
             )),

@@ -342,6 +342,10 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
             .map(|(_sym, rel)| return rel.ward.len())
             .sum();
     }
+
+    fn dump(&self) {
+        //todo!()
+    }
 }
 
 impl<T: IndexBacking + PartialEq> Queryable for RelationalDatalog<T> {

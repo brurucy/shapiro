@@ -4,7 +4,7 @@ use crate::misc::helpers::{
     idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
 };
 use crate::misc::string_interning::Interner;
-use crate::models::datalog::{Program, SugaredProgram, SugaredRule, Ty};
+use crate::models::datalog::{Program, SugaredProgram, SugaredRule};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{BottomUpEvaluator, Diff, Dynamic, DynamicTyped, EvaluationResult, Materializer, Queryable, RelationDropper, UntypedRow};
 use crate::models::relational_algebra::Row;
@@ -296,6 +296,24 @@ impl Materializer for ChibiDatalog {
             .sum();
 
         return size;
+    }
+
+    fn dump(&self) {
+        // let file = File::create("materialization.nt").unwrap();
+        // let T_id = self.interner.rodeo.get("T").unwrap().into_inner().get();
+        // let mut writer = BufWriter::new(file);
+        //
+        // self
+        //     .fact_store
+        //     .storage
+        //     .get(&T_id)
+        //     .unwrap()
+        //     .iter()
+        //     .for_each(|row| {
+        //         writer.write_all(format!("{} {} {} .\n", row[0], row[1], row[2]).as_ref()).unwrap();
+        //     });
+        //
+        // writer.flush().unwrap();
     }
 }
 
