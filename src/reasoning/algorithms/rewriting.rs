@@ -126,7 +126,8 @@ pub fn evaluate_rule(
     let mut subs_product = vec![(0usize, Substitutions::default())];
     if index {
         for current_atom_id in 0..goals.len() {
-            let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions, Vec<usize>))> = vec![];
+            let mut current_goals_x_subs: Vec<(u32, (usize, Atom, Substitutions, Vec<usize>))> =
+                vec![];
             subs_product = subs_product
                 .into_iter()
                 .filter(|(round, _)| *round == current_atom_id)
@@ -166,9 +167,9 @@ pub fn evaluate_rule(
                 .iter()
                 .map(
                     |(
-                         relation_id,
-                         (current_local_atom_id, rewrite_attempt, subs, terms_that_are_constant),
-                     )| {
+                        relation_id,
+                        (current_local_atom_id, rewrite_attempt, subs, terms_that_are_constant),
+                    )| {
                         return (
                             (relation_id, terms_that_are_constant),
                             (current_local_atom_id, rewrite_attempt, subs),
@@ -207,65 +208,50 @@ pub fn evaluate_rule(
                 })
                 .collect();
 
-            cgs_by_rid_ttac
-                .par_iter()
-                .flat_map(
-                    |(key, (current_local_atom_id, rewrite_attempt, previous_subs))| {
-                        if let Some(odd_index) = index.get(&key) {
-                            let projected_rewrite_attempt: Vec<_> = rewrite_attempt
-                                .terms
-                                .iter()
-                                .filter_map(|term| {
-                                    if let Term::Constant(inner) = term {
-                                        return Some(inner.clone());
-                                    }
-                                    return None;
-                                })
-                                .collect();
+            cgs_by_rid_ttac.iter().for_each(
+                |(key, (current_local_atom_id, rewrite_attempt, previous_subs))| {
+                    if let Some(odd_index) = index.get(&key) {
+                        let projected_rewrite_attempt: Vec<_> = rewrite_attempt
+                            .terms
+                            .iter()
+                            .filter_map(|term| {
+                                if let Term::Constant(inner) = term {
+                                    return Some(inner.clone());
+                                }
+                                return None;
+                            })
+                            .collect();
 
-                            if let Some(target_row_set) = odd_index.get(&projected_rewrite_attempt) {
-                                return Some(target_row_set.iter().map(|ground_fact| {
-                                    let mut local_proposed_atom: Atom = Default::default();
-                                    local_proposed_atom.terms.extend(ground_fact.iter().map(
-                                        |typed_value| {
-                                            return Term::Constant(typed_value.clone());
-                                        },
-                                    ));
-                                    local_proposed_atom.relation_id =
-                                        NonZeroU32::try_from(*key.0).unwrap();
-                                    local_proposed_atom.positive = true;
+                        if let Some(target_row_set) = odd_index.get(&projected_rewrite_attempt) {
+                            target_row_set.iter().for_each(|ground_fact| {
+                                let mut local_proposed_atom: Atom = Default::default();
+                                local_proposed_atom.terms.extend(ground_fact.iter().map(
+                                    |typed_value| {
+                                        return Term::Constant(typed_value.clone());
+                                    },
+                                ));
+                                local_proposed_atom.relation_id =
+                                    NonZeroU32::try_from(*key.0).unwrap();
+                                local_proposed_atom.positive = true;
 
-                                    if let Some(new_subs) = unify(rewrite_attempt, &local_proposed_atom)
-                                    {
-                                        let mut extended_subs = (*previous_subs).clone();
-                                        extended_subs.extend(new_subs);
+                                if let Some(new_subs) = unify(rewrite_attempt, &local_proposed_atom)
+                                {
+                                    let mut extended_subs = (*previous_subs).clone();
+                                    extended_subs.extend(new_subs);
 
-                                        return Some((**current_local_atom_id + 1, extended_subs));
-                                    };
-                                    return None;
-                                }));
-                            };
-                        }
-
-                        return None;
-                    },
-                )
-                .flatten_iter()
-                .collect::<Vec<_>>()
-                .iter()
-                .for_each(|hypothetical_row| {
-                    if let Some(row) = hypothetical_row {
-                        subs_product.push((row.0, row.1.clone()))
+                                    subs_product.push((**current_local_atom_id + 1, extended_subs));
+                                };
+                            });
+                        };
                     }
-                });
+                },
+            );
         }
     } else {
         let borrowed_knowledge_base: Vec<_> = knowledge_base
             .storage
             .iter()
-            .map(|(relation_id, row_set)| {
-                (*relation_id, row_set)
-            })
+            .map(|(relation_id, row_set)| (*relation_id, row_set))
             .collect();
 
         for current_atom_id in 0..goals.len() {

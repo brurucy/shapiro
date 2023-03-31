@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 
+## [0.8.0] - 2022-03-31
+### Added
+- `DifferentialIndexed` - a variant of `Differential` that uses a novel indexing scheme that **seems** to ensure optimal unification 
+- `ChibiIndexed` - the same as above, but for `Chibi`.
+
 ## [0.7.0] - 2022-03-28
 ### Added
 - `DifferentialDatalog` a differential-dataflow-based datalog engine.
@@ -57,7 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skeleton of the project
 - `ChibiDatalog` as the prototypical, simplest-as-possible SLD-based positive datalog
 
-[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/brurucy/shapiro/releases/tag/v0.8.0
 [0.7.0]: https://github.com/brurucy/shapiro/releases/tag/v0.7.0
 [0.6.0]: https://github.com/brurucy/shapiro/releases/tag/v0.6.0
 [0.5.0]: https://github.com/brurucy/shapiro/releases/tag/v0.5.0

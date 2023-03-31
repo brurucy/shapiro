@@ -247,12 +247,16 @@ impl BottomUpEvaluator for ChibiDatalog {
             &programs[0],
             &programs[1],
             &programs[2],
-            self.index
+            self.index,
         ));
         let mut evaluation = self.new_evaluation(im_op);
         if !self.parallel {
-            evaluation.immediate_consequence_operator =
-                Box::new(Rewriting::new(&programs[0], &programs[1], &programs[2], self.index));
+            evaluation.immediate_consequence_operator = Box::new(Rewriting::new(
+                &programs[0],
+                &programs[1],
+                &programs[2],
+                self.index,
+            ));
         }
 
         let now = Instant::now();

@@ -1,6 +1,9 @@
 extern crate core;
 
-use crate::Reasoners::{Chibi, ChibiIndexed, Differential, DifferentialIndexed, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec};
+use crate::Reasoners::{
+    Chibi, ChibiIndexed, Differential, DifferentialIndexed, RelationalBTree, RelationalHashMap,
+    RelationalImmutableVector, RelationalSpine, RelationalVec,
+};
 use clap::{Arg, Command};
 use colored::*;
 use phf::phf_map;
