@@ -5,7 +5,6 @@ use crate::models::datalog::{Atom, Rule, Term};
 use crate::models::instance::{HashSetDatabase, IndexedHashSetBacking};
 use ahash::HashMap;
 use itertools::Itertools;
-use rayon::prelude::*;
 use std::num::NonZeroU32;
 
 pub fn unify(left: &Atom, right: &Atom) -> Option<Substitutions> {

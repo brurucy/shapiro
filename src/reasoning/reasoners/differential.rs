@@ -10,7 +10,7 @@ use differential_dataflow::input::Input;
 use differential_dataflow::lattice::Lattice;
 use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{iterate, Consolidate, Join, JoinCore, Threshold};
-use differential_dataflow::{Collection, Hashable};
+use differential_dataflow::Collection;
 use std::clone::Clone;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
@@ -448,7 +448,7 @@ pub fn reason_with_masked_atoms(
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key()
-                                .join_core(&hashed_facts_by_hashed_masked, |&hashed_masked_atom, left, right| {
+                                .join_core(&hashed_facts_by_hashed_masked, |_hashed_masked_atom, left, right| {
                                     return Some((*right, left.clone()))
                                 })
                                 .arrange_by_key();
