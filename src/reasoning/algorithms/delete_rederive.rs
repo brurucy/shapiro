@@ -95,7 +95,9 @@ pub fn delete_rederive<'a, T>(
 mod tests {
     use crate::models::datalog::{SugaredRule, Ty, TypedValue};
     use crate::models::index::VecIndex;
-    use crate::models::reasoner::{BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable, UntypedRow};
+    use crate::models::reasoner::{
+        BottomUpEvaluator, Dynamic, DynamicTyped, Materializer, Queryable, UntypedRow,
+    };
     use crate::models::relational_algebra::Row;
     use crate::reasoning::algorithms::delete_rederive::{
         delete_rederive, make_alternative_derivation_program, make_overdeletion_program,

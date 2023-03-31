@@ -3,30 +3,34 @@ mod abomonated_vertebra;
 
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, TypedValue};
+use ahash::{AHasher, HashSet};
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use differential_dataflow::algorithms::identifiers::Identifiers;
 use differential_dataflow::input::Input;
 use differential_dataflow::lattice::Lattice;
 use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{iterate, Consolidate, Join, JoinCore, Threshold};
-use differential_dataflow::Collection;
+use differential_dataflow::{Collection, Hashable};
 use std::clone::Clone;
+use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use std::thread;
 use std::time::{Duration, Instant};
-use ahash::HashSet;
 
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, MaskedAtom};
+use crate::reasoning::reasoners::differential::abomonated_model::{
+    abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm,
+    AbomonatedTypedValue, MaskedAtom,
+};
 use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
+use colored::Colorize;
 use timely::communication::allocator::Generic;
 use timely::dataflow::scopes::Child;
 use timely::dataflow::Scope;
 use timely::order::Product;
 use timely::worker::Worker;
-use colored::Colorize;
 
 pub type AtomCollection<'b> = Collection<Child<'b, Worker<Generic>, usize>, AbomonatedAtom>;
 pub type SubstitutionsCollection<'b> =
@@ -41,10 +45,7 @@ pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 pub type NotificationSink = Sender<usize>;
 pub type NotificationSource = Receiver<usize>;
 
-fn unify(
-    left: &AbomonatedAtom,
-    right: &AbomonatedAtom,
-) -> Option<AbomonatedSubstitutions> {
+fn unify(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
     let mut substitution: AbomonatedSubstitutions = Default::default();
 
     let left_and_right = left.2.iter().zip(right.2.iter());
@@ -289,11 +290,6 @@ pub fn reason_arranged_by_relation(
 }
 
 pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<usize>)> {
-    // "{}reach(?x, ?z) <- [{}reach(?x, ?z), reach(?x, ?y), edge(?y, ?z)]"
-    // [
-    //   reach[0],
-    //   edge[0, 1]
-    // ]
     let mut out = vec![];
     let mut variables: HashSet<u8> = Default::default();
     let mut fresh_variables: HashSet<u8> = Default::default();
@@ -302,32 +298,25 @@ pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<
             .2
             .iter()
             .enumerate()
-            .flat_map(|(idx, term)| {
-                match term {
-                    AbomonatedTerm::Variable(inner) => {
-                        if !variables.contains(inner) {
-                            fresh_variables.insert(inner.clone());
-                            None
-                        } else {
-                            Some(idx)
-                        }
-                    }
-                    AbomonatedTerm::Constant(_) => {
+            .flat_map(|(idx, term)| match term {
+                AbomonatedTerm::Variable(inner) => {
+                    if !variables.contains(inner) {
+                        fresh_variables.insert(inner.clone());
+                        None
+                    } else {
                         Some(idx)
                     }
                 }
+                AbomonatedTerm::Constant(_) => Some(idx),
             })
             .collect();
         variables.extend(fresh_variables.iter());
-        //if !(index.len() == 0) {
         out.push((body_atom.0, index));
-        //}
 
         fresh_variables.clear();
-        //out.push(vec![]);
     }
 
-    return out
+    return out;
 }
 
 pub fn reason_with_masked_atoms(
@@ -372,13 +361,13 @@ pub fn reason_with_masked_atoms(
 
                     let unique_column_combinations = rule_collection
                         .flat_map(unique_column_combinations)
-                        .distinct();
+                        .distinct()
+                        .arrange_by_key();
 
                     let facts_by_relation_id = fact_collection
                         .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)));
 
                     let facts_by_masked = unique_column_combinations
-                        .arrange_by_key()
                         .join_core(&facts_by_relation_id.arrange_by_key(), |&key, column_combination, right| {
                             let mut projected_row = vec![None;right.1.len()];
                             if column_combination.len() == 0 {
@@ -402,12 +391,8 @@ pub fn reason_with_masked_atoms(
                             }
                             let masked_projected_row: MaskedAtom = (key, projected_row);
 
-                            Some((masked_projected_row, (key, right.0, right.1.clone())))
+                            Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
                         });
-
-                    // let facts_by_masked_two = facts_by_relation_id
-                    //     .
-
 
                     let indexed_rules = rule_collection.identifiers();
                     let goals = indexed_rules
@@ -435,22 +420,37 @@ pub fn reason_with_masked_atoms(
                             let g = goals.enter(inner);
 
                             let s_old_arr = subs_product_var.arrange_by_key();
-                            let facts = facts_var.distinct();
+                            let facts = facts_var
+                                .map(|(_, atom)| {
+                                    return hashisher((atom.clone(), atom))
+                                });
+
+                            let hashed_facts_by_hashed_masked = facts_var
+                                .map(|(hashed_masked_atom, atom)| {
+                                    let hashished = hashisher((atom, hashed_masked_atom));
+
+                                    return (hashished.1, hashished.0)
+                                })
+                                .arrange_by_key();
+
                             let facts_by_masked_arr = facts.arrange_by_key();
 
                             let goal_x_subs = g
                                 .arrange_by_key()
                                 .join_core(&s_old_arr, |key, goal, sub| {
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
-                                    //if !is_ground(rewrite_attempt) {
-                                    let new_key = (key.clone(), goal.clone(), sub.clone());
-                                    return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())));
-                                    //}
-                                    //return None;
-                                })
-                                .consolidate();
+                                    if !is_ground(rewrite_attempt) {
+                                        let new_key = (key.clone(), goal.clone(), sub.clone());
+                                        return Some(hashisher((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone()))));
+                                    }
+                                    return None
+                                });
 
                             let current_goals = goal_x_subs
+                                .arrange_by_key()
+                                .join_core(&hashed_facts_by_hashed_masked, |&hashed_masked_atom, left, right| {
+                                    return Some((*right, left.clone()))
+                                })
                                 .arrange_by_key();
 
                             let new_substitutions = facts_by_masked_arr
@@ -494,7 +494,8 @@ pub fn reason_with_masked_atoms(
                                     permute_mask(mask(&ground_fact))
                                         .into_iter()
                                         .map(move |masked_atom| (masked_atom, ground_fact.clone()))
-                                });
+                                })
+                                .map(hashisher);
 
                             subs_product_var.set_concat(&new_substitutions);
                             facts_var.set_concat(&groundington).leave()
@@ -557,6 +558,13 @@ pub fn reason_with_masked_atoms(
         },
     )
     .unwrap();
+}
+
+fn hashisher<K: Hash, T>((key, value): (K, T)) -> (u32, T) {
+    let mut hasher = AHasher::default();
+    key.hash(&mut hasher);
+    let hashed_key = hasher.finish();
+    (hashed_key as u32, value)
 }
 
 pub struct DifferentialDatalog {
@@ -622,7 +630,7 @@ fn typed_row_to_abomonated_row(typed_row: Row, interner: &mut Interner) -> Vec<A
 }
 
 impl DifferentialDatalog {
-    pub fn new(parallel: bool, shard_by_relation: bool) -> Self {
+    pub fn new(parallel: bool, index: bool) -> Self {
         let (rule_input_sink, rule_input_source) = unbounded();
         let (fact_input_sink, fact_input_source) = unbounded();
 
@@ -633,7 +641,7 @@ impl DifferentialDatalog {
         let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
-            if shard_by_relation {
+            if !index {
                 reason_arranged_by_relation(
                     cores,
                     parallel,
@@ -805,7 +813,6 @@ impl Materializer for DifferentialDatalog {
             .send((noop_rule, self.epoch, 0))
             .unwrap();
 
-
         let now = Instant::now();
         loop {
             select! {
@@ -841,9 +848,5 @@ impl Materializer for DifferentialDatalog {
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
-    }
-
-    fn dump(&self) {
-        //todo!()
     }
 }

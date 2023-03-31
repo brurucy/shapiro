@@ -1,9 +1,6 @@
 extern crate core;
 
-use crate::Reasoners::{
-    Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap,
-    RelationalImmutableVector, RelationalSpine, RelationalVec,
-};
+use crate::Reasoners::{Chibi, ChibiIndexed, Differential, DifferentialIndexed, RelationalBTree, RelationalHashMap, RelationalImmutableVector, RelationalSpine, RelationalVec};
 use clap::{Arg, Command};
 use colored::*;
 use phf::phf_map;
@@ -19,8 +16,6 @@ use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::time::Instant;
-use shapiro::misc::helpers::terms_to_row;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -208,8 +203,9 @@ impl Parser {
 
 pub enum Reasoners {
     Chibi,
+    ChibiIndexed,
     Differential,
-    DifferentialTabled,
+    DifferentialIndexed,
     RelationalHashMap,
     RelationalBTree,
     RelationalVec,
@@ -221,8 +217,9 @@ impl Display for Reasoners {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Chibi => write!(f, "chibi"),
+            ChibiIndexed => write!(f, "chibi"),
             Differential => write!(f, "differential"),
-            DifferentialTabled => write!(f, "differential-tabled"),
+            DifferentialIndexed => write!(f, "differential-tabled"),
             RelationalHashMap => write!(f, "relational-hashmap"),
             RelationalBTree => write!(f, "relational-btree"),
             RelationalVec => write!(f, "relational-vec"),
@@ -295,8 +292,9 @@ fn main() {
     let specialize: bool = matches.value_of("SPECIALIZE").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
+        "chibi-indexed" => ChibiIndexed,
         "differential" => Differential,
-        "differential-tabled" => DifferentialTabled,
+        "differential-indexed" => DifferentialIndexed,
         "relational-hashmap" => RelationalHashMap,
         "relational-btree" => RelationalBTree,
         "relational-vec" => RelationalVec,
@@ -318,9 +316,10 @@ fn main() {
     };
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
-        Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
-        Differential => Box::new(DifferentialDatalog::new(parallel, true)),
-        DifferentialTabled => Box::new(DifferentialDatalog::new(parallel, false)),
+        Chibi => Box::new(ChibiDatalog::new(parallel, intern, false)),
+        ChibiIndexed => Box::new(ChibiDatalog::new(parallel, intern, true)),
+        Differential => Box::new(DifferentialDatalog::new(parallel, false)),
+        DifferentialIndexed => Box::new(DifferentialDatalog::new(parallel, true)),
         RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
         RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
         RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
@@ -386,19 +385,14 @@ fn main() {
 
     evaluator.materialize(&sugared_program);
     println!("{}", "Initial materialization".purple());
-    //let now = Instant::now();
     evaluator.update(initial_materialization);
-    //println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
     println!("{}", "Positive Update".purple());
     evaluator.update(positive_update);
     println!("triples: {}", evaluator.triple_count());
 
-    evaluator.dump();
-
     println!("{}", "Negative Update".purple());
     evaluator.update(negative_update);
     println!("triples: {}", evaluator.triple_count());
-
 }

@@ -29,7 +29,7 @@ pub struct IncrementalEvaluation<T: Database + Set + Empty> {
 // Evaluation should be different for updates. At the moment it is sub optimal.
 impl<T: Database + Set + Empty> IncrementalEvaluation<T> {
     pub(crate) fn new(
-        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>
+        immediate_consequence_operator: Box<dyn ImmediateConsequenceOperator<T>>,
     ) -> Self {
         return Self {
             immediate_consequence_operator,
@@ -49,9 +49,7 @@ impl<T: Database + Set + Empty> IncrementalEvaluation<T> {
         let mut db = fact_store.union(&pre_delta);
         //println!("{}", "deltaified nonrecursive".blue());
         // let now = Instant::now();
-        let mut delta = self
-            .immediate_consequence_operator
-            .deltaify_idb(&db);
+        let mut delta = self.immediate_consequence_operator.deltaify_idb(&db);
         // println!(
         //     "duration: {}",
         //     now.elapsed().as_millis().to_string().green()
