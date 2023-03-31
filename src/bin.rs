@@ -1,7 +1,7 @@
 extern crate core;
 
 use crate::Reasoners::{
-    Chibi, Differential, DifferentialTabled, RelationalBTree, RelationalHashMap,
+    Chibi, ChibiIndexed, Differential, DifferentialIndexed, RelationalBTree, RelationalHashMap,
     RelationalImmutableVector, RelationalSpine, RelationalVec,
 };
 use clap::{Arg, Command};
@@ -19,8 +19,6 @@ use shapiro::reasoning::reasoners::relational::RelationalDatalog;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::time::Instant;
-use shapiro::misc::helpers::terms_to_row;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
@@ -104,43 +102,6 @@ impl SugaredAtomParser for NTripleParser {
             symbol: "T".to_string(),
             positive: true,
         };
-        // let mut split_line = line.split(' ');
-        //
-        // let digit_one: String = split_line.next().unwrap().to_string();
-        // let mut digit_two: String = split_line.next().unwrap().to_string();
-        // if let Some(alias) = OWL.get(&digit_two) {
-        //     digit_two = alias.to_string();
-        // }
-        // let mut digit_three: String = split_line.next().unwrap().to_string();
-        // if let Some(alias) = OWL.get(&digit_three) {
-        //     digit_three = alias.to_string()
-        // }
-        // let symbol = match &digit_two[..] {
-        //     "rdf:type" => "Type",
-        //     "rdfs:subPropertyOf" => "SubPropertyOf",
-        //     "rdfs:subClassOf" => "SubClassOf",
-        //     "rdfs:domain" => "Domain",
-        //     "rdfs:range" => "Range",
-        //     _ => "Property"
-        // };
-        //
-        // let terms = match symbol {
-        //     "Property" => vec![
-        //         Term::Constant(TypedValue::Str(digit_one)),
-        //         Term::Constant(TypedValue::Str(digit_two)),
-        //         Term::Constant(TypedValue::Str(digit_three)),
-        //     ],
-        //     _ => vec![
-        //         Term::Constant(TypedValue::Str(digit_one)),
-        //         Term::Constant(TypedValue::Str(digit_three)),
-        //     ]
-        // };
-        //
-        // return SugaredAtom {
-        //     terms,
-        //     symbol: symbol.to_string(),
-        //     positive: false,
-        // };
     }
 }
 
@@ -208,8 +169,9 @@ impl Parser {
 
 pub enum Reasoners {
     Chibi,
+    ChibiIndexed,
     Differential,
-    DifferentialTabled,
+    DifferentialIndexed,
     RelationalHashMap,
     RelationalBTree,
     RelationalVec,
@@ -221,8 +183,9 @@ impl Display for Reasoners {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Chibi => write!(f, "chibi"),
+            ChibiIndexed => write!(f, "chibi"),
             Differential => write!(f, "differential"),
-            DifferentialTabled => write!(f, "differential-tabled"),
+            DifferentialIndexed => write!(f, "differential-tabled"),
             RelationalHashMap => write!(f, "relational-hashmap"),
             RelationalBTree => write!(f, "relational-btree"),
             RelationalVec => write!(f, "relational-vec"),
@@ -295,8 +258,9 @@ fn main() {
     let specialize: bool = matches.value_of("SPECIALIZE").unwrap().parse().unwrap();
     let reasoner: Reasoners = match matches.value_of("REASONER").unwrap() {
         "chibi" => Chibi,
+        "chibi-indexed" => ChibiIndexed,
         "differential" => Differential,
-        "differential-tabled" => DifferentialTabled,
+        "differential-indexed" => DifferentialIndexed,
         "relational-hashmap" => RelationalHashMap,
         "relational-btree" => RelationalBTree,
         "relational-vec" => RelationalVec,
@@ -318,9 +282,10 @@ fn main() {
     };
 
     let mut evaluator: Box<dyn Materializer> = match reasoner {
-        Chibi => Box::new(ChibiDatalog::new(parallel, intern)),
-        Differential => Box::new(DifferentialDatalog::new(parallel, true)),
-        DifferentialTabled => Box::new(DifferentialDatalog::new(parallel, false)),
+        Chibi => Box::new(ChibiDatalog::new(parallel, intern, false)),
+        ChibiIndexed => Box::new(ChibiDatalog::new(parallel, intern, true)),
+        Differential => Box::new(DifferentialDatalog::new(parallel, false)),
+        DifferentialIndexed => Box::new(DifferentialDatalog::new(parallel, true)),
         RelationalHashMap => Box::new(RelationalDatalog::<HashMapIndex>::new(parallel, intern)),
         RelationalBTree => Box::new(RelationalDatalog::<BTreeIndex>::new(parallel, intern)),
         RelationalVec => Box::new(RelationalDatalog::<VecIndex>::new(parallel, intern)),
@@ -386,9 +351,7 @@ fn main() {
 
     evaluator.materialize(&sugared_program);
     println!("{}", "Initial materialization".purple());
-    //let now = Instant::now();
     evaluator.update(initial_materialization);
-    //println!("reasoning time - {} ms", now.elapsed().as_millis());
     println!("triples: {}", evaluator.triple_count());
 
     println!("{}", "Positive Update".purple());

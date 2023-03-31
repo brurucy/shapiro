@@ -313,6 +313,7 @@ impl Default for Atom {
 }
 
 impl Atom {
+    #[allow(dead_code)]
     pub(crate) fn from_str_with_interner(str: &str, interner: &mut Interner) -> Self {
         let sugared_atom = parse_sugared_atom(str);
 

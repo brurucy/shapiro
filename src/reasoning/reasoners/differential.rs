@@ -3,6 +3,7 @@ mod abomonated_vertebra;
 
 use crate::misc::string_interning::Interner;
 use crate::models::datalog::{Program, SugaredProgram, TypedValue};
+use ahash::{AHasher, HashSet};
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use differential_dataflow::algorithms::identifiers::Identifiers;
 use differential_dataflow::input::Input;
@@ -11,17 +12,20 @@ use differential_dataflow::operators::arrange::{ArrangeByKey, ArrangeBySelf};
 use differential_dataflow::operators::{iterate, Consolidate, Join, JoinCore, Threshold};
 use differential_dataflow::Collection;
 use std::clone::Clone;
+use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
 use crate::reasoning::reasoners::differential::abomonated_model::{
     abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm,
-    AbomonatedTypedValue,
+    AbomonatedTypedValue, MaskedAtom,
 };
 use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
+use colored::Colorize;
 use timely::communication::allocator::Generic;
 use timely::dataflow::scopes::Child;
 use timely::dataflow::Scope;
@@ -41,10 +45,7 @@ pub type AtomSource = Receiver<(AbomonatedAtom, usize, isize)>;
 pub type NotificationSink = Sender<usize>;
 pub type NotificationSource = Receiver<usize>;
 
-fn make_substitutions(
-    left: &AbomonatedAtom,
-    right: &AbomonatedAtom,
-) -> Option<AbomonatedSubstitutions> {
+fn unify(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubstitutions> {
     let mut substitution: AbomonatedSubstitutions = Default::default();
 
     let left_and_right = left.2.iter().zip(right.2.iter());
@@ -199,7 +200,7 @@ pub fn reason_arranged_by_relation(
 
                                     let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
 
-                                    let sub = make_substitutions(
+                                    let sub = unify(
                                         &rewrite_attempt,
                                         &proposed_atom,
                                     );
@@ -274,16 +275,48 @@ pub fn reason_arranged_by_relation(
 
                     rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                     rule_input_session.flush();
-                    // timeout not needed when channel blocking iterator is used (on both channels!)
                     worker.step_or_park_while(Some(Duration::from_millis(1)), || {
                         fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
 
-                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
+                    if let Err(e) = local_notification_sink.send(fact_epoch.join(&rule_epoch)) {
+                        println!("Warning: {}", e);
+                        break;
+                    };
                 }
             }
         },
     ).unwrap();
+}
+
+pub fn unique_column_combinations(rule: AbomonatedRule) -> Vec<(NonZeroU32, Vec<usize>)> {
+    let mut out = vec![];
+    let mut variables: HashSet<u8> = Default::default();
+    let mut fresh_variables: HashSet<u8> = Default::default();
+    for body_atom in rule.1 {
+        let index: Vec<_> = body_atom
+            .2
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, term)| match term {
+                AbomonatedTerm::Variable(inner) => {
+                    if !variables.contains(inner) {
+                        fresh_variables.insert(inner.clone());
+                        None
+                    } else {
+                        Some(idx)
+                    }
+                }
+                AbomonatedTerm::Constant(_) => Some(idx),
+            })
+            .collect();
+        variables.extend(fresh_variables.iter());
+        out.push((body_atom.0, index));
+
+        fresh_variables.clear();
+    }
+
+    return out;
 }
 
 pub fn reason_with_masked_atoms(
@@ -326,11 +359,39 @@ pub fn reason_with_masked_atoms(
                         .import(local)
                         .as_collection(|x, _y| x.clone());
 
-                    let facts_by_masked = fact_collection
-                        .flat_map(|ground_fact| {
-                            permute_mask(mask(&ground_fact))
-                                .into_iter()
-                                .map(move |masked_atom| (masked_atom, ground_fact.clone()))
+                    let unique_column_combinations = rule_collection
+                        .flat_map(unique_column_combinations)
+                        .distinct()
+                        .arrange_by_key();
+
+                    let facts_by_relation_id = fact_collection
+                        .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)));
+
+                    let facts_by_masked = unique_column_combinations
+                        .join_core(&facts_by_relation_id.arrange_by_key(), |&key, column_combination, right| {
+                            let mut projected_row = vec![None;right.1.len()];
+                            if column_combination.len() == 0 {
+                                right
+                                    .1
+                                    .iter()
+                                    .enumerate()
+                                    .for_each(|(column_position, term)| {
+                                        if let AbomonatedTerm::Constant(inner) = term.clone() {
+                                            projected_row[column_position] = Some(inner)
+                                        }
+                                    })
+                            } else {
+                                column_combination
+                                    .iter()
+                                    .for_each(|column_position| {
+                                        if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                            projected_row[*column_position] = Some(inner)
+                                        }
+                                    });
+                            }
+                            let masked_projected_row: MaskedAtom = (key, projected_row);
+
+                            Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
                         });
 
                     let indexed_rules = rule_collection.identifiers();
@@ -359,7 +420,19 @@ pub fn reason_with_masked_atoms(
                             let g = goals.enter(inner);
 
                             let s_old_arr = subs_product_var.arrange_by_key();
-                            let facts = facts_var.distinct();
+                            let facts = facts_var
+                                .map(|(_, atom)| {
+                                    return hashisher((atom.clone(), atom))
+                                });
+
+                            let hashed_facts_by_hashed_masked = facts_var
+                                .map(|(hashed_masked_atom, atom)| {
+                                    let hashished = hashisher((atom, hashed_masked_atom));
+
+                                    return (hashished.1, hashished.0)
+                                })
+                                .arrange_by_key();
+
                             let facts_by_masked_arr = facts.arrange_by_key();
 
                             let goal_x_subs = g
@@ -368,13 +441,16 @@ pub fn reason_with_masked_atoms(
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
                                     if !is_ground(rewrite_attempt) {
                                         let new_key = (key.clone(), goal.clone(), sub.clone());
-                                        return Some((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone())))
+                                        return Some(hashisher((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone()))));
                                     }
-                                    return None;
-                                })
-                                .consolidate();
+                                    return None
+                                });
 
                             let current_goals = goal_x_subs
+                                .arrange_by_key()
+                                .join_core(&hashed_facts_by_hashed_masked, |_hashed_masked_atom, left, right| {
+                                    return Some((*right, left.clone()))
+                                })
                                 .arrange_by_key();
 
                             let new_substitutions = facts_by_masked_arr
@@ -387,7 +463,7 @@ pub fn reason_with_masked_atoms(
 
                                     let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
 
-                                    let sub = make_substitutions(
+                                    let sub = unify(
                                         &rewrite_attempt,
                                         &proposed_atom,
                                     );
@@ -418,10 +494,11 @@ pub fn reason_with_masked_atoms(
                                     permute_mask(mask(&ground_fact))
                                         .into_iter()
                                         .map(move |masked_atom| (masked_atom, ground_fact.clone()))
-                                });
+                                })
+                                .map(hashisher);
 
-                            subs_product_var.set(&subs_product.enter(inner).concat(&new_substitutions));
-                            facts_var.set(&facts_by_masked.enter(inner).concat(&groundington)).leave()
+                            subs_product_var.set_concat(&new_substitutions);
+                            facts_var.set_concat(&groundington).leave()
                         })
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
@@ -468,17 +545,26 @@ pub fn reason_with_masked_atoms(
 
                     rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                     rule_input_session.flush();
-                    // timeout not needed when channel blocking iterator is used (on both channels!)
                     worker.step_or_park_while(Some(Duration::from_millis(1)), || {
                         fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
 
-                    local_notification_sink.send(fact_epoch.join(&rule_epoch)).unwrap();
+                    if let Err(e) = local_notification_sink.send(fact_epoch.join(&rule_epoch)) {
+                        println!("Warning: {}", e);
+                        break;
+                    };
                 }
             }
         },
     )
     .unwrap();
+}
+
+fn hashisher<K: Hash, T>((key, value): (K, T)) -> (u32, T) {
+    let mut hasher = AHasher::default();
+    key.hash(&mut hasher);
+    let hashed_key = hasher.finish();
+    (hashed_key as u32, value)
 }
 
 pub struct DifferentialDatalog {
@@ -544,7 +630,7 @@ fn typed_row_to_abomonated_row(typed_row: Row, interner: &mut Interner) -> Vec<A
 }
 
 impl DifferentialDatalog {
-    pub fn new(parallel: bool, shard_by_relation: bool) -> Self {
+    pub fn new(parallel: bool, index: bool) -> Self {
         let (rule_input_sink, rule_input_source) = unbounded();
         let (fact_input_sink, fact_input_source) = unbounded();
 
@@ -555,7 +641,7 @@ impl DifferentialDatalog {
         let (notification_sink, notification_source) = unbounded();
 
         let handle = thread::spawn(move || {
-            if shard_by_relation {
+            if !index {
                 reason_arranged_by_relation(
                     cores,
                     parallel,
@@ -727,6 +813,7 @@ impl Materializer for DifferentialDatalog {
             .send((noop_rule, self.epoch, 0))
             .unwrap();
 
+        let now = Instant::now();
         loop {
             select! {
                 recv(self.notification_source) -> last_epoch => {
@@ -739,6 +826,8 @@ impl Materializer for DifferentialDatalog {
                         .for_each(|fresh_intensional_atom| {
                             insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store)
                         });
+
+                        println!("{} {}", "inference time:".green(), now.elapsed().as_millis().to_string().green());
 
                         return;
                     }
