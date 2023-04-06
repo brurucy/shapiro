@@ -76,6 +76,8 @@ fn unify(left: &AbomonatedAtom, right: &AbomonatedAtom) -> Option<AbomonatedSubs
     return Some(substitution);
 }
 
+// [?x -> 1, ?y -> 3], (?x, 3) = (1, 3)
+
 fn attempt_to_rewrite(rewrite: &AbomonatedSubstitutions, atom: &AbomonatedAtom) -> AbomonatedAtom {
     let terms = atom
         .2
@@ -370,17 +372,7 @@ pub fn reason_with_masked_atoms(
                     let facts_by_masked = unique_column_combinations
                         .join_core(&facts_by_relation_id.arrange_by_key(), |&key, column_combination, right| {
                             let mut projected_row = vec![None;right.1.len()];
-                            if column_combination.len() == 0 {
-                                right
-                                    .1
-                                    .iter()
-                                    .enumerate()
-                                    .for_each(|(column_position, term)| {
-                                        if let AbomonatedTerm::Constant(inner) = term.clone() {
-                                            projected_row[column_position] = Some(inner)
-                                        }
-                                    })
-                            } else {
+                            if !(column_combination.len() == 0) {
                                 column_combination
                                     .iter()
                                     .for_each(|column_position| {
@@ -407,7 +399,7 @@ pub fn reason_with_masked_atoms(
                         });
 
                     let heads = indexed_rules
-                        .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.0));
+                        .map(|rule_and_id| (rule_and_id.1, (rule_and_id.0.0, rule_and_id.0.1.len())));
 
                     let subs_product = heads
                         .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
@@ -439,22 +431,19 @@ pub fn reason_with_masked_atoms(
                                 .arrange_by_key()
                                 .join_core(&s_old_arr, |key, goal, sub| {
                                     let rewrite_attempt = &attempt_to_rewrite(sub, goal);
-                                    if !is_ground(rewrite_attempt) {
-                                        let new_key = (key.clone(), goal.clone(), sub.clone());
-                                        return Some(hashisher((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone()))));
-                                    }
-                                    return None
+                                    let new_key = (key.clone(), goal.clone(), sub.clone());
+                                    return Some(hashisher((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone()))));
                                 });
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key()
-                                .join_core(&hashed_facts_by_hashed_masked, |_hashed_masked_atom, left, right| {
-                                    return Some((*right, left.clone()))
+                                .join_core(&hashed_facts_by_hashed_masked, |_hashed_masked_atom, left, hashed_atom| {
+                                    return Some((*hashed_atom, left.clone()))
                                 })
                                 .arrange_by_key();
 
                             let new_substitutions = facts_by_masked_arr
-                                .join_core(&current_goals, |_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, _old_sub)| {
+                                .join_core(&current_goals, |_hashed_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, _old_sub)| {
                                     let ground_terms = ground_fact
                                         .2
                                         .iter()
@@ -486,16 +475,30 @@ pub fn reason_with_masked_atoms(
 
                             let groundington = heads
                                 .enter(inner)
-                                .join(&new_substitutions.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
+                                .map(|(identifier, (head, body_length))| ((identifier, body_length), head))
+                                .join(&new_substitutions)
                                 .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
                                 .filter(|atom| is_ground(atom))
-                                .consolidate()
-                                .flat_map(|ground_fact| {
-                                    permute_mask(mask(&ground_fact))
-                                        .into_iter()
-                                        .map(move |masked_atom| (masked_atom, ground_fact.clone()))
-                                })
-                                .map(hashisher);
+                                .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)))
+                                .consolidate();
+
+                            let groundington = unique_column_combinations
+                                .enter(inner)
+                                .join_core(&groundington.arrange_by_key(), |&key, column_combination, right| {
+                                    let mut projected_row = vec![None;right.1.len()];
+                                    if !(column_combination.len() == 0) {
+                                        column_combination
+                                            .iter()
+                                            .for_each(|column_position| {
+                                                if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                                    projected_row[*column_position] = Some(inner)
+                                                }
+                                            });
+                                    }
+                                    let masked_projected_row: MaskedAtom = (key, projected_row);
+
+                                    Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
+                                });
 
                             subs_product_var.set_concat(&new_substitutions);
                             facts_var.set_concat(&groundington).leave()
