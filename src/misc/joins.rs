@@ -20,6 +20,9 @@ pub fn nested_loop_join<'a, K: 'a, V: 'a, T: 'a, Left: 'a, Right: 'a>(
     })
 }
 
+// TODO when porting this over to multi-way joins, keep in mind the counter trick for round robin
+// Keep counter of how many seeks, in a row, did not advance the shared target key; once counter equals
+// number of indices, they are guaranteed equal.
 pub fn sort_merge_join<'a, K: 'a, V: 'a, Left: 'a, Right: 'a>(
     left_iter: &'a Left,
     right_iter: &'a Right,
