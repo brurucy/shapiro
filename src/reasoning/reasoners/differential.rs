@@ -20,7 +20,10 @@ use std::time::{Duration, Instant};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, MaskedAtom, BorrowingMaskedAtom, borrowing_mask};
+use crate::reasoning::reasoners::differential::abomonated_model::{
+    abomonate_rule, borrowing_mask, mask, permute_mask, AbomonatedAtom, AbomonatedRule,
+    AbomonatedTerm, AbomonatedTypedValue, BorrowingMaskedAtom, MaskedAtom,
+};
 use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
 use colored::Colorize;
 use timely::communication::allocator::Generic;
@@ -328,16 +331,23 @@ pub fn reason_with_masked_atoms(
     notification_sink: NotificationSink,
 ) -> () {
     timely::execute(
-        if parallel { timely::Config::process(cores) } else { timely::Config::thread() },
+        if parallel {
+            timely::Config::process(cores)
+        } else {
+            timely::Config::thread()
+        },
         move |worker: &mut Worker<Generic>| {
             let local_notification_sink = notification_sink.clone();
             let (mut rule_input_session, mut rule_trace, rule_probe) = worker
                 .dataflow_named::<usize, _, _>("rule_ingestion", |local| {
                     let local_rule_output_sink = rule_output_sink.clone();
 
-                    let (rule_input, rule_collection) = local.new_collection::<AbomonatedRule, isize>();
+                    let (rule_input, rule_collection) =
+                        local.new_collection::<AbomonatedRule, isize>();
                     rule_collection.inspect(move |x| {
-                        local_rule_output_sink.send((x.0.clone(), x.1, x.2)).unwrap();
+                        local_rule_output_sink
+                            .send((x.0.clone(), x.1, x.2))
+                            .unwrap();
                     });
 
                     (
@@ -347,16 +357,14 @@ pub fn reason_with_masked_atoms(
                     )
                 });
 
-            let (mut fact_input_session, fact_probe) = worker
-                .dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
+            let (mut fact_input_session, fact_probe) =
+                worker.dataflow_named::<usize, _, _>("fact_ingestion_and_reasoning", |local| {
                     let (fact_input_session, fact_collection) =
                         local.new_collection::<AbomonatedAtom, isize>();
 
                     let local_fact_output_sink = fact_output_sink.clone();
 
-                    let rule_collection = rule_trace
-                        .import(local)
-                        .as_collection(|x, _y| x.clone());
+                    let rule_collection = rule_trace.import(local).as_collection(|x, _y| x.clone());
 
                     // (relation_id, [positions])
                     let unique_column_combinations = rule_collection
@@ -367,141 +375,174 @@ pub fn reason_with_masked_atoms(
                     let facts_by_relation_id = fact_collection
                         .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)));
 
-                    let facts_by_masked = unique_column_combinations
-                        .join_core(&facts_by_relation_id.arrange_by_key(), |&key, column_combination, right| {
-                            let mut projected_row = vec![None;right.1.len()];
+                    let facts_by_masked = unique_column_combinations.join_core(
+                        &facts_by_relation_id.arrange_by_key(),
+                        |&key, column_combination, right| {
+                            let mut projected_row = vec![None; right.1.len()];
                             if !(column_combination.len() == 0) {
-                                column_combination
-                                    .iter()
-                                    .for_each(|column_position| {
-                                        if let AbomonatedTerm::Constant(ref inner) = right.1[*column_position] {
-                                            projected_row[*column_position] = Some(inner)
-                                        }
-                                    });
+                                column_combination.iter().for_each(|column_position| {
+                                    if let AbomonatedTerm::Constant(ref inner) =
+                                        right.1[*column_position]
+                                    {
+                                        projected_row[*column_position] = Some(inner)
+                                    }
+                                });
                             }
                             let masked_projected_row: BorrowingMaskedAtom = (key, projected_row);
 
-                            Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
-                        });
+                            Some(hashisher((
+                                masked_projected_row,
+                                (key, right.0, right.1.clone()),
+                            )))
+                        },
+                    );
 
                     let indexed_rules = rule_collection.identifiers();
-                    let goals = indexed_rules
-                        .flat_map(|(rule, rule_id)| {
-                            rule
-                                .1
-                                .into_iter()
-                                .enumerate()
-                                .map(move |(atom_id, atom)| {
-                                    ((rule_id, atom_id), atom)
-                                })
-                        });
+                    let goals = indexed_rules.flat_map(|(rule, rule_id)| {
+                        rule.1
+                            .into_iter()
+                            .enumerate()
+                            .map(move |(atom_id, atom)| ((rule_id, atom_id), atom))
+                    });
 
                     // (rule_identifier, (abomonated_atom, rule_body_length))
-                    let heads = indexed_rules
-                        .map(|rule_and_id| (rule_and_id.1, (rule_and_id.0.0, rule_and_id.0.1.len())));
+                    let heads = indexed_rules.map(|rule_and_id| {
+                        (rule_and_id.1, (rule_and_id.0 .0, rule_and_id.0 .1.len()))
+                    });
 
                     let heads_x_ucc = heads
-                        .map(|(rule_identifier, (abo_atom, rule_body_length))| (abo_atom.0, (rule_identifier, (abo_atom, rule_body_length))))
-                        .join_core(&unique_column_combinations, |&key, heads_contents, positions| {
-                            Some(((heads_contents.0, heads_contents.1.1), (heads_contents.1.0.clone(), positions.clone())))
-                        });
+                        .map(|(rule_identifier, (abo_atom, rule_body_length))| {
+                            (abo_atom.0, (rule_identifier, (abo_atom, rule_body_length)))
+                        })
+                        .join_core(
+                            &unique_column_combinations,
+                            |&key, heads_contents, positions| {
+                                Some((
+                                    (heads_contents.0, heads_contents.1 .1),
+                                    (heads_contents.1 .0.clone(), positions.clone()),
+                                ))
+                            },
+                        );
 
                     let subs_product = heads
                         .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
 
                     let output = local
                         .iterative::<usize, _, _>(|inner| {
-                            let subs_product_var = iterate::Variable::new_from(subs_product.enter(inner), Product::new(Default::default(), 1));
-                            let facts_var = iterate::Variable::new_from(facts_by_masked.enter(inner), Product::new(Default::default(), 1));
+                            let subs_product_var = iterate::Variable::new_from(
+                                subs_product.enter(inner),
+                                Product::new(Default::default(), 1),
+                            );
+                            let facts_var = iterate::Variable::new_from(
+                                facts_by_masked.enter(inner),
+                                Product::new(Default::default(), 1),
+                            );
 
                             let g = goals.enter(inner);
 
                             let s_old_arr = subs_product_var.arrange_by_key();
-                            let facts = facts_var
-                                .map(|(_, atom)| {
-                                    return hashisher((atom.clone(), atom))
-                                });
+                            let facts =
+                                facts_var.map(|(_, atom)| return hashisher((atom.clone(), atom)));
 
                             let hashed_facts_by_hashed_masked = facts_var
                                 .map(|(hashed_masked_atom, atom)| {
                                     let hashished = hashisher((atom, hashed_masked_atom));
 
-                                    return (hashished.1, hashished.0)
+                                    return (hashished.1, hashished.0);
                                 })
                                 .arrange_by_key();
 
                             let facts_by_masked_arr = facts.arrange_by_key();
 
-                            let goal_x_subs = g
-                                .arrange_by_key()
-                                .join_core(&s_old_arr, |key, goal, sub| {
+                            let goal_x_subs =
+                                g.arrange_by_key().join_core(&s_old_arr, |key, goal, sub| {
                                     let rewrite_attempt = attempt_to_rewrite(sub, goal);
                                     let new_key = (key.clone(), sub.clone());
 
-                                    Some((hashisher((borrowing_mask(&rewrite_attempt), ())).0, (new_key, rewrite_attempt)))
+                                    Some((
+                                        hashisher((borrowing_mask(&rewrite_attempt), ())).0,
+                                        (new_key, rewrite_attempt),
+                                    ))
                                 });
 
                             let current_goals = goal_x_subs
                                 .arrange_by_key()
-                                .join_core(&hashed_facts_by_hashed_masked, |_hashed_masked_atom, left, hashed_atom| {
-                                    return Some((*hashed_atom, left.clone()))
-                                })
+                                .join_core(
+                                    &hashed_facts_by_hashed_masked,
+                                    |_hashed_masked_atom, left, hashed_atom| {
+                                        return Some((*hashed_atom, left.clone()));
+                                    },
+                                )
                                 .arrange_by_key();
 
-                            let new_substitutions = facts_by_masked_arr
-                                .join_core(&current_goals, |_hashed_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt)| {
+                            let new_substitutions = facts_by_masked_arr.join_core(
+                                &current_goals,
+                                |_hashed_masked_atom,
+                                 ground_fact: &AbomonatedAtom,
+                                 (new_key, rewrite_attempt)| {
                                     let ground_terms = ground_fact
                                         .2
                                         .iter()
-                                        .map(|row_element| AbomonatedTerm::Constant(AbomonatedTypedValue::try_from(row_element.clone()).unwrap()))
+                                        .map(|row_element| {
+                                            AbomonatedTerm::Constant(
+                                                AbomonatedTypedValue::try_from(row_element.clone())
+                                                    .unwrap(),
+                                            )
+                                        })
                                         .collect();
 
-                                    let proposed_atom = (rewrite_attempt.0.clone(), rewrite_attempt.1, ground_terms);
-
-                                    let sub = unify(
-                                        &rewrite_attempt,
-                                        &proposed_atom,
+                                    let proposed_atom = (
+                                        rewrite_attempt.0.clone(),
+                                        rewrite_attempt.1,
+                                        ground_terms,
                                     );
 
+                                    let sub = unify(&rewrite_attempt, &proposed_atom);
+
                                     match sub {
-                                        None => {
-                                            None
-                                        }
+                                        None => None,
                                         Some(sub) => {
-                                            let (previous_iter, new) = ((new_key.0, new_key.1.clone()), sub);
+                                            let (previous_iter, new) =
+                                                ((new_key.0, new_key.1.clone()), sub);
                                             let (_iter, previous) = previous_iter;
                                             let mut previous_sub = previous;
                                             let new_sub = new;
                                             previous_sub.inner.extend(&new_sub.inner);
 
-                                            Some(((previous_iter.0.0, previous_iter.0.1 + 1), previous_sub))
+                                            Some((
+                                                (previous_iter.0 .0, previous_iter.0 .1 + 1),
+                                                previous_sub,
+                                            ))
                                         }
                                     }
-                                });
+                                },
+                            );
 
-                            let groundington = heads_x_ucc
-                                .enter(inner)
-                                .join_core(&new_substitutions.arrange_by_key(), |&key, (head_atom, positions), fresh_subs| {
+                            let groundington = heads_x_ucc.enter(inner).join_core(
+                                &new_substitutions.arrange_by_key(),
+                                |&key, (head_atom, positions), fresh_subs| {
                                     let attempt = attempt_to_rewrite(fresh_subs, head_atom);
                                     if !is_ground(&attempt) {
-                                        return None
+                                        return None;
                                     }
 
-                                    let mut projected_row = vec![None;attempt.2.len()];
+                                    let mut projected_row = vec![None; attempt.2.len()];
                                     if !(positions.len() == 0) {
-                                        positions
-                                            .iter()
-                                            .for_each(|column_position| {
-                                                // TODO we will delete the clone
-                                                if let AbomonatedTerm::Constant(inner) = attempt.2[*column_position].clone() {
-                                                    projected_row[*column_position] = Some(inner)
-                                                }
-                                            });
+                                        positions.iter().for_each(|column_position| {
+                                            // TODO we will delete the clone
+                                            if let AbomonatedTerm::Constant(inner) =
+                                                attempt.2[*column_position].clone()
+                                            {
+                                                projected_row[*column_position] = Some(inner)
+                                            }
+                                        });
                                     }
-                                    let masked_projected_row: MaskedAtom = (attempt.0, projected_row);
+                                    let masked_projected_row: MaskedAtom =
+                                        (attempt.0, projected_row);
 
                                     Some(hashisher((masked_projected_row, attempt)))
-                                });
+                                },
+                            );
 
                             subs_product_var.set_concat(&new_substitutions);
                             facts_var.set_concat(&groundington).leave()
@@ -509,11 +550,13 @@ pub fn reason_with_masked_atoms(
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
                             for (atom, time, diff) in xs {
-                                local_fact_output_sink.send((atom.1.clone(), *time, *diff)).unwrap()
+                                local_fact_output_sink
+                                    .send((atom.1.clone(), *time, *diff))
+                                    .unwrap()
                             }
                         });
 
-                        (fact_input_session, output.probe())
+                    (fact_input_session, output.probe())
                 });
             if worker.index() == 0 {
                 let mut fact_input_source = fact_input_source.iter().peekable();
@@ -521,9 +564,7 @@ pub fn reason_with_masked_atoms(
                 let mut fact_epoch = 0;
                 let mut rule_epoch = 0;
                 loop {
-                    while let Some(fact) = rule_input_source.next_if(|cond| {
-                        cond.1 == rule_epoch
-                    }) {
+                    while let Some(fact) = rule_input_source.next_if(|cond| cond.1 == rule_epoch) {
                         rule_input_session.update(fact.0, fact.2);
                     }
 
@@ -535,9 +576,7 @@ pub fn reason_with_masked_atoms(
                     }
                     rule_input_session.flush();
 
-                    while let Some(fact) = fact_input_source.next_if(|cond| {
-                        cond.1 == fact_epoch
-                    }) {
+                    while let Some(fact) = fact_input_source.next_if(|cond| cond.1 == fact_epoch) {
                         fact_input_session.update(fact.0, fact.2);
                     }
 
@@ -552,7 +591,8 @@ pub fn reason_with_masked_atoms(
                     rule_input_session.advance_to(rule_epoch.join(&fact_epoch));
                     rule_input_session.flush();
                     worker.step_or_park_while(Some(Duration::from_millis(1)), || {
-                        fact_probe.less_than(&fact_epoch.join(&rule_epoch)) || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
+                        fact_probe.less_than(&fact_epoch.join(&rule_epoch))
+                            || rule_probe.less_than(&rule_epoch.join(&fact_epoch))
                     });
 
                     if let Err(e) = local_notification_sink.send(fact_epoch.join(&rule_epoch)) {
