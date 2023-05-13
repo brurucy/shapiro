@@ -184,8 +184,7 @@ pub fn deltaify_idb_by_renaming(
     let mut out = fact_store.clone();
     deltaify_idb_program.iter().for_each(|rule| {
         if let Some(relation) = fact_store.storage.get(&(rule.body[0].relation_id.get())) {
-            out.storage
-                .insert(rule.head.relation_id.get(), relation.clone());
+            out.storage.insert(rule.head.relation_id.get(), relation.clone());
         }
     });
 
@@ -285,7 +284,6 @@ impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult {
         let deltaifier = deltaify_idb(program);
         let (nonrecursive, recursive) = make_update_sne_programs(program);
-
         let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
@@ -369,15 +367,14 @@ impl Materializer for ChibiDatalog {
 
         if additions.len() > 0 {
             additions.iter().for_each(|(sym, row)| {
-                self.insert_typed(&format!("{}{}", DELTA_PREFIX, sym), row
-                    .clone());
+                self.insert_typed(&format!("{}{}", DELTA_PREFIX, sym), row.clone());
             });
 
             self.update_materialization();
 
             additions.into_iter().for_each(|(sym, row)| {
+                self.insert_typed(sym, row.clone());
                 self.delete_typed(&format!("{}{}", DELTA_PREFIX, sym), &row);
-                self.insert_typed(sym, row);
             });
         }
     }

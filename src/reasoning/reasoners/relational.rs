@@ -367,15 +367,14 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
 
         if additions.len() > 0 {
             additions.iter().for_each(|(sym, row)| {
-                self.insert_typed(&format!("{}{}", DELTA_PREFIX, sym), row
-                    .clone());
+                self.insert_typed(&format!("{}{}", DELTA_PREFIX, sym), row.clone());
             });
 
             self.update_materialization();
 
             additions.into_iter().for_each(|(sym, row)| {
                 self.delete_typed(&format!("{}{}", DELTA_PREFIX, sym), &row);
-                self.insert_typed(sym, row);
+                self.insert_typed(sym, row.clone());
             });
         }
     }

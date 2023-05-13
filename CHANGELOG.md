@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 
+## [0.10.0] - 2022-05-14
+### Changed
+- `Chibi` and `Relational` now handle improved incremental updates in a much more efficient manner.
+- Article ready.
+
 ## [0.9.0] - 2022-04-06
 ### Changed
 - `DifferentialIndexed` - fixed a correctness issue, where "filtering" predicates were ignored. No performance regressions.
@@ -66,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skeleton of the project
 - `ChibiDatalog` as the prototypical, simplest-as-possible substitution-based positive datalog interpreter
 
-[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/brurucy/shapiro/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/brurucy/shapiro/releases/tag/v0.10.0
 [0.9.0]: https://github.com/brurucy/shapiro/releases/tag/v0.9.0
 [0.8.0]: https://github.com/brurucy/shapiro/releases/tag/v0.8.0
 [0.7.0]: https://github.com/brurucy/shapiro/releases/tag/v0.7.0

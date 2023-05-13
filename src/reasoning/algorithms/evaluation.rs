@@ -1,8 +1,8 @@
 use crate::models::instance::Database;
 
 pub trait ImmediateConsequenceOperator<T>
-where
-    T: Database,
+    where
+        T: Database,
 {
     fn deltaify_idb(&self, _: &T) -> T;
     fn nonrecursive_program(&self, _: &T) -> T;
@@ -34,23 +34,22 @@ impl<T: Database + Set + Empty> IncrementalEvaluation<T> {
         };
     }
     pub fn semi_naive(&mut self, fact_store: &T) {
-        let pre_delta = self
+        let mut immediate_consequence = self
             .immediate_consequence_operator
             .nonrecursive_program(fact_store);
-
-        let mut db = fact_store.union(&pre_delta);
+        let mut db = fact_store.union(&immediate_consequence);
         let mut delta = self.immediate_consequence_operator.deltaify_idb(&db);
+
         loop {
             let db_u_delta = db.union(&delta);
 
-            let pre_delta = self
+            immediate_consequence = self
                 .immediate_consequence_operator
                 .recursive_program(&db_u_delta)
                 .difference(&db);
 
-            db = db.union(&pre_delta);
-            delta = self.immediate_consequence_operator.deltaify_idb(&pre_delta);
-
+            db = db.union(&immediate_consequence);
+            delta = self.immediate_consequence_operator.deltaify_idb(&immediate_consequence);
             if delta.is_empty() {
                 self.output = db.difference(&fact_store);
                 return;
