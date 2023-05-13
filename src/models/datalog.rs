@@ -1,7 +1,7 @@
 use crate::misc::string_interning::Interner;
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 
@@ -24,6 +24,7 @@ impl TryInto<u32> for TypedValue {
     fn try_into(self) -> Result<u32, Self::Error> {
         match self {
             TypedValue::UInt(inner) => Ok(inner),
+            TypedValue::InternedStr(inner) => Ok(inner.get()),
             _ => Err(()),
         }
     }
@@ -152,7 +153,7 @@ impl Display for Term {
 pub type SugaredProgram = Vec<SugaredRule>;
 
 // Used strictly for program transformations
-#[derive(Clone, Ord, PartialOrd, Debug)]
+#[derive(Clone, Ord, PartialOrd)]
 pub struct SugaredAtom {
     pub terms: Vec<Term>,
     pub symbol: String,
@@ -193,6 +194,21 @@ impl From<&str> for SugaredAtom {
 }
 
 impl Display for SugaredAtom {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let terms: String = self
+            .terms
+            .clone()
+            .into_iter()
+            .map(|term| term.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+        let atom_representation: String = format!("({})", terms);
+
+        write!(f, "{}{}", self.symbol, atom_representation)
+    }
+}
+
+impl Debug for SugaredAtom {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let terms: String = self
             .terms

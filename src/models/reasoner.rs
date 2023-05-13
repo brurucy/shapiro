@@ -34,6 +34,8 @@ pub trait Materializer {
     fn update(&mut self, changes: Vec<Diff>);
     // returns the amount of facts currently materialized(possibly extensional and intensional)
     fn triple_count(&self) -> usize;
+    // dump
+    fn dump(&self);
 }
 
 pub trait Queryable {

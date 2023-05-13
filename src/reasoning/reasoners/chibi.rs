@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
 use crate::misc::helpers::{
     idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
 };
@@ -10,7 +12,7 @@ use crate::models::reasoner::{
 };
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::delta_rule_rewrite::{deltaify_idb, make_sne_programs};
+use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs, make_update_sne_programs};
 use crate::reasoning::algorithms::evaluation::{
     ImmediateConsequenceOperator, IncrementalEvaluation,
 };
@@ -19,6 +21,58 @@ use colored::Colorize;
 use lasso::{Key, Spur};
 use rayon::prelude::*;
 use std::time::Instant;
+use phf::phf_map;
+
+static OWL_INV: phf::Map<&'static str, &'static str> = phf_map! {
+    "rdf:type" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+    "rdf:rest" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>",
+    "rdf:first" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>",
+    "rdf:nil" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#nil>",
+    "rdf:Property" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>",
+    "rdfs:subClassOf" => "<http://www.w3.org/2000/01/rdf-schema#subClassOf>",
+    "rdfs:subPropertyOf" => "<http://www.w3.org/2000/01/rdf-schema#subPropertyOf>",
+    "rdfs:domain" => "<http://www.w3.org/2000/01/rdf-schema#domain>",
+    "rdfs:range" => "<http://www.w3.org/2000/01/rdf-schema#range>",
+    "rdfs:comment" => "<http://www.w3.org/2000/01/rdf-schema#comment>",
+    "rdfs:label" => "<http://www.w3.org/2000/01/rdf-schema#label>",
+    "rdfs:Literal" => "<http://www.w3.org/2000/01/rdf-schema#Literal>",
+    "owl:TransitiveProperty" => "<http://www.w3.org/2002/07/owl#TransitiveProperty>",
+    "owl:inverseOf" => "<http://www.w3.org/2002/07/owl#inverseOf>",
+    "owl:Thing" => "<http://www.w3.org/2002/07/owl#Thing>",
+    "owl:maxQualifiedCardinality" => "<http://www.w3.org/2002/07/owl#maxQualifiedCardinality>",
+    "owl:someValuesFrom" => "<http://www.w3.org/2002/07/owl#someValuesFrom>",
+    "owl:equivalentClass" => "<http://www.w3.org/2002/07/owl#equivalentClass>",
+    "owl:intersectionOf" => "<http://www.w3.org/2002/07/owl#intersectionOf>",
+    "owl:members" => "<http://www.w3.org/2002/07/owl#members>",
+    "owl:equivalentProperty" => "<http://www.w3.org/2002/07/owl#equivalentProperty>",
+    "owl:onProperty" => "<http://www.w3.org/2002/07/owl#onProperty>",
+    "owl:propertyChainAxiom" => "<http://www.w3.org/2002/07/owl#propertyChainAxiom>",
+    "owl:disjointWith" => "<http://www.w3.org/2002/07/owl#disjointWith>",
+    "owl:propertyDisjointWith" => "<http://www.w3.org/2002/07/owl#propertyDisjointWith>",
+    "owl:unionOf" => "<http://www.w3.org/2002/07/owl#unionOf>",
+    "owl:hasKey" => "<http://www.w3.org/2002/07/owl#hasKey>",
+    "owl:allValuesFrom" => "<http://www.w3.org/2002/07/owl#allValuesFrom>",
+    "owl:complementOf" => "<http://www.w3.org/2002/07/owl#complementOf>",
+    "owl:onClass" => "<http://www.w3.org/2002/07/owl#onClass>",
+    "owl:distinctMembers" => "<http://www.w3.org/2002/07/owl#distinctMembers>",
+    "owl:FunctionalProperty" => "<http://www.w3.org/2002/07/owl#FunctionalProperty>",
+    "owl:NamedIndividual" => "<http://www.w3.org/2002/07/owl#NamedIndividual>",
+    "owl:ObjectProperty" => "<http://www.w3.org/2002/07/owl#ObjectProperty>",
+    "owl:Class" => "<http://www.w3.org/2002/07/owl#Class>",
+    "owl:AllDisjointClasses" => "<http://www.w3.org/2002/07/owl#AllDisjointClasses>",
+    "owl:Restriction" => "<http://www.w3.org/2002/07/owl#Restriction>",
+    "owl:DatatypeProperty" => "<http://www.w3.org/2002/07/owl#DatatypeProperty>",
+    "owl:Ontology" => "<http://www.w3.org/2002/07/owl#Ontology>",
+    "owl:AsymmetricProperty" => "<http://www.w3.org/2002/07/owl#AsymmetricProperty>",
+    "owl:SymmetricProperty" => "<http://www.w3.org/2002/07/owl#SymmetricProperty>",
+    "owl:IrreflexiveProperty" => "<http://www.w3.org/2002/07/owl#IrreflexiveProperty>",
+    "owl:AllDifferent" => "<http://www.w3.org/2002/07/owl#AllDifferent>",
+    "owl:InverseFunctionalProperty" => "<http://www.w3.org/2002/07/owl#InverseFunctionalProperty>",
+    "owl:sameAs" => "<http://www.w3.org/2002/07/owl#sameAs>",
+    "owl:hasValue" => "<http://www.w3.org/2002/07/owl#hasValue>",
+    "owl:Nothing" => "<http://www.w3.org/2002/07/owl#Nothing>",
+    "owl:oneOf" => "<http://www.w3.org/2002/07/owl#oneOf>",
+};
 
 pub fn evaluate_rules_sequentially(
     program: &Program,
@@ -130,8 +184,7 @@ pub fn deltaify_idb_by_renaming(
     let mut out = fact_store.clone();
     deltaify_idb_program.iter().for_each(|rule| {
         if let Some(relation) = fact_store.storage.get(&(rule.body[0].relation_id.get())) {
-            out.storage
-                .insert(rule.head.relation_id.get(), relation.clone());
+            out.storage.insert(rule.head.relation_id.get(), relation.clone());
         }
     });
 
@@ -230,8 +283,7 @@ impl DynamicTyped for ChibiDatalog {
 impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult {
         let deltaifier = deltaify_idb(program);
-        let (nonrecursive, recursive) = make_sne_programs(program);
-
+        let (nonrecursive, recursive) = make_update_sne_programs(program);
         let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
@@ -314,11 +366,16 @@ impl Materializer for ChibiDatalog {
         }
 
         if additions.len() > 0 {
-            additions.into_iter().for_each(|(sym, row)| {
-                self.insert_typed(sym, row);
+            additions.iter().for_each(|(sym, row)| {
+                self.insert_typed(&format!("{}{}", DELTA_PREFIX, sym), row.clone());
             });
 
             self.update_materialization();
+
+            additions.into_iter().for_each(|(sym, row)| {
+                self.insert_typed(sym, row.clone());
+                self.delete_typed(&format!("{}{}", DELTA_PREFIX, sym), &row);
+            });
         }
     }
 
@@ -329,6 +386,43 @@ impl Materializer for ChibiDatalog {
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
+    }
+
+    fn dump(&self) {
+        let mut file = OpenOptions::new().append(true).create(true).open("mat.nt").unwrap();
+        let mut writer = BufWriter::new(file);
+
+        self
+            .fact_store
+            .storage
+            .iter()
+            .for_each(|(_relation_id, relation)| {
+                relation
+                    .iter()
+                    .for_each(|row| {
+                        let interner = &self.interner;
+
+                        let row0: u32 = row[0].clone().try_into().unwrap();
+                        let row1: u32 = row[1].clone().try_into().unwrap();
+                        let row2: u32 = row[2].clone().try_into().unwrap();
+                        let mut subject = interner.rodeo.resolve(&Spur::try_from_usize(row0 as usize - 1).unwrap());
+                        let mut predicate = interner.rodeo.resolve(&Spur::try_from_usize(row1 as usize - 1).unwrap());
+                        let mut object = interner.rodeo.resolve(&Spur::try_from_usize(row2 as usize - 1).unwrap());
+
+                        if let Some(alias) = OWL_INV.get(&subject) {
+                            subject = alias;
+                        }
+                        if let Some(alias) = OWL_INV.get(&predicate) {
+                            predicate = alias;
+                        }
+                        if let Some(alias) = OWL_INV.get(&object) {
+                            object = alias;
+                        }
+
+                        let spo = format!("{} {} {} .", subject, predicate, object);
+                        writeln!(writer, "{}", spo).unwrap();
+                    })
+            });
     }
 }
 

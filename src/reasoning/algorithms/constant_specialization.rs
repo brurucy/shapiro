@@ -122,14 +122,6 @@ mod tests {
             .into_iter()
             .collect::<HashSet<_>>();
 
-        expected_output_program
-            .iter()
-            .for_each(|rule| println!("{}", rule));
-
-        actual_output_program
-            .iter()
-            .for_each(|rule| println!("{}", rule));
-
         assert_eq!(expected_output_program, actual_output_program)
     }
 }

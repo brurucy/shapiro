@@ -135,8 +135,8 @@ pub fn evaluate_rule(
             nested_loop_join(
                 &vec![goals[current_atom_id]],
                 &subs_product,
-                |current_local_atom_id, left_value, subs| {
-                    let rewrite_attempt = attempt_to_rewrite(subs, left_value);
+                |current_local_atom_id, local_atom, subs| {
+                    let rewrite_attempt = attempt_to_rewrite(subs, local_atom);
                     let terms_that_are_constant = rewrite_attempt
                         .terms
                         .iter()
@@ -150,7 +150,7 @@ pub fn evaluate_rule(
                         })
                         .collect();
                     let current_goal_x_sub = (
-                        left_value.relation_id.get(),
+                        local_atom.relation_id.get(),
                         (
                             *current_local_atom_id,
                             rewrite_attempt,
@@ -169,10 +169,11 @@ pub fn evaluate_rule(
                         relation_id,
                         (current_local_atom_id, rewrite_attempt, subs, terms_that_are_constant),
                     )| {
-                        return (
+                        let out = (
                             (relation_id, terms_that_are_constant),
                             (current_local_atom_id, rewrite_attempt, subs),
                         );
+                        return out;
                     },
                 )
                 .collect();
@@ -180,7 +181,9 @@ pub fn evaluate_rule(
 
             let unique_column_combinations: Vec<_> = cgs_by_rid_ttac
                 .iter()
-                .map(|(key, _)| key)
+                .map(|(key, _)| {
+                    key
+                })
                 .unique()
                 .collect();
 
@@ -239,6 +242,7 @@ pub fn evaluate_rule(
                                     extended_subs.extend(new_subs);
 
                                     subs_product.push((**current_local_atom_id + 1, extended_subs));
+                                } else {
                                 };
                             });
                         };
@@ -292,8 +296,8 @@ pub fn evaluate_rule(
                         if let Some(new_subs) = unify(rewrite_attempt, &proposed_atom) {
                             let mut extended_subs = previous_subs.clone();
                             extended_subs.extend(new_subs);
-
                             subs_product.push((current_local_atom_id + 1, extended_subs));
+                        } else {
                         }
                     })
                 },
