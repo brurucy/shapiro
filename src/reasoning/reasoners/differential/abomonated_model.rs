@@ -97,6 +97,7 @@ impl Into<AbomonatedTypedValue> for AbomonatedTerm {
 
 pub type AbomonatedAtom = (NonZeroU32, bool, Vec<AbomonatedTerm>);
 pub type MaskedAtom = (NonZeroU32, Vec<Option<AbomonatedTypedValue>>);
+pub type BorrowingMaskedAtom<'a> = (NonZeroU32, Vec<Option<&'a AbomonatedTypedValue>>);
 
 pub fn mask(aboatom: &AbomonatedAtom) -> MaskedAtom {
     let sym = aboatom.0;
@@ -106,6 +107,21 @@ pub fn mask(aboatom: &AbomonatedAtom) -> MaskedAtom {
         .iter()
         .map(|term| match term {
             AbomonatedTerm::Constant(inner) => Some(inner.clone()),
+            AbomonatedTerm::Variable(_) => None,
+        })
+        .collect();
+
+    return (sym, out);
+}
+
+pub fn borrowing_mask(aboatom: &AbomonatedAtom) -> BorrowingMaskedAtom {
+    let sym = aboatom.0;
+
+    let out = aboatom
+        .2
+        .iter()
+        .map(|term| match term {
+            AbomonatedTerm::Constant(inner) => Some(inner),
             AbomonatedTerm::Variable(_) => None,
         })
         .collect();

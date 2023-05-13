@@ -7,7 +7,7 @@ use crate::Reasoners::{
 use clap::{Arg, Command};
 use colored::*;
 use phf::phf_map;
-use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -21,95 +21,171 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
-    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" =>"rdf:type",
-    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>" =>"rdf:rest",
-    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>" =>"rdf:first",
-    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#nil>" =>"rdf:nil",
-    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>" =>"rdf:Property",
-    "<http://www.w3.org/2000/01/rdf-schema#subClassOf>" =>"rdfs:subClassOf",
-    "<http://www.w3.org/2000/01/rdf-schema#subPropertyOf>" =>"rdfs:subPropertyOf",
-    "<http://www.w3.org/2000/01/rdf-schema#domain>" =>"rdfs:domain",
-    "<http://www.w3.org/2000/01/rdf-schema#range>" =>"rdfs:range",
-    "<http://www.w3.org/2000/01/rdf-schema#comment>" =>"rdfs:comment",
-    "<http://www.w3.org/2000/01/rdf-schema#label>" =>"rdfs:label",
-    "<http://www.w3.org/2000/01/rdf-schema#Literal>" =>"rdfs:Literal",
-    "<http://www.w3.org/2002/07/owl#TransitiveProperty>" =>"owl:TransitiveProperty",
-    "<http://www.w3.org/2002/07/owl#inverseOf>" =>"owl:inverseOf",
-    "<http://www.w3.org/2002/07/owl#Thing>" =>"owl:Thing",
-    "<http://www.w3.org/2002/07/owl#maxQualifiedCardinality>" =>"owl:maxQualifiedCardinality",
-    "<http://www.w3.org/2002/07/owl#someValuesFrom>" =>"owl:someValuesFrom",
-    "<http://www.w3.org/2002/07/owl#equivalentClass>" =>"owl:equivalentClass",
-    "<http://www.w3.org/2002/07/owl#intersectionOf>" =>"owl:intersectionOf",
-    "<http://www.w3.org/2002/07/owl#members>" =>"owl:members",
-    "<http://www.w3.org/2002/07/owl#equivalentProperty>" =>"owl:equivalentProperty",
-    "<http://www.w3.org/2002/07/owl#onProperty>" =>"owl:onProperty",
-    "<http://www.w3.org/2002/07/owl#propertyChainAxiom>" =>"owl:propertyChainAxiom",
-    "<http://www.w3.org/2002/07/owl#disjointWith>" =>"owl:disjointWith",
-    "<http://www.w3.org/2002/07/owl#propertyDisjointWith>" =>"owl:propertyDisjointWith",
-    "<http://www.w3.org/2002/07/owl#unionOf>" =>"owl:unionOf",
-    "<http://www.w3.org/2002/07/owl#hasKey>" =>"owl:hasKey",
-    "<http://www.w3.org/2002/07/owl#allValuesFrom>" =>"owl:allValuesFrom",
-    "<http://www.w3.org/2002/07/owl#complementOf>" =>"owl:complementOf",
-    "<http://www.w3.org/2002/07/owl#onClass>" =>"owl:onClass",
-    "<http://www.w3.org/2002/07/owl#distinctMembers>" =>"owl:distinctMembers",
-    "<http://www.w3.org/2002/07/owl#FunctionalProperty>" =>"owl:FunctionalProperty",
-    "<http://www.w3.org/2002/07/owl#NamedIndividual>" =>"owl:NamedIndividual",
-    "<http://www.w3.org/2002/07/owl#ObjectProperty>" =>"owl:ObjectProperty",
-    "<http://www.w3.org/2002/07/owl#Class>" =>"owl:Class",
-    "<http://www.w3.org/2002/07/owl#AllDisjointClasses>" =>"owl:AllDisjointClasses",
-    "<http://www.w3.org/2002/07/owl#Restriction>" =>"owl:Restriction",
-    "<http://www.w3.org/2002/07/owl#DatatypeProperty>" =>"owl:DatatypeProperty",
-    "<http://www.w3.org/2002/07/owl#Ontology>" =>"owl:Ontology",
-    "<http://www.w3.org/2002/07/owl#AsymmetricProperty>" =>"owl:AsymmetricProperty",
-    "<http://www.w3.org/2002/07/owl#SymmetricProperty>" =>"owl:SymmetricProperty",
-    "<http://www.w3.org/2002/07/owl#IrreflexiveProperty>" =>"owl:IrreflexiveProperty",
-    "<http://www.w3.org/2002/07/owl#AllDifferent>" =>"owl:AllDifferent",
-    "<http://www.w3.org/2002/07/owl#InverseFunctionalProperty>" =>"owl:InverseFunctionalProperty",
-    "<http://www.w3.org/2002/07/owl#sameAs>" =>"owl:sameAs",
-    "<http://www.w3.org/2002/07/owl#hasValue>" =>"owl:hasValue",
-    "<http://www.w3.org/2002/07/owl#Nothing>" =>"owl:Nothing",
-    "<http://www.w3.org/2002/07/owl#oneOf>" =>"owl:oneOf",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" => "rdf:type",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" => "rdf:rest",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" =>"rdf:first",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil" =>"rdf:nil",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property" =>"rdf:Property",
+    "http://www.w3.org/2000/01/rdf-schema#subClassOf" =>"rdfs:subClassOf",
+    "http://www.w3.org/2000/01/rdf-schema#subPropertyOf" =>"rdfs:subPropertyOf",
+    "http://www.w3.org/2000/01/rdf-schema#domain" =>"rdfs:domain",
+    "http://www.w3.org/2000/01/rdf-schema#range" =>"rdfs:range",
+    "http://www.w3.org/2000/01/rdf-schema#comment" =>"rdfs:comment",
+    "http://www.w3.org/2000/01/rdf-schema#label" =>"rdfs:label",
+    "http://www.w3.org/2000/01/rdf-schema#Literal" =>"rdfs:Literal",
+    "http://www.w3.org/2002/07/owl#TransitiveProperty" =>"owl:TransitiveProperty",
+    "http://www.w3.org/2002/07/owl#inverseOf" =>"owl:inverseOf",
+    "http://www.w3.org/2002/07/owl#Thing" =>"owl:Thing",
+    "http://www.w3.org/2002/07/owl#maxQualifiedCardinality" =>"owl:maxQualifiedCardinality",
+    "http://www.w3.org/2002/07/owl#someValuesFrom" =>"owl:someValuesFrom",
+    "http://www.w3.org/2002/07/owl#equivalentClass" =>"owl:equivalentClass",
+    "http://www.w3.org/2002/07/owl#intersectionOf" =>"owl:intersectionOf",
+    "http://www.w3.org/2002/07/owl#members" =>"owl:members",
+    "http://www.w3.org/2002/07/owl#equivalentProperty" =>"owl:equivalentProperty",
+    "http://www.w3.org/2002/07/owl#onProperty" =>"owl:onProperty",
+    "http://www.w3.org/2002/07/owl#propertyChainAxiom" =>"owl:propertyChainAxiom",
+    "http://www.w3.org/2002/07/owl#disjointWith" =>"owl:disjointWith",
+    "http://www.w3.org/2002/07/owl#propertyDisjointWith" =>"owl:propertyDisjointWith",
+    "http://www.w3.org/2002/07/owl#unionOf" =>"owl:unionOf",
+    "http://www.w3.org/2002/07/owl#hasKey" =>"owl:hasKey",
+    "http://www.w3.org/2002/07/owl#allValuesFrom" =>"owl:allValuesFrom",
+    "http://www.w3.org/2002/07/owl#complementOf" =>"owl:complementOf",
+    "http://www.w3.org/2002/07/owl#onClass" =>"owl:onClass",
+    "http://www.w3.org/2002/07/owl#distinctMembers" =>"owl:distinctMembers",
+    "http://www.w3.org/2002/07/owl#FunctionalProperty" =>"owl:FunctionalProperty",
+    "http://www.w3.org/2002/07/owl#NamedIndividual" =>"owl:NamedIndividual",
+    "http://www.w3.org/2002/07/owl#ObjectProperty" =>"owl:ObjectProperty",
+    "http://www.w3.org/2002/07/owl#Class" =>"owl:Class",
+    "http://www.w3.org/2002/07/owl#AllDisjointClasses" =>"owl:AllDisjointClasses",
+    "http://www.w3.org/2002/07/owl#Restriction" =>"owl:Restriction",
+    "http://www.w3.org/2002/07/owl#DatatypeProperty" =>"owl:DatatypeProperty",
+    "http://www.w3.org/2002/07/owl#Ontology" =>"owl:Ontology",
+    "http://www.w3.org/2002/07/owl#AsymmetricProperty" =>"owl:AsymmetricProperty",
+    "http://www.w3.org/2002/07/owl#SymmetricProperty" =>"owl:SymmetricProperty",
+    "http://www.w3.org/2002/07/owl#IrreflexiveProperty" =>"owl:IrreflexiveProperty",
+    "http://www.w3.org/2002/07/owl#AllDifferent" =>"owl:AllDifferent",
+    "http://www.w3.org/2002/07/owl#InverseFunctionalProperty" =>"owl:InverseFunctionalProperty",
+    "http://www.w3.org/2002/07/owl#sameAs" =>"owl:sameAs",
+    "http://www.w3.org/2002/07/owl#hasValue" =>"owl:hasValue",
+    "http://www.w3.org/2002/07/owl#Nothing" =>"owl:Nothing",
+    "http://www.w3.org/2002/07/owl#oneOf" =>"owl:oneOf",
 };
 
 trait SugaredAtomParser {
-    fn parse_line(&self, line: &str) -> SugaredAtom;
+    fn parse_line(&self, line: &str) -> Option<SugaredAtom>;
 }
 
 pub struct NTripleParser;
 
 impl SugaredAtomParser for NTripleParser {
-    fn parse_line(&self, line: &str) -> SugaredAtom {
-        let mut split_line = line.split(' ');
+    fn parse_line(&self, line: &str) -> Option<SugaredAtom> {
+        let split_line: String = line
+            .replace("<", "")
+            .replace(">", "");
 
-        let digit_one: String = split_line.next().unwrap().to_string();
-        let mut digit_two: String = split_line.next().unwrap().to_string();
-        if let Some(alias) = OWL.get(&digit_two) {
-            digit_two = alias.to_string();
+        let clean_split_line: Vec<_> = split_line
+            .split_whitespace()
+            .filter(|c| !c.is_empty() && !(*c == "."))
+            .collect();
+
+        let mut digit_one = clean_split_line[0].clone();
+        let mut digit_two = clean_split_line[1].clone();
+        let mut digit_three = clean_split_line[2..].join(" ");
+
+        if let Some(alias) = OWL.get(&digit_one) {
+            digit_one = alias;
         }
-        let mut digit_three: String = split_line.next().unwrap().to_string();
+        if let Some(alias) = OWL.get(&digit_two) {
+            digit_two = alias;
+        }
         if let Some(alias) = OWL.get(&digit_three) {
-            digit_three = alias.to_string()
+            digit_three = alias.to_string();
         }
 
         let terms = vec![
-            Term::Constant(TypedValue::Str(digit_one)),
-            Term::Constant(TypedValue::Str(digit_two)),
-            Term::Constant(TypedValue::Str(digit_three)),
+            Term::Constant(TypedValue::Str(digit_one.to_string())),
+            Term::Constant(TypedValue::Str(digit_two.to_string())),
+            Term::Constant(TypedValue::Str(digit_three.to_string())),
         ];
 
-        return SugaredAtom {
+        return Some(SugaredAtom {
             terms,
             symbol: "T".to_string(),
             positive: true,
+        });
+    }
+}
+
+pub struct LUBMTboxSpecificParser;
+
+impl SugaredAtomParser for LUBMTboxSpecificParser {
+    fn parse_line(&self, line: &str) -> Option<SugaredAtom> {
+        let split_line: String = line
+            .replace("<", "")
+            .replace(">", "");
+
+        let clean_split_line: Vec<_> = split_line
+            .split_whitespace()
+            .filter(|c| !c.is_empty() && !(*c == "."))
+            .collect();
+
+        let mut digit_one = clean_split_line[0].clone();
+        let mut digit_two = clean_split_line[1].clone();
+        let mut digit_three = clean_split_line[2..].join(" ");
+
+        if let Some(alias) = OWL.get(&digit_one) {
+            digit_one = alias;
+        }
+        if let Some(alias) = OWL.get(&digit_two) {
+            digit_two = alias;
+        }
+        if let Some(alias) = OWL.get(&digit_three) {
+            digit_three = alias.to_string();
+        }
+
+        let mut atom = Some(SugaredAtom::default());
+        let prefix = "http://www.lehigh.edu/~zhp2/2004/0401/univ-bench.owl#";
+        match digit_two {
+            "rdf:type" => {
+                let mut sym = digit_three.to_string();
+                if let Some(prefix_striped_sym) = sym.strip_prefix(prefix) {
+                    sym = prefix_striped_sym.to_string()
+                }
+
+                atom = Some(SugaredAtom {
+                    terms: vec![Term::Constant(TypedValue::Str(digit_one.to_string()))],
+                    symbol: sym,
+                    positive: true,
+                });
+            }
+            possiblyProperty => {
+                if possiblyProperty.contains(prefix) {
+                    if let Some(property) = possiblyProperty.strip_prefix(prefix) {
+                        atom = Some(SugaredAtom {
+                            terms: vec![Term::Constant(TypedValue::Str(digit_one.to_string())), Term::Constant(TypedValue::Str(digit_three.to_string()))],
+                            symbol: property.to_string(),
+                            positive: true,
+                        });
+                    };
+                } else {
+                    atom = None
+                }
+            }
         };
+
+        return atom
     }
 }
 
 pub struct SpaceSepParser;
 
 impl SugaredAtomParser for SpaceSepParser {
-    fn parse_line(&self, line: &str) -> SugaredAtom {
-        let raw_terms: Vec<&str> = line.split(' ').collect();
+    fn parse_line(&self, line: &str) -> Option<SugaredAtom> {
+        let raw_terms: Vec<&str> = line.split([' ', '\t']).filter(|c| !c.is_empty()).collect();
+
+        if raw_terms.len() == 0 {
+            return None;
+        }
 
         let symbol = raw_terms[raw_terms.len() - 1];
 
@@ -118,11 +194,11 @@ impl SugaredAtomParser for SpaceSepParser {
             .map(|term| Term::Constant(term.to_typed_value()))
             .collect();
 
-        return SugaredAtom {
+        return Some(SugaredAtom {
             terms,
             symbol: symbol.to_string(),
             positive: true,
-        };
+        });
     }
 }
 
@@ -146,7 +222,7 @@ impl Parser {
             Ok(file) => {
                 return file
                     .into_iter()
-                    .map(|line| self.atom_parser.parse_line(&line));
+                    .filter_map(|line| self.atom_parser.parse_line(&line));
             }
             Err(e) => {
                 panic!("{}", e)
@@ -275,6 +351,7 @@ fn main() {
         .unwrap();
     let line_parser: Box<dyn SugaredAtomParser> = match matches.value_of("PARSER").unwrap() {
         "nt" => Box::new(NTripleParser),
+        "lubm" => Box::new(LUBMTboxSpecificParser),
         _ => Box::new(SpaceSepParser),
     };
     let parser = Parser {
@@ -361,4 +438,6 @@ fn main() {
     println!("{}", "Negative Update".purple());
     evaluator.update(negative_update);
     println!("triples: {}", evaluator.triple_count());
+
+    //evaluator.dump();
 }

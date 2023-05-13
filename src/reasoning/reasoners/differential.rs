@@ -20,10 +20,7 @@ use std::time::{Duration, Instant};
 use crate::models::instance::{Database, HashSetDatabase};
 use crate::models::reasoner::{Diff, DynamicTyped, Materializer};
 use crate::models::relational_algebra::Row;
-use crate::reasoning::reasoners::differential::abomonated_model::{
-    abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm,
-    AbomonatedTypedValue, MaskedAtom,
-};
+use crate::reasoning::reasoners::differential::abomonated_model::{abomonate_rule, mask, permute_mask, AbomonatedAtom, AbomonatedRule, AbomonatedTerm, AbomonatedTypedValue, MaskedAtom, BorrowingMaskedAtom, borrowing_mask};
 use crate::reasoning::reasoners::differential::abomonated_vertebra::AbomonatedSubstitutions;
 use colored::Colorize;
 use timely::communication::allocator::Generic;
@@ -361,6 +358,7 @@ pub fn reason_with_masked_atoms(
                         .import(local)
                         .as_collection(|x, _y| x.clone());
 
+                    // (relation_id, [positions])
                     let unique_column_combinations = rule_collection
                         .flat_map(unique_column_combinations)
                         .distinct()
@@ -376,12 +374,12 @@ pub fn reason_with_masked_atoms(
                                 column_combination
                                     .iter()
                                     .for_each(|column_position| {
-                                        if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                        if let AbomonatedTerm::Constant(ref inner) = right.1[*column_position] {
                                             projected_row[*column_position] = Some(inner)
                                         }
                                     });
                             }
-                            let masked_projected_row: MaskedAtom = (key, projected_row);
+                            let masked_projected_row: BorrowingMaskedAtom = (key, projected_row);
 
                             Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
                         });
@@ -398,8 +396,15 @@ pub fn reason_with_masked_atoms(
                                 })
                         });
 
+                    // (rule_identifier, (abomonated_atom, rule_body_length))
                     let heads = indexed_rules
                         .map(|rule_and_id| (rule_and_id.1, (rule_and_id.0.0, rule_and_id.0.1.len())));
+
+                    let heads_x_ucc = heads
+                        .map(|(rule_identifier, (abo_atom, rule_body_length))| (abo_atom.0, (rule_identifier, (abo_atom, rule_body_length))))
+                        .join_core(&unique_column_combinations, |&key, heads_contents, positions| {
+                            Some(((heads_contents.0, heads_contents.1.1), (heads_contents.1.0.clone(), positions.clone())))
+                        });
 
                     let subs_product = heads
                         .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
@@ -430,9 +435,10 @@ pub fn reason_with_masked_atoms(
                             let goal_x_subs = g
                                 .arrange_by_key()
                                 .join_core(&s_old_arr, |key, goal, sub| {
-                                    let rewrite_attempt = &attempt_to_rewrite(sub, goal);
-                                    let new_key = (key.clone(), goal.clone(), sub.clone());
-                                    return Some(hashisher((mask(rewrite_attempt), (new_key, rewrite_attempt.clone(), sub.clone()))));
+                                    let rewrite_attempt = attempt_to_rewrite(sub, goal);
+                                    let new_key = (key.clone(), sub.clone());
+
+                                    Some((hashisher((borrowing_mask(&rewrite_attempt), ())).0, (new_key, rewrite_attempt)))
                                 });
 
                             let current_goals = goal_x_subs
@@ -443,7 +449,7 @@ pub fn reason_with_masked_atoms(
                                 .arrange_by_key();
 
                             let new_substitutions = facts_by_masked_arr
-                                .join_core(&current_goals, |_hashed_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt, _old_sub)| {
+                                .join_core(&current_goals, |_hashed_masked_atom, ground_fact: &AbomonatedAtom, (new_key, rewrite_attempt)| {
                                     let ground_terms = ground_fact
                                         .2
                                         .iter()
@@ -462,7 +468,7 @@ pub fn reason_with_masked_atoms(
                                             None
                                         }
                                         Some(sub) => {
-                                            let (previous_iter, new) = ((new_key.0, new_key.2.clone()), sub);
+                                            let (previous_iter, new) = ((new_key.0, new_key.1.clone()), sub);
                                             let (_iter, previous) = previous_iter;
                                             let mut previous_sub = previous;
                                             let new_sub = new;
@@ -473,31 +479,28 @@ pub fn reason_with_masked_atoms(
                                     }
                                 });
 
-                            let groundington = heads
+                            let groundington = heads_x_ucc
                                 .enter(inner)
-                                .map(|(identifier, (head, body_length))| ((identifier, body_length), head))
-                                .join(&new_substitutions)
-                                .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
-                                .filter(|atom| is_ground(atom))
-                                .map(|(relation_id, sign, terms)| (relation_id, (sign, terms)))
-                                .consolidate();
+                                .join_core(&new_substitutions.arrange_by_key(), |&key, (head_atom, positions), fresh_subs| {
+                                    let attempt = attempt_to_rewrite(fresh_subs, head_atom);
+                                    if !is_ground(&attempt) {
+                                        return None
+                                    }
 
-                            let groundington = unique_column_combinations
-                                .enter(inner)
-                                .join_core(&groundington.arrange_by_key(), |&key, column_combination, right| {
-                                    let mut projected_row = vec![None;right.1.len()];
-                                    if !(column_combination.len() == 0) {
-                                        column_combination
+                                    let mut projected_row = vec![None;attempt.2.len()];
+                                    if !(positions.len() == 0) {
+                                        positions
                                             .iter()
                                             .for_each(|column_position| {
-                                                if let AbomonatedTerm::Constant(inner) = right.1[*column_position].clone() {
+                                                // TODO we will delete the clone
+                                                if let AbomonatedTerm::Constant(inner) = attempt.2[*column_position].clone() {
                                                     projected_row[*column_position] = Some(inner)
                                                 }
                                             });
                                     }
-                                    let masked_projected_row: MaskedAtom = (key, projected_row);
+                                    let masked_projected_row: MaskedAtom = (attempt.0, projected_row);
 
-                                    Some(hashisher((masked_projected_row, (key, right.0, right.1.clone()))))
+                                    Some(hashisher((masked_projected_row, attempt)))
                                 });
 
                             subs_product_var.set_concat(&new_substitutions);
@@ -851,5 +854,9 @@ impl Materializer for DifferentialDatalog {
             .iter()
             .map(|(_sym, rel)| return rel.len())
             .sum();
+    }
+
+    fn dump(&self) {
+        todo!()
     }
 }
