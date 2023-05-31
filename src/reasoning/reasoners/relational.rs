@@ -9,7 +9,9 @@ use crate::models::reasoner::{
 };
 use crate::models::relational_algebra::{RelationalExpression, Row};
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs, make_update_sne_programs};
+use crate::reasoning::algorithms::delta_rule_rewrite::{
+    deltaify_idb, make_sne_programs, make_update_sne_programs, DELTA_PREFIX,
+};
 use crate::reasoning::algorithms::evaluation::{
     ImmediateConsequenceOperator, IncrementalEvaluation,
 };
@@ -196,6 +198,7 @@ where
     parallel: bool,
     intern: bool,
     sugared_program: SugaredProgram,
+    dred: bool,
 }
 
 impl<T> Default for RelationalDatalog<T>
@@ -209,6 +212,7 @@ where
             parallel: true,
             intern: true,
             sugared_program: Default::default(),
+            dred: false,
         }
     }
 }
@@ -291,7 +295,11 @@ impl<T: IndexBacking + PartialEq> DynamicTyped for RelationalDatalog<T> {
 impl<T: IndexBacking + PartialEq> BottomUpEvaluator for RelationalDatalog<T> {
     fn evaluate_program_bottom_up(&mut self, program: &SugaredProgram) -> EvaluationResult {
         let deltaifier = deltaify_idb(program);
-        let (nonrecursive, recursive) = make_update_sne_programs(program);
+        let (nonrecursive, recursive) = if !self.dred {
+            make_update_sne_programs(program)
+        } else {
+            make_sne_programs(program)
+        };
 
         let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
@@ -321,9 +329,9 @@ impl<T: IndexBacking + PartialEq> BottomUpEvaluator for RelationalDatalog<T> {
         let now = Instant::now();
         evaluation.semi_naive(&self.fact_store);
         println!(
-            "{} {}",
-            "inference time:".green(),
-            now.elapsed().as_millis().to_string().green()
+            "{{{}: {}}}",
+            "inferencetime",
+            now.elapsed().as_millis().to_string()
         );
 
         return evaluation.output.storage.into_iter().fold(
@@ -362,7 +370,9 @@ impl<T: IndexBacking + PartialEq> Materializer for RelationalDatalog<T> {
         });
 
         if retractions.len() > 0 {
-            delete_rederive(self, &self.sugared_program.clone(), retractions)
+            self.dred = true;
+            delete_rederive(self, &self.sugared_program.clone(), retractions);
+            self.dred = false;
         }
 
         if additions.len() > 0 {

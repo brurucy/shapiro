@@ -66,7 +66,6 @@ pub fn delete_rederive<'a, T>(
     let rederivation_program = make_alternative_derivation_program(program);
     // Stage 1 - intensional overdeletion
     let overdeletions = instance.evaluate_program_bottom_up(&overdeletion_program);
-
     overdeletions.into_iter().for_each(|(del_sym, row_set)| {
         let sym = del_sym.strip_prefix(OVERDELETION_PREFIX).unwrap();
         row_set.into_iter().for_each(|overdeletion| {
@@ -78,7 +77,6 @@ pub fn delete_rederive<'a, T>(
 
     //Stage 2 - intensional rederivation
     let rederivations = instance.evaluate_program_bottom_up(&rederivation_program);
-
     rederivations.into_iter().for_each(|(alt_sym, row_set)| {
         let sym = alt_sym.strip_prefix(REDERIVATION_PREFIX).unwrap();
         row_set.into_iter().for_each(|row| {

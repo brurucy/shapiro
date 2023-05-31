@@ -873,7 +873,11 @@ impl Materializer for DifferentialDatalog {
                             insert_atom_with_diff(fresh_intensional_atom.0, fresh_intensional_atom.2, &mut self.fact_store)
                         });
 
-                        println!("{} {}", "inference time:".green(), now.elapsed().as_millis().to_string().green());
+                        println!(
+                            "{{{}: {}}}",
+                            "inferencetime",
+                            now.elapsed().as_millis().to_string()
+                        );
 
                         return;
                     }
