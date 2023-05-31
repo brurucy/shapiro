@@ -7,7 +7,7 @@ use crate::Reasoners::{
 use clap::{Arg, Command};
 use colored::*;
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -383,10 +383,10 @@ fn main() {
         }
     };
 
-    println!(
-        "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
-        data_path, program_path, parallel, intern, reasoner, batch_size
-    );
+    // println!(
+    //     "data: {}\nprogram: {}\nparallel: {}\nintern: {}\nreasoner: {}\nbatch_size: {}",
+    //     data_path, program_path, parallel, intern, reasoner, batch_size
+    // );
 
     let mut sugared_program = parser.read_datalog_file(&program_path).collect();
     if specialize {
@@ -427,15 +427,15 @@ fn main() {
     });
 
     evaluator.materialize(&sugared_program);
-    println!("{}", "Initial materialization".purple());
+    //println!("{}", "Initial materialization".purple());
     evaluator.update(initial_materialization);
     println!("triples: {}", evaluator.triple_count());
 
-    println!("{}", "Positive Update".purple());
+    //println!("{}", "Positive Update".purple());
     evaluator.update(positive_update);
     println!("triples: {}", evaluator.triple_count());
 
-    println!("{}", "Negative Update".purple());
+    //println!("{}", "Negative Update".purple());
     evaluator.update(negative_update);
     println!("triples: {}", evaluator.triple_count());
 

@@ -213,6 +213,7 @@ pub struct ChibiDatalog {
     index: bool,
     program: Program,
     sugared_program: SugaredProgram,
+    dred: bool,
 }
 
 impl Default for ChibiDatalog {
@@ -225,6 +226,7 @@ impl Default for ChibiDatalog {
             index: true,
             program: vec![],
             sugared_program: vec![],
+            dred: false,
         }
     }
 }
@@ -283,7 +285,7 @@ impl DynamicTyped for ChibiDatalog {
 impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult {
         let deltaifier = deltaify_idb(program);
-        let (nonrecursive, recursive) = make_update_sne_programs(program);
+        let (nonrecursive, recursive) = if !self.dred { make_update_sne_programs(program) } else { make_sne_programs(program) };
         let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
@@ -314,9 +316,9 @@ impl BottomUpEvaluator for ChibiDatalog {
         let now = Instant::now();
         evaluation.semi_naive(&self.fact_store);
         println!(
-            "{} {}",
-            "inference time:".green(),
-            now.elapsed().as_millis().to_string().green()
+            "{{{}: {}}}",
+            "inferencetime",
+            now.elapsed().as_millis().to_string()
         );
 
         return evaluation.output.storage.into_iter().fold(
@@ -362,7 +364,9 @@ impl Materializer for ChibiDatalog {
         });
 
         if retractions.len() > 0 {
-            delete_rederive(self, &self.sugared_program.clone(), retractions)
+            self.dred = true;
+            delete_rederive(self, &self.sugared_program.clone(), retractions);
+            self.dred = false;
         }
 
         if additions.len() > 0 {
