@@ -7,7 +7,7 @@ use crate::Reasoners::{
 use clap::{Arg, Command};
 use colored::*;
 use phf::phf_map;
-use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };

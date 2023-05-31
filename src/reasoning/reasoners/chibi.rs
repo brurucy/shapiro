@@ -1,5 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Write};
 use crate::misc::helpers::{
     idempotent_intern, idempotent_program_strong_intern, idempotent_program_weak_intern, ty_to_row,
 };
@@ -12,16 +10,20 @@ use crate::models::reasoner::{
 };
 use crate::models::relational_algebra::Row;
 use crate::reasoning::algorithms::delete_rederive::delete_rederive;
-use crate::reasoning::algorithms::delta_rule_rewrite::{DELTA_PREFIX, deltaify_idb, make_sne_programs, make_update_sne_programs};
+use crate::reasoning::algorithms::delta_rule_rewrite::{
+    deltaify_idb, make_sne_programs, make_update_sne_programs, DELTA_PREFIX,
+};
 use crate::reasoning::algorithms::evaluation::{
     ImmediateConsequenceOperator, IncrementalEvaluation,
 };
 use crate::reasoning::algorithms::rewriting::evaluate_rule;
 use colored::Colorize;
 use lasso::{Key, Spur};
-use rayon::prelude::*;
-use std::time::Instant;
 use phf::phf_map;
+use rayon::prelude::*;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::time::Instant;
 
 static OWL_INV: phf::Map<&'static str, &'static str> = phf_map! {
     "rdf:type" => "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
@@ -184,7 +186,8 @@ pub fn deltaify_idb_by_renaming(
     let mut out = fact_store.clone();
     deltaify_idb_program.iter().for_each(|rule| {
         if let Some(relation) = fact_store.storage.get(&(rule.body[0].relation_id.get())) {
-            out.storage.insert(rule.head.relation_id.get(), relation.clone());
+            out.storage
+                .insert(rule.head.relation_id.get(), relation.clone());
         }
     });
 
@@ -285,7 +288,11 @@ impl DynamicTyped for ChibiDatalog {
 impl BottomUpEvaluator for ChibiDatalog {
     fn evaluate_program_bottom_up(&mut self, program: &Vec<SugaredRule>) -> EvaluationResult {
         let deltaifier = deltaify_idb(program);
-        let (nonrecursive, recursive) = if !self.dred { make_update_sne_programs(program) } else { make_sne_programs(program) };
+        let (nonrecursive, recursive) = if !self.dred {
+            make_update_sne_programs(program)
+        } else {
+            make_sne_programs(program)
+        };
         let programs: Vec<_> = [nonrecursive, recursive, deltaifier]
             .into_iter()
             .map(|sugared_program| {
@@ -393,39 +400,46 @@ impl Materializer for ChibiDatalog {
     }
 
     fn dump(&self) {
-        let mut file = OpenOptions::new().append(true).create(true).open("mat.nt").unwrap();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("mat.nt")
+            .unwrap();
         let mut writer = BufWriter::new(file);
 
-        self
-            .fact_store
+        self.fact_store
             .storage
             .iter()
             .for_each(|(_relation_id, relation)| {
-                relation
-                    .iter()
-                    .for_each(|row| {
-                        let interner = &self.interner;
+                relation.iter().for_each(|row| {
+                    let interner = &self.interner;
 
-                        let row0: u32 = row[0].clone().try_into().unwrap();
-                        let row1: u32 = row[1].clone().try_into().unwrap();
-                        let row2: u32 = row[2].clone().try_into().unwrap();
-                        let mut subject = interner.rodeo.resolve(&Spur::try_from_usize(row0 as usize - 1).unwrap());
-                        let mut predicate = interner.rodeo.resolve(&Spur::try_from_usize(row1 as usize - 1).unwrap());
-                        let mut object = interner.rodeo.resolve(&Spur::try_from_usize(row2 as usize - 1).unwrap());
+                    let row0: u32 = row[0].clone().try_into().unwrap();
+                    let row1: u32 = row[1].clone().try_into().unwrap();
+                    let row2: u32 = row[2].clone().try_into().unwrap();
+                    let mut subject = interner
+                        .rodeo
+                        .resolve(&Spur::try_from_usize(row0 as usize - 1).unwrap());
+                    let mut predicate = interner
+                        .rodeo
+                        .resolve(&Spur::try_from_usize(row1 as usize - 1).unwrap());
+                    let mut object = interner
+                        .rodeo
+                        .resolve(&Spur::try_from_usize(row2 as usize - 1).unwrap());
 
-                        if let Some(alias) = OWL_INV.get(&subject) {
-                            subject = alias;
-                        }
-                        if let Some(alias) = OWL_INV.get(&predicate) {
-                            predicate = alias;
-                        }
-                        if let Some(alias) = OWL_INV.get(&object) {
-                            object = alias;
-                        }
+                    if let Some(alias) = OWL_INV.get(&subject) {
+                        subject = alias;
+                    }
+                    if let Some(alias) = OWL_INV.get(&predicate) {
+                        predicate = alias;
+                    }
+                    if let Some(alias) = OWL_INV.get(&object) {
+                        object = alias;
+                    }
 
-                        let spo = format!("{} {} {} .", subject, predicate, object);
-                        writeln!(writer, "{}", spo).unwrap();
-                    })
+                    let spo = format!("{} {} {} .", subject, predicate, object);
+                    writeln!(writer, "{}", spo).unwrap();
+                })
             });
     }
 }
