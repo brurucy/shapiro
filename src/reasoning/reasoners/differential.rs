@@ -548,11 +548,13 @@ pub fn reason_with_masked_atoms(
                             subs_product_var.set_concat(&new_substitutions);
                             facts_var.set_concat(&groundington).leave()
                         })
+                        .map(move |(mask, atom)| {atom})
+                        .concat(&fact_collection)
                         .consolidate()
                         .inspect_batch(move |_t, xs| {
                             for (atom, time, diff) in xs {
                                 local_fact_output_sink
-                                    .send((atom.1.clone(), *time, *diff))
+                                    .send((atom.clone(), *time, *diff))
                                     .unwrap()
                             }
                         });
