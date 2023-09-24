@@ -543,6 +543,7 @@ pub fn reason_with_masked_atoms(
                                     Some(hashisher((masked_projected_row, attempt)))
                                 },
                             );
+                            let groundington = groundington.distinct();
 
                             subs_product_var.set_concat(&new_substitutions);
                             facts_var.set_concat(&groundington).leave()
