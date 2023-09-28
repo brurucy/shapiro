@@ -164,10 +164,10 @@ pub fn reason_arranged_by_relation(
                         });
 
                     let heads = indexed_rules
-                        .map(|rule_and_id| (rule_and_id.1, rule_and_id.0.0));
+                        .map(|rule_and_id| ((rule_and_id.1, rule_and_id.0.1.len()), rule_and_id.0.0));
 
                     let subs_product = heads
-                        .map(|(rule_id, _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
+                        .map(|((rule_id, _rule_body_len), _head)| ((rule_id, 0), AbomonatedSubstitutions::default()));
 
                     let output = local
                         .iterative::<usize, _, _>(|inner| {
@@ -223,7 +223,7 @@ pub fn reason_arranged_by_relation(
 
                             let groundington = heads
                                 .enter(inner)
-                                .join(&new_substitutions.map(|iter_sub| (iter_sub.0.0, iter_sub.1)))
+                                .join(&new_substitutions)
                                 .map(|(_left, (atom, sub))| attempt_to_rewrite(&sub, &atom))
                                 .filter(|atom| is_ground(atom))
                                 .map(|atom| (atom.0, atom))
