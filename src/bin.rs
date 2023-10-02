@@ -348,7 +348,7 @@ fn main() {
         "relational-immutable-vector" => RelationalImmutableVector,
         "relational-spine" => RelationalSpine,
         "ddlog-rules" => DDlogRules,
-        "ddlog-date" => DDlogData,
+        "ddlog-data" => DDlogData,
         other => panic!("unknown reasoner variant: {}", other),
     };
     let batch_size: f64 = matches
@@ -525,7 +525,28 @@ fn main() {
                     }
                 },
                 DDlogData => {
-
+                    println!("start;");
+                    let initial_materialization_len = initial_materialization.len();
+                    for (pos, fact) in initial_materialization.into_iter().enumerate() {
+                        if fact.0 {
+                            print!("insert ");
+                        } else {
+                            print!("delete ");
+                        }
+                        print!("Input{}(", fact.1.0);
+                        for (term_pos, term) in fact.1.1.iter().enumerate() {
+                            print!("\"{}\"", term.to_typed_value().to_string().replace("\"", "\\\"") );
+                            if term_pos < fact.1.1.len()-1 {
+                                print!(", ");
+                            }
+                        }
+                        if pos < initial_materialization_len -1 {
+                            println!("),");
+                        }
+                        else {
+                            println!(");")
+                        }
+                    }
                 },
                 _ => unreachable!()
             }
