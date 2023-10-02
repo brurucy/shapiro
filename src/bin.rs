@@ -457,7 +457,7 @@ fn main() {
                     let input_relations_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.clone(), term.terms.len())) }).collect::<HashSet<_>>();
                     let mut output_relations: Vec<_> = output_relations_set.iter().cloned().collect();
                     let mut input_relations: Vec<_> = input_relations_set.iter().cloned().collect();
-                    let mut both_relations = output_relations_set.intersection(&input_relations_set).cloned().collect::<Vec<_>>();
+                    let mut both_relations = output_relations_set.union(&input_relations_set).cloned().collect::<Vec<_>>();
                     output_relations.sort();
                     input_relations.sort();
                     both_relations.sort();
@@ -466,30 +466,62 @@ fn main() {
                         print!("input relation Input");
                         format_relation(symbol, arity, true);
                         println!();
-                    }
-                    for (symbol, arity) in output_relations.iter()
-                    {
-                        print!("output relation Output");
-                        format_relation(symbol, arity, true);
-                        println!();
-                    }
-                    for (symbol, arity) in both_relations.iter()
-                    {
-                        print!("relation Inner");
-                        format_relation(symbol, arity, true);
-                        println!();
 
                         print!("Inner");
                         format_relation(symbol, arity, false);
                         print!(" :- Input");
                         format_relation(symbol, arity, false);
                         println!(".");
+                    }
+                    for (symbol, arity) in output_relations.iter()
+                    {
+                        print!("output relation Output");
+                        format_relation(symbol, arity, true);
+                        println!();
 
                         print!("Output");
                         format_relation(symbol, arity, false);
                         print!(" :- Inner");
                         format_relation(symbol, arity, false);
                         println!(".");
+                    }
+                    for (symbol, arity) in both_relations.iter()
+                    {
+                        print!("relation Inner");
+                        format_relation(symbol, arity, true);
+                        println!();
+                    }
+                    for rule in sugared_program.iter() {
+                        print!("Inner{}(", rule.head.symbol);
+                        for term in rule.head.terms.iter() {
+                            match term {
+                                Term::Constant(literal) => {
+                                    print!("intern(\"{}\"), ", literal.to_string());
+                                },
+                                Term::Variable(variable) => {
+                                    print!("v{}, ", *variable);
+                                },
+                            }
+                        }
+                        print!(") :- ");
+                        for (pos, atom) in rule.body.iter().enumerate() {
+                            print!("Inner{}(", atom.symbol);
+                            for term in atom.terms.iter() {
+                                match term {
+                                    Term::Constant(literal) => {
+                                        print!("intern(\"{}\"), ", literal.to_string());
+                                    },
+                                    Term::Variable(variable) => {
+                                        print!("v{}, ", *variable);
+                                    },
+                                }
+                            }
+                            if pos < rule.body.len() -1 {
+                                print!("), ");
+                            }else {
+                                println!(").");
+                            }
+                        }
                     }
                 },
                 DDlogData => {
