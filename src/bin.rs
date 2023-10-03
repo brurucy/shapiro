@@ -453,11 +453,11 @@ fn main() {
         None => {
             match reasoner {
                 DDlogRules => {
-                    let output_relations_set = sugared_program.iter().map(|rule| { (rule.head.symbol.clone(), rule.head.terms.len()) }).collect::<HashSet<_>>();
-                    let input_relations_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.clone(), term.terms.len())) }).collect::<HashSet<_>>();
-                    let mut output_relations: Vec<_> = output_relations_set.iter().cloned().collect();
-                    let mut input_relations: Vec<_> = input_relations_set.iter().cloned().collect();
-                    let mut both_relations = output_relations_set.union(&input_relations_set).cloned().collect::<Vec<_>>();
+                    let output_relations_set = sugared_program.iter().map(|rule| { (rule.head.symbol.as_str(), rule.head.terms.len()) }).collect::<HashSet<_>>();
+                    let input_relations_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.as_str(), term.terms.len())) }).collect::<HashSet<_>>();
+                    let mut output_relations: Vec<_> = output_relations_set.iter().collect();
+                    let mut input_relations: Vec<_> = input_relations_set.iter().collect();
+                    let mut both_relations = output_relations_set.union(&input_relations_set).collect::<Vec<_>>();
                     output_relations.sort();
                     input_relations.sort();
                     both_relations.sort();
@@ -525,28 +525,55 @@ fn main() {
                     }
                 },
                 DDlogData => {
-                    println!("start;");
-                    let initial_materialization_len = initial_materialization.len();
-                    for (pos, fact) in initial_materialization.into_iter().enumerate() {
-                        if fact.0 {
-                            print!("insert ");
-                        } else {
-                            print!("delete ");
-                        }
-                        print!("Input{}(", fact.1.0);
-                        for (term_pos, term) in fact.1.1.iter().enumerate() {
-                            print!("\"{}\"", term.to_typed_value().to_string().replace("\"", "\\\"") );
-                            if term_pos < fact.1.1.len()-1 {
-                                print!(", ");
+                    let input_relations_symbols_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.as_str())) }).collect::<HashSet<_>>();
+
+                    // Remove facts that no rule consumes, as we haven't declared them we can't suddenly feed them
+                    initial_materialization = initial_materialization.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+                    positive_update = positive_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+                    negative_update = negative_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+
+                    fn emit_facts(facts: &Vec<Diff>) {
+                        let facts_len = facts.len();
+                        for (pos, fact) in facts.into_iter().enumerate() {
+                            if fact.0 {
+                                print!("insert ");
+                            } else {
+                                print!("delete ");
+                            }
+                            print!("Input{}(", fact.1.0);
+                            for (term_pos, term) in fact.1.1.iter().enumerate() {
+                                print!("\"{}\"", term.to_typed_value().to_string().replace("\"", "\\\""));
+                                if term_pos < fact.1.1.len() - 1 {
+                                    print!(", ");
+                                }
+                            }
+                            if pos < facts_len - 1 {
+                                println!("),");
+                            } else {
+                                println!(");")
                             }
                         }
-                        if pos < initial_materialization_len -1 {
-                            println!("),");
-                        }
-                        else {
-                            println!(");")
-                        }
                     }
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&initial_materialization);
+                    println!("commit;");
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&positive_update);
+                    println!("commit;");
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&negative_update);
+                    println!("commit;");
+
+                    println!("timestamp;");
                 },
                 _ => unreachable!()
             }
@@ -554,7 +581,7 @@ fn main() {
     }
 }
 
-fn format_relation(symbol: &String, arity: &usize, do_type: bool) {
+fn format_relation(symbol: &str, arity: &usize, do_type: bool) {
     print!("{}(", symbol);
     if *arity > 0 {
         for i in 0..(arity - 1) {
