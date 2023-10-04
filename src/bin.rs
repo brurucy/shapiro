@@ -5,9 +5,9 @@ use crate::Reasoners::{
     RelationalImmutableVector, RelationalSpine, RelationalVec, DDlogData, DDlogRules, SouffleData, SouffleRules,
 };
 use clap::{Arg, Command};
-use colored::*;
+use std::io::Write;
 use phf::phf_map;
-use shapiro::models::datalog::{Atom, SugaredAtom, SugaredRule, Term, Ty, TypedValue};
+use shapiro::models::datalog::{SugaredAtom, SugaredRule, Term, Ty, TypedValue};
 use shapiro::models::index::{
     BTreeIndex, HashMapIndex, ImmutableVectorIndex, SpineIndex, VecIndex,
 };
@@ -594,69 +594,77 @@ fn main() {
                     output_relations.sort();
                     input_relations.sort();
                     both_relations.sort();
+                    for (symbol, arity) in both_relations.iter()
+                    {
+                        print!(".decl Inner");
+                        format_relation_souffle(symbol, arity, true);
+                        println!();
+                    }
                     for (symbol, arity) in input_relations.iter()
                     {
                         print!(".decl Input");
-                        format_relation_ddlog(symbol, arity, true);
+                        format_relation_souffle(symbol, arity, true);
                         println!();
 
-                        println!(".input Input{} (IO=file, rfc4180=true).", symbol);
+                        println!(".input Input{} (IO=file, rfc4180=true)", symbol);
 
                         print!("Inner");
-                        format_relation_ddlog(symbol, arity, false);
+                        format_relation_souffle(symbol, arity, false);
                         print!(" :- Input");
-                        format_relation_ddlog(symbol, arity, false);
+                        format_relation_souffle(symbol, arity, false);
                         println!(".");
                     }
                     for (symbol, arity) in output_relations.iter()
                     {
                         print!(".decl Output");
-                        format_relation_ddlog(symbol, arity, true);
+                        format_relation_souffle(symbol, arity, true);
                         println!();
 
                         //println!(".output Output{} (rfc4180=true).", symbol);
                         println!(".printsize Output{}", symbol);
 
                         print!("Output");
-                        format_relation_ddlog(symbol, arity, false);
+                        format_relation_souffle(symbol, arity, false);
                         print!(" :- Inner");
-                        format_relation_ddlog(symbol, arity, false);
+                        format_relation_souffle(symbol, arity, false);
                         println!(".");
-                    }
-                    for (symbol, arity) in both_relations.iter()
-                    {
-                        print!("relation Inner");
-                        format_relation_ddlog(symbol, arity, true);
-                        println!();
                     }
                     for rule in sugared_program.iter() {
                         print!("Inner{}(", rule.head.symbol);
-                        for term in rule.head.terms.iter() {
+                        for (term_pos, term) in rule.head.terms.iter().enumerate() {
                             match term {
                                 Term::Constant(literal) => {
-                                    print!("intern(\"{}\"), ", literal.to_string());
+                                    print!("\"{}\"", literal.to_string());
                                 },
                                 Term::Variable(variable) => {
-                                    print!("v{}, ", *variable);
+                                    print!("v{}", *variable);
                                 },
+                            }
+
+                            if term_pos < rule.head.terms.len() - 1 {
+                                print!(", ");
                             }
                         }
                         print!(") :- ");
                         for (pos, atom) in rule.body.iter().enumerate() {
                             print!("Inner{}(", atom.symbol);
-                            for term in atom.terms.iter() {
+                            for (term_pos, term) in atom.terms.iter().enumerate() {
                                 match term {
                                     Term::Constant(literal) => {
-                                        print!("intern(\"{}\"), ", literal.to_string());
+                                        print!("\"{}\"", literal.to_string());
                                     },
                                     Term::Variable(variable) => {
-                                        print!("v{}, ", *variable);
+                                        print!("v{}", *variable);
                                     },
+                                }
+
+                                if term_pos < atom.terms.len() - 1 {
+                                    print!(", ");
                                 }
                             }
                             if pos < rule.body.len() -1 {
                                 print!("), ");
-                            }else {
+                            } else {
                                 println!(").");
                             }
                         }
@@ -666,50 +674,38 @@ fn main() {
                     let input_relations_symbols_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.as_str())) }).collect::<HashSet<_>>();
 
                     // Remove facts that no rule consumes, as we haven't declared them we can't suddenly feed them
-                    initial_materialization = initial_materialization.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
-                    positive_update = positive_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
-                    negative_update = negative_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
-                    let mut dp: Path = (data_path + "_" + batch_size_str).into();
-                    files = input_relations_symbols_set.into_iter().map(|symbol| (symbol, File::create(dp.join(format!("Input{}.facts", symbol).into())))).collect::<HashMap<_, _>>();
+                    initial_materialization = initial_materialization
+                        .into_iter()
+                        .filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym))
+                        .collect();
+                    let dir = data_path.strip_suffix(".nt").unwrap();
+                    let dp_yeah = (dir.to_owned() + "_" + batch_size_str).replace(".", "_");
+                    let dp = Path::new(&dp_yeah);
+                    let mut files = input_relations_symbols_set
+                        .into_iter()
+                        .map(|symbol| (symbol, File::create(dp.join(Path::new(&format!("Input{}.facts", symbol).to_string()))).unwrap()))
+                            .collect::<HashMap<_, _>>();
 
-                    fn emit_facts(facts: &Vec<Diff>) {
-                        let facts_len = facts.len();
-                        for (pos, fact) in facts.into_iter().enumerate() {
+                    fn emit_facts (facts: &Vec<Diff>, files: &mut HashMap<&str, File>) {
+                        for fact in facts {
+                            let mut file = files.get_mut(fact.1.0).unwrap();
+
                             if fact.0 {
-                                print!("");
-                            } else {
-                                //print!("delete ");
+                                write!(&mut file, "").expect("Failed to write to file");
                             }
-                            let file = files.get_mut(facts.1.0);
-                                //print!("Input{}(", fact.1.0);
-                            for (term_pos, term) in fact.1.1.iter().enumerate() {
-                                write!()("\"{}\"", term.to_typed_value().to_string().replace("\"", "\"\""));
-                                if term_pos < fact.1.1.len() - 1 {
-                                    write!()(",");
+
+                            for (i, term) in fact.1.1.iter().enumerate() {
+                                if i > 0 {
+                                    write!(&mut file, ",").expect("Failed to write to file");
                                 }
+                                write!(&mut file, "\"{}\"", term.to_typed_value().to_string().replace("\"", "\"\"")).expect("Failed to write to file");
                             }
+
+                            write!(&mut file, "\n").unwrap()
                         }
                     }
 
-                    println!("timestamp;");
-
-                    println!("start;");
-                    emit_facts(&initial_materialization);
-                    println!("commit;");
-
-                    println!("timestamp;");
-
-                    println!("start;");
-                    emit_facts(&positive_update);
-                    println!("commit;");
-
-                    println!("timestamp;");
-
-                    println!("start;");
-                    emit_facts(&negative_update);
-                    println!("commit;");
-
-                    println!("timestamp;");
+                    emit_facts(&initial_materialization, &mut files);
                 },
                 _ => unreachable!()
             }
