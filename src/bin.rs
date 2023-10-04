@@ -678,12 +678,15 @@ fn main() {
                         .into_iter()
                         .filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym))
                         .collect();
-                    let dir = data_path.strip_suffix(".nt").unwrap();
-                    let dp_yeah = (dir.to_owned() + "_" + batch_size_str).replace(".", "_");
+
+                    let dp_yeah = (data_path.to_owned() + "_" + batch_size_str);
                     let dp = Path::new(&dp_yeah);
+                    std::fs::create_dir(dp).unwrap();
                     let mut files = input_relations_symbols_set
                         .into_iter()
-                        .map(|symbol| (symbol, File::create(dp.join(Path::new(&format!("Input{}.facts", symbol).to_string()))).unwrap()))
+                        .map(|symbol| {
+                            (symbol, File::create(dp.join(Path::new(&format!("Input{}.facts", symbol).to_string()))).unwrap())
+                        })
                             .collect::<HashMap<_, _>>();
 
                     fn emit_facts (facts: &Vec<Diff>, files: &mut HashMap<&str, File>) {
