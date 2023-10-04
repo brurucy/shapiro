@@ -2,7 +2,7 @@ extern crate core;
 
 use crate::Reasoners::{
     Chibi, ChibiIndexed, Differential, DifferentialIndexed, RelationalBTree, RelationalHashMap,
-    RelationalImmutableVector, RelationalSpine, RelationalVec, DDlogData, DDlogRules,
+    RelationalImmutableVector, RelationalSpine, RelationalVec, DDlogData, DDlogRules, SouffleData, SouffleRules,
 };
 use clap::{Arg, Command};
 use colored::*;
@@ -16,10 +16,11 @@ use shapiro::reasoning::algorithms::constant_specialization::specialize_to_const
 use shapiro::reasoning::reasoners::chibi::ChibiDatalog;
 use shapiro::reasoning::reasoners::differential::DifferentialDatalog;
 use shapiro::reasoning::reasoners::relational::RelationalDatalog;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 static OWL: phf::Map<&'static str, &'static str> = phf_map! {
     "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" => "rdf:type",
@@ -256,6 +257,8 @@ pub enum Reasoners {
     RelationalSpine,
     DDlogRules,
     DDlogData,
+    SouffleRules,
+    SouffleData,
 }
 
 impl Display for Reasoners {
@@ -272,6 +275,8 @@ impl Display for Reasoners {
             RelationalSpine => write!(f, "relational-spine"),
             DDlogRules => write!(f, "ddlog-rules"),
             DDlogData => write!(f, "ddlog-data"),
+            SouffleRules=> write!(f, "souffle-rules" ),
+            SouffleData=> write!(f, "souffle-data"),
         }
     }
 }
@@ -349,12 +354,17 @@ fn main() {
         "relational-spine" => RelationalSpine,
         "ddlog-rules" => DDlogRules,
         "ddlog-data" => DDlogData,
+        "souffle-rules" => SouffleRules,
+        "souffle-data" => SouffleData,
         other => panic!("unknown reasoner variant: {}", other),
     };
     let batch_size: f64 = matches
         .value_of("BATCH_SIZE")
         .unwrap()
         .parse::<f64>()
+        .unwrap();
+    let batch_size_str: &str = matches
+        .value_of("BATCH_SIZE")
         .unwrap();
     let line_parser: Box<dyn SugaredAtomParser> = match matches.value_of("PARSER").unwrap() {
         "nt" => Box::new(NTripleParser),
@@ -464,31 +474,31 @@ fn main() {
                     for (symbol, arity) in input_relations.iter()
                     {
                         print!("input relation Input");
-                        format_relation(symbol, arity, true);
+                        format_relation_ddlog(symbol, arity, true);
                         println!();
 
                         print!("Inner");
-                        format_relation(symbol, arity, false);
+                        format_relation_ddlog(symbol, arity, false);
                         print!(" :- Input");
-                        format_relation(symbol, arity, false);
+                        format_relation_ddlog(symbol, arity, false);
                         println!(".");
                     }
                     for (symbol, arity) in output_relations.iter()
                     {
                         print!("output relation Output");
-                        format_relation(symbol, arity, true);
+                        format_relation_ddlog(symbol, arity, true);
                         println!();
 
                         print!("Output");
-                        format_relation(symbol, arity, false);
+                        format_relation_ddlog(symbol, arity, false);
                         print!(" :- Inner");
-                        format_relation(symbol, arity, false);
+                        format_relation_ddlog(symbol, arity, false);
                         println!(".");
                     }
                     for (symbol, arity) in both_relations.iter()
                     {
                         print!("relation Inner");
-                        format_relation(symbol, arity, true);
+                        format_relation_ddlog(symbol, arity, true);
                         println!();
                     }
                     for rule in sugared_program.iter() {
@@ -575,13 +585,139 @@ fn main() {
 
                     println!("timestamp;");
                 },
+                SouffleRules => {
+                    let output_relations_set = sugared_program.iter().map(|rule| { (rule.head.symbol.as_str(), rule.head.terms.len()) }).collect::<HashSet<_>>();
+                    let input_relations_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.as_str(), term.terms.len())) }).collect::<HashSet<_>>();
+                    let mut output_relations: Vec<_> = output_relations_set.iter().collect();
+                    let mut input_relations: Vec<_> = input_relations_set.iter().collect();
+                    let mut both_relations = output_relations_set.union(&input_relations_set).collect::<Vec<_>>();
+                    output_relations.sort();
+                    input_relations.sort();
+                    both_relations.sort();
+                    for (symbol, arity) in input_relations.iter()
+                    {
+                        print!(".decl Input");
+                        format_relation_ddlog(symbol, arity, true);
+                        println!();
+
+                        println!(".input Input{} (IO=file, rfc4180=true).", symbol);
+
+                        print!("Inner");
+                        format_relation_ddlog(symbol, arity, false);
+                        print!(" :- Input");
+                        format_relation_ddlog(symbol, arity, false);
+                        println!(".");
+                    }
+                    for (symbol, arity) in output_relations.iter()
+                    {
+                        print!(".decl Output");
+                        format_relation_ddlog(symbol, arity, true);
+                        println!();
+
+                        //println!(".output Output{} (rfc4180=true).", symbol);
+                        println!(".printsize Output{}", symbol);
+
+                        print!("Output");
+                        format_relation_ddlog(symbol, arity, false);
+                        print!(" :- Inner");
+                        format_relation_ddlog(symbol, arity, false);
+                        println!(".");
+                    }
+                    for (symbol, arity) in both_relations.iter()
+                    {
+                        print!("relation Inner");
+                        format_relation_ddlog(symbol, arity, true);
+                        println!();
+                    }
+                    for rule in sugared_program.iter() {
+                        print!("Inner{}(", rule.head.symbol);
+                        for term in rule.head.terms.iter() {
+                            match term {
+                                Term::Constant(literal) => {
+                                    print!("intern(\"{}\"), ", literal.to_string());
+                                },
+                                Term::Variable(variable) => {
+                                    print!("v{}, ", *variable);
+                                },
+                            }
+                        }
+                        print!(") :- ");
+                        for (pos, atom) in rule.body.iter().enumerate() {
+                            print!("Inner{}(", atom.symbol);
+                            for term in atom.terms.iter() {
+                                match term {
+                                    Term::Constant(literal) => {
+                                        print!("intern(\"{}\"), ", literal.to_string());
+                                    },
+                                    Term::Variable(variable) => {
+                                        print!("v{}, ", *variable);
+                                    },
+                                }
+                            }
+                            if pos < rule.body.len() -1 {
+                                print!("), ");
+                            }else {
+                                println!(").");
+                            }
+                        }
+                    }
+                },
+                SouffleData => {
+                    let input_relations_symbols_set = sugared_program.iter().flat_map(|rule| { rule.body.iter().map(|term| (term.symbol.as_str())) }).collect::<HashSet<_>>();
+
+                    // Remove facts that no rule consumes, as we haven't declared them we can't suddenly feed them
+                    initial_materialization = initial_materialization.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+                    positive_update = positive_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+                    negative_update = negative_update.into_iter().filter(|(_positive, (sym, _terms))| input_relations_symbols_set.contains(sym)).collect();
+                    let mut dp: Path = (data_path + "_" + batch_size_str).into();
+                    files = input_relations_symbols_set.into_iter().map(|symbol| (symbol, File::create(dp.join(format!("Input{}.facts", symbol).into())))).collect::<HashMap<_, _>>();
+
+                    fn emit_facts(facts: &Vec<Diff>) {
+                        let facts_len = facts.len();
+                        for (pos, fact) in facts.into_iter().enumerate() {
+                            if fact.0 {
+                                print!("");
+                            } else {
+                                //print!("delete ");
+                            }
+                            let file = files.get_mut(facts.1.0);
+                                //print!("Input{}(", fact.1.0);
+                            for (term_pos, term) in fact.1.1.iter().enumerate() {
+                                write!()("\"{}\"", term.to_typed_value().to_string().replace("\"", "\"\""));
+                                if term_pos < fact.1.1.len() - 1 {
+                                    write!()(",");
+                                }
+                            }
+                        }
+                    }
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&initial_materialization);
+                    println!("commit;");
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&positive_update);
+                    println!("commit;");
+
+                    println!("timestamp;");
+
+                    println!("start;");
+                    emit_facts(&negative_update);
+                    println!("commit;");
+
+                    println!("timestamp;");
+                },
                 _ => unreachable!()
             }
         }
     }
 }
 
-fn format_relation(symbol: &str, arity: &usize, do_type: bool) {
+fn format_relation_ddlog(symbol: &str, arity: &usize, do_type: bool) {
     print!("{}(", symbol);
     if *arity > 0 {
         for i in 0..(arity - 1) {
@@ -594,6 +730,27 @@ fn format_relation(symbol: &str, arity: &usize, do_type: bool) {
         }
         if do_type {
             print!("a{}: istring", (arity-1));
+        }
+        else {
+            print!("a{}", (arity-1));
+        }
+    }
+    print!(")");
+}
+
+fn format_relation_souffle(symbol: &str, arity: &usize, do_type: bool) {
+    print!("{}(", symbol);
+    if *arity > 0 {
+        for i in 0..(arity - 1) {
+            if do_type {
+                print!("a{}: symbol, ", i);
+            }
+            else {
+                print!("a{}, ", i);
+            }
+        }
+        if do_type {
+            print!("a{}: symbol", (arity-1));
         }
         else {
             print!("a{}", (arity-1));
